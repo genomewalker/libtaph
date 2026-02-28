@@ -67,23 +67,14 @@ public:
     static constexpr double PI_MIN = 1e-6;
     static constexpr float BASELINE_SHRINKAGE_ALPHA = 1000.0f;
 
-    /**
-     * Fit mixture model with automatic K selection via BIC
-     */
     static MixtureDamageResult fit(const std::array<SuperRead, N_GC_BINS>& super_reads);
 
 private:
-    /**
-     * Fit mixture model with fixed K
-     */
     static MixtureDamageResult fit_k(
         const std::array<SuperRead, N_GC_BINS>& super_reads,
         int K,
         int restart_seed);
 
-    /**
-     * Compute binomial log-likelihood for channels
-     */
     static double channel_log_likelihood(
         const SuperRead& sr,
         float delta_max,
@@ -93,9 +84,6 @@ private:
         float b_ag,
         float b_stop);
 
-    /**
-     * Log-sum-exp for numerical stability
-     */
     static double logsumexp(const double* values, int n) {
         double max_val = values[0];
         for (int i = 1; i < n; ++i) {

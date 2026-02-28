@@ -77,12 +77,6 @@ struct JointDamageSuffStats {
     }
 };
 
-/**
- * Fit the joint damage model using grid search
- *
- * Grid searches over (λ, δ_max) and optimizes a_max analytically for each point.
- * Returns the maximum likelihood estimate and BIC-based model comparison.
- */
 class JointDamageModel {
 public:
     // Grid parameters
@@ -92,22 +86,13 @@ public:
     static constexpr float LAMBDA_MAX = 0.50f;
     static constexpr float DELTA_MAX_LIMIT = 0.60f;
 
-    /**
-     * Fit the joint model to sufficient statistics
-     */
     static JointDamageResult fit(const JointDamageSuffStats& stats);
 
-    /**
-     * Compute log-likelihood for given parameters
-     */
     static float log_likelihood(
         const JointDamageSuffStats& stats,
         float delta_max, float lambda, float a_max,
         float b_tc, float b_ag, float b_stop);
 
-    /**
-     * Optimize a_max for fixed (δ_max, λ) using Newton's method
-     */
     static float optimize_a_max(
         const JointDamageSuffStats& stats,
         float delta_max, float lambda,
@@ -312,13 +297,6 @@ public:
     static constexpr int MAX_ITER = 50;
     static constexpr float CONVERGENCE_TOL = 1e-6f;
 
-    /**
-     * Fit 2-component mixture to GC-stratified damage estimates
-     *
-     * @param bins Array of GC bin damage estimates
-     * @param n_bins Number of bins (typically 10)
-     * @return Mixture model results
-     */
     template<size_t N>
     static DamageMixtureResult fit(const std::array<GCBinInput, N>& bins) {
         DamageMixtureResult result;

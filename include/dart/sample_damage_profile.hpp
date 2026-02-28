@@ -15,9 +15,6 @@ namespace dart {
 class DamageModel;
 struct UnifiedDamageContext;
 
-/**
- * Sample-level damage profile computed from aggregate statistics
- */
 struct SampleDamageProfile {
     // Position-specific base counts at 5' end (positions 0-14)
     // Using double to avoid float precision loss at >16M reads

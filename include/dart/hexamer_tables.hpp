@@ -1,13 +1,5 @@
 #pragma once
 
-/**
- * @file hexamer_tables.hpp
- * @brief Unified multi-domain hexamer frequency interface
- *
- * Provides domain selection and hexamer frequency lookup across all trained domains:
- * fungi, protozoa, invertebrate, plant, vertebrate_mammalian, vertebrate_other, viral
- */
-
 #include <string>
 #include <cstdint>
 
