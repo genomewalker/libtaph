@@ -147,13 +147,14 @@ struct SampleDamageProfile {
     bool high_asymmetry = false;  // True if asymmetry > 0.5 (possible artifact)
 
     // Track source of d_max_combined estimate
-    enum class DmaxSource { AVERAGE, MIN_ASYMMETRY, FIVE_PRIME_ONLY, THREE_PRIME_ONLY, CHANNEL_B_STRUCTURAL, NONE };
+    enum class DmaxSource { AVERAGE, MIN_ASYMMETRY, MAX_SS_ASYMMETRY, FIVE_PRIME_ONLY, THREE_PRIME_ONLY, CHANNEL_B_STRUCTURAL, NONE };
     DmaxSource d_max_source = DmaxSource::AVERAGE;
 
     const char* d_max_source_str() const {
         switch (d_max_source) {
             case DmaxSource::AVERAGE: return "average";
             case DmaxSource::MIN_ASYMMETRY: return "min_asymmetry";
+            case DmaxSource::MAX_SS_ASYMMETRY: return "max_ss_asymmetry";
             case DmaxSource::FIVE_PRIME_ONLY: return "5prime_only";
             case DmaxSource::THREE_PRIME_ONLY: return "3prime_only";
             case DmaxSource::CHANNEL_B_STRUCTURAL: return "channel_b_structural";
@@ -252,6 +253,75 @@ struct SampleDamageProfile {
     float channel_b_slope = 0.0f;        // Raw WLS slope (positive = damage, negative = inverted)
     bool channel_b_quantifiable = false; // True if Channel B can provide d_max estimate
     bool channel_b_inverted = false;     // True if slope <= 0 (terminal stops LOWER than baseline)
+
+    // =========================================================================
+    // CHANNEL C: Oxidative stop codon tracking (G→T transversions)
+    // Tracks GAG→TAG, GAA→TAA, GGA→TGA conversions by nucleotide position
+    // Unlike deamination (terminal-enriched), oxidation is UNIFORM across reads
+    // Real oxidation: should be uniform (no position dependence)
+    // Deamination: should show exponential decay at termini
+    // =========================================================================
+
+    std::array<double, 15> convertible_gag_5prime = {};      // GAG (Glu) codons at 5'
+    std::array<double, 15> convertible_tag_ox_5prime = {};   // TAG (Stop) from G→T at 5'
+    std::array<double, 15> convertible_gaa_5prime = {};      // GAA (Glu) codons at 5'
+    std::array<double, 15> convertible_taa_ox_5prime = {};   // TAA (Stop) from G→T at 5'
+    std::array<double, 15> convertible_gga_5prime = {};      // GGA (Gly) codons at 5'
+    std::array<double, 15> convertible_tga_ox_5prime = {};   // TGA (Stop) from G→T at 5'
+
+    double convertible_gag_interior = 0.0;
+    double convertible_tag_ox_interior = 0.0;
+    double convertible_gaa_interior = 0.0;
+    double convertible_taa_ox_interior = 0.0;
+    double convertible_gga_interior = 0.0;
+    double convertible_tga_ox_interior = 0.0;
+
+    float ox_stop_conversion_rate_baseline = 0.0f;
+    float ox_stop_rate_terminal = 0.0f;
+    float ox_stop_rate_interior = 0.0f;
+    float ox_uniformity_ratio = 0.0f;   // terminal/interior (≈1 = uniform = real oxidation)
+    bool channel_c_valid = false;
+
+    // =========================================================================
+    // CHANNEL D: G→T / C→A transversion tracking (oxidative damage)
+    // 8-oxoG causes G→T on one strand, appears as C→A on complement
+    // Key distinguishing feature: UNIFORM across read (not terminal-enriched)
+    // =========================================================================
+
+    std::array<double, 15> g_count_5prime = {};     // G count at each 5' position
+    std::array<double, 15> t_from_g_5prime = {};    // T where G expected (from G→T)
+    std::array<double, 15> c_count_ox_5prime = {};  // C count for oxidation tracking
+    std::array<double, 15> a_from_c_5prime = {};    // A where C expected (from C→A)
+
+    double baseline_g_to_t_count = 0.0;
+    double baseline_g_total = 0.0;
+    double baseline_c_to_a_count = 0.0;
+    double baseline_c_ox_total = 0.0;
+
+    float ox_gt_rate_terminal = 0.0f;
+    float ox_gt_rate_interior = 0.0f;
+    float ox_gt_baseline = 0.0f;
+    float ox_gt_uniformity = 0.0f;
+    float ox_gt_asymmetry = 0.0f;
+
+    float ox_ca_rate_terminal = 0.0f;
+    float ox_ca_rate_interior = 0.0f;
+    float ox_ca_baseline = 0.0f;
+    float ox_ca_uniformity = 0.0f;
+
+    float ox_d_max = 0.0f;
+    bool ox_damage_detected = false;
+    bool ox_is_artifact = false;
+
+    // =========================================================================
+    // CHANNEL E: Depurination detection (purine loss at strand breaks)
+    // =========================================================================
+
+    float purine_rate_terminal_5prime = 0.0f;
+    float purine_rate_interior = 0.0f;
+    float purine_enrichment_5prime = 0.0f;
+    float purine_enrichment_3prime = 0.0f;
+    bool depurination_detected = false;
 
     // =========================================================================
     // GC-STRATIFIED DAMAGE ESTIMATION
