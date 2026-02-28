@@ -1,5 +1,11 @@
 #pragma once
 
+// Cooperative include guard: if a project defines its own dart/types.hpp and sets
+// DART_TYPES_HPP_DEFINED, this file becomes a no-op (avoiding redefinition errors
+// when both the project and this library provide the same type definitions).
+#ifndef DART_TYPES_HPP_DEFINED
+#define DART_TYPES_HPP_DEFINED
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -268,3 +274,5 @@ struct CodonTable {
 };
 
 } // namespace dart
+
+#endif // DART_TYPES_HPP_DEFINED

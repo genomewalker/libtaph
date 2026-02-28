@@ -1,6 +1,6 @@
 // Sample-level damage profile management
 
-#include "dart/sample_damage_profile.hpp"
+#include "dart/frame_selector_decl.hpp"
 #include "dart/codon_tables.hpp"
 #include "dart/hexamer_tables.hpp"
 #include <algorithm>
