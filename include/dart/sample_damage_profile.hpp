@@ -109,6 +109,18 @@ struct SampleDamageProfile {
     // tc_total_3prime[p] = T+C count at position p from 3' (coverage gate for fqdup masking).
     std::array<double, 15> tc_total_3prime = {};
 
+    // Library-type BIC diagnostics from fixed-lambda 3' decay fits over positions 1-10.
+    // GA = A/(A+G) channel (DS signal), CT = T/(T+C) channel (SS signal).
+    // Stored as double: BIC values reach ~1e9 at high coverage, exceeding float precision.
+    float  libtype_fit_amplitude_3prime_ga = 0.0f;
+    float  libtype_fit_amplitude_3prime_ct = 0.0f;
+    double libtype_delta_bic_3prime_ga = 0.0;  // positive = decay model fits better than flat
+    double libtype_delta_bic_3prime_ct = 0.0;
+    double library_bic_bias = 0.0;  // M_bias: no 3' decay in either channel
+    double library_bic_ds   = 0.0;  // M_DS:   G→A decay only
+    double library_bic_ss   = 0.0;  // M_SS:   C→T decay only
+    double library_bic_mix  = 0.0;  // M_mix:  both channels show decay
+
     // Library type detection
     enum class LibraryType { UNKNOWN, DOUBLE_STRANDED, SINGLE_STRANDED };
     LibraryType library_type = LibraryType::DOUBLE_STRANDED;  // Default to double-stranded
