@@ -805,6 +805,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             double tc_3p = profile.t_freq_3prime[i] + profile.c_freq_3prime[i];
             ctrl_total_3p[i] = tc_3p;
             ctrl_freq_3p[i] = (tc_3p > 0) ? profile.t_freq_3prime[i] / tc_3p : 0.5;
+            profile.tc_total_3prime[i] = tc_3p;
         }
 
         double ctrl_baseline_5p = baseline_ag;
@@ -1279,12 +1280,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     profile.lambda_5prime = std::clamp(profile.lambda_5prime, 0.1f, 1.0f);
     profile.lambda_3prime = std::clamp(profile.lambda_3prime, 0.1f, 1.0f);
 
-    // Library type handling: default to double-stranded unless user forces single-stranded
-    if (profile.forced_library_type != SampleDamageProfile::LibraryType::UNKNOWN) {
-        profile.library_type = profile.forced_library_type;
-    } else {
-        profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
-    }
+    // Library type: handled below after composition-bias flags are set
 
     // Flag inversions: terminals depleted relative to interior with statistical support
     // Use both shift threshold AND z-score override for very strong statistical signals
@@ -1385,6 +1381,33 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     float threshold_3 = std::max(0.005f, 0.5f * std::abs(damage_shift_3));
     if (ctrl_shift_3 >= threshold_3 && damage_shift_3 > 0.01f) {
         profile.composition_bias_3prime = true;
+    }
+
+    // Library type detection.
+    // DS: C→T at 5' + G→A at 3' (terminal_shift_3prime elevated).
+    // SS: C→T at both ends — 3' shows elevated T/(T+C) (ctrl_shift_3prime) with no G→A.
+    //
+    // Auto-detection requires all four conditions to call SS:
+    //   1. forced_library_type is UNKNOWN (user has not overridden)
+    //   2. sufficient coverage at 3' position 0 (≥1000 T+C observations)
+    //   3. T/(T+C) excess at 3' is significant: shift>0.01 AND z>3
+    //   4. G→A at 3' is absent: shift<0.005 AND z<2
+    //   5. 3' is not flagged as composition-biased (biased DS looks like SS)
+    if (profile.forced_library_type != SampleDamageProfile::LibraryType::UNKNOWN) {
+        profile.library_type = profile.forced_library_type;
+        profile.library_type_auto_detected = false;
+    } else {
+        double ct3_cov   = profile.t_freq_3prime[0] + profile.c_freq_3prime[0];
+        bool ct3_elevated = ct3_cov >= 1000.0
+                         && profile.ctrl_shift_3prime > 0.01f
+                         && profile.ctrl_z_3prime     > 3.0f;
+        bool ga3_absent   = profile.terminal_shift_3prime < 0.005f
+                         && profile.terminal_z_3prime     < 2.0f;
+        bool unbiased     = !profile.composition_bias_3prime;
+        profile.library_type = (ct3_elevated && ga3_absent && unbiased)
+            ? SampleDamageProfile::LibraryType::SINGLE_STRANDED
+            : SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+        profile.library_type_auto_detected = true;
     }
 
     float damage_signal = (profile.max_damage_5prime + profile.max_damage_3prime) / 2.0f;
@@ -1842,6 +1865,7 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         dst.g_freq_5prime[i] += src.g_freq_5prime[i];
         dst.t_freq_3prime[i] += src.t_freq_3prime[i];
         dst.c_freq_3prime[i] += src.c_freq_3prime[i];
+        dst.tc_total_3prime[i] += src.tc_total_3prime[i];
     }
 
     dst.baseline_t_freq += src.baseline_t_freq;
@@ -2043,8 +2067,9 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.terminal_z_5prime = 0.0f;
     profile.terminal_z_3prime = 0.0f;
     profile.terminal_inversion = false;
-    // Default to double-stranded unless user forces single-stranded
     profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+    profile.library_type_auto_detected = false;
+    profile.tc_total_3prime.fill(0.0);
 
     profile.hexamer_count_5prime.fill(0.0);
     profile.hexamer_count_interior.fill(0.0);

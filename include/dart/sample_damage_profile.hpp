@@ -104,10 +104,16 @@ struct SampleDamageProfile {
     bool composition_bias_5prime = false;  // control comparable to damage → bias
     bool composition_bias_3prime = false;  // control comparable to damage → bias
 
+    // 3' control channel per-position data (T/(T+C) at each position from 3' end).
+    // For DS libraries this is the negative control; for SS it is the damage signal.
+    // tc_total_3prime[p] = T+C count at position p from 3' (coverage gate for fqdup masking).
+    std::array<double, 15> tc_total_3prime = {};
+
     // Library type detection
     enum class LibraryType { UNKNOWN, DOUBLE_STRANDED, SINGLE_STRANDED };
     LibraryType library_type = LibraryType::DOUBLE_STRANDED;  // Default to double-stranded
     LibraryType forced_library_type = LibraryType::UNKNOWN;  // User override (UNKNOWN = auto-detect)
+    bool library_type_auto_detected = false;  // true when set by auto-detection, not user override
 
     // Inverted pattern: terminal T/(T+C) < interior (reference-free detection unreliable)
     bool inverted_pattern_5prime = false;  // 5' terminal T/(T+C) < interior
