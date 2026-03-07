@@ -1722,6 +1722,17 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 profile.max_damage_5prime <= 0.005f) {
                 profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
             }
+            // GA0 bilateral rescue (spike_is_ss path): when ga0.amplitude >= 0.10 and DS wins,
+            // discriminate DS end-repair (bilateral: both 5' pos-0 CT and 3' pos-0 GA elevated)
+            // from SS complement-orientation reads (3' GA0 spike only, no 5' CT0 counterpart).
+            // Validated on 24 DS controls with ga0_amp >= 0.10: all have d5 >= 0.11.
+            // All SS mixed failures with ga0_amp >= 0.10 have d5 = 0. Gap is >20x the threshold.
+            if (profile.library_type == SampleDamageProfile::LibraryType::DOUBLE_STRANDED &&
+                spike_is_ss &&
+                ga0.delta_bic > 0.0 &&
+                profile.max_damage_5prime <= 0.005f) {
+                profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+            }
         } else {
             profile.library_bic_bias = 0.0;
             profile.library_bic_ds   = 0.0;
