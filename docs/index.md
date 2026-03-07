@@ -53,12 +53,12 @@ std::cout << "Library:    " << profile.library_type_str() << "\n";
 
 ## Validated performance
 
-Tested on 315 Mediterranean sediment aDNA libraries (clay-test + Ellesmere datasets):
+Tested on 315 Mediterranean sediment aDNA libraries (two independent datasets):
 
 | Dataset | Correct | UNKNOWN | Wrong | Accuracy (determined) |
 |---------|---------|---------|-------|-----------------------|
-| Clay (91 samples) | 88 | 3 | 0 | **100%** |
-| Ellesmere (224 samples) | 193 | 25 DS + 1 SS | 3 | **98.5%** |
+| Dataset 1 (91 samples) | 88 | 3 | 0 | **100%** |
+| Dataset 2 (224 samples) | 193 | 25 DS + 1 SS | 3 | **98.5%** |
 
 UNKNOWN = no detectable signal above the null model (zero-damage libraries where no library type can be inferred from sequence alone).
 

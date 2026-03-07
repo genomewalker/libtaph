@@ -13,8 +13,8 @@
 - Bug: M_DS_spike rescue could fire when M_DS_symm_art won via joint fit with marginal ct5/ga3 ΔBIC ≤ 0 — now restricted to `ds_spike_won`
 
 ### Validation
-- Clay (46 DS + 45 SS): 88/91 correct, 3 UNKNOWN (100% on determined calls)
-- Ellesmere (78 DS + 146 SS): 193/196 correct on determined calls, 28 UNKNOWN (98.5%)
+- Dataset 1 (46 DS + 45 SS): 88/91 correct, 3 UNKNOWN (100% on determined calls)
+- Dataset 2 (78 DS + 146 SS): 193/196 correct on determined calls, 28 UNKNOWN (98.5%)
 
 ---
 
