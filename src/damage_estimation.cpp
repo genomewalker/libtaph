@@ -1670,6 +1670,14 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             if (spike_is_ss && bic_M_DS_spike < best) {
                 profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
             }
+            // Post-hoc symmetry check: DS_symm constrains ct5_amp ≈ ga3_amp.
+            // If DS wins but CT5 ΔBIC / GA3 ΔBIC < 0.50, the winning model's
+            // own symmetry assumption is violated → reclassify as SS (SS_mixed).
+            if (profile.library_type == SampleDamageProfile::LibraryType::DOUBLE_STRANDED &&
+                ga3.delta_bic > 0.0 &&
+                ct5.delta_bic / ga3.delta_bic < 0.50) {
+                profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+            }
         } else {
             profile.library_bic_bias = 0.0;
             profile.library_bic_ds   = 0.0;
