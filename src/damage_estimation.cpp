@@ -1643,7 +1643,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // M_SS_full excluded: 4-param model unfairly defeats M_DS_symm_art for asymmetric DS.
             // M_SS_asym only enters the SS set when spike_is_ss, preventing competition with M_DS_spike
             // in non-spike samples (which would misclassify one-sided DS libraries).
-            const double best_ss = std::min({bic_M_SS_comp, bic_M_SS_orig,
+            const double best_ss = std::min({bic_M_SS_comp,
+                                             ct3.delta_bic > 0.0 ? bic_M_SS_orig : 1e300,
                                              spike_is_ss ? bic_M_DS_spike : 1e300,
                                              spike_is_ss ? bic_M_SS_asym  : 1e300});
             profile.library_bic_bias = bic_M_bias;
@@ -1653,6 +1654,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
             double best = bic_M_bias;
             profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+            bool ds_spike_won = false;  // tracks whether M_DS_spike is the current winning model
 
             if (bic_M_DS_symm < best) {
                 best = bic_M_DS_symm;
@@ -1661,22 +1663,27 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             if (!spike_is_ss && bic_M_DS_spike < best) {
                 best = bic_M_DS_spike;
                 profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+                ds_spike_won = true;
             }
             if (bic_M_DS_symm_art < best) {
                 best = bic_M_DS_symm_art;
                 profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+                ds_spike_won = false;
             }
             if (bic_M_SS_comp < best) {
                 best = bic_M_SS_comp;
                 profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+                ds_spike_won = false;
             }
             // M_SS_orig requires ct3 signal: SS original-orientation reads produce CT3 whenever
             // they produce CT5. Without CT3, a one-sided DS pattern is more likely.
             if (bic_M_SS_orig < best && ct3.delta_bic > 0.0) {
                 best = bic_M_SS_orig;
                 profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+                ds_spike_won = false;
             }
             if (spike_is_ss && bic_M_DS_spike < best) {
+                best = bic_M_DS_spike;
                 profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
             }
             // M_SS_asym: SS with CT5 from original-orientation + GA0 spike from complement-orientation,
@@ -1694,6 +1701,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 ga3.delta_bic > 3e4 &&
                 ct5.delta_bic / ga3.delta_bic < 0.50) {
                 profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+                ds_spike_won = false;
             }
             // M_DS_spike rescue: a GA0 pos-0 spike with no CT5 and no GA3 smooth decay could be
             // M_DS_spike (DS end-repair, bilateral: both 5' pos0 and 3' pos0 elevated) or
@@ -1702,7 +1710,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // Requires ga0.amplitude > 0.02 to exclude near-zero noise spikes (e.g. tiny end-repair
             // artifacts with ga0_amp ≈ 0.001 that also have negligible d_max_5 ≈ 0.005).
             // DS bilateral artifacts have d_max_5 ≈ ga0_amp >> 0.005; SS complement-only has d_max_5 ≈ 0.
+            // Restricted to ds_spike_won: M_DS_symm_art can win via joint fit even with marginal
+            // ct5/ga3 delta_bic ≤ 0; rescue only fires when M_DS_spike was the actual winner.
             if (profile.library_type == SampleDamageProfile::LibraryType::DOUBLE_STRANDED &&
+                ds_spike_won &&
                 !spike_is_ss &&
                 ct5.delta_bic <= 0.0 &&
                 ga3.delta_bic <= 0.0 &&
