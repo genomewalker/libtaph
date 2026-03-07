@@ -1733,6 +1733,13 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 profile.max_damage_5prime <= 0.005f) {
                 profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
             }
+            // Uninformative: if nothing beat M_bias (best unchanged), no damage channel
+            // provided evidence for either DS or SS. Use exact equality — best is only
+            // updated via assignment from another BIC value, so equality is safe here.
+            // Does NOT affect low-damage DS libraries where M_DS_symm still beats M_bias.
+            if (best == bic_M_bias) {
+                profile.library_type = SampleDamageProfile::LibraryType::UNKNOWN;
+            }
         } else {
             profile.library_bic_bias = 0.0;
             profile.library_bic_ds   = 0.0;
