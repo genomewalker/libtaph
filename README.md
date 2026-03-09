@@ -14,19 +14,69 @@ Reference-based damage estimation (mapDamage, metaDMG) requires a mapped BAM fil
 
 ## What it measures
 
-Five biochemical damage channels, each tracking a distinct degradation process:
+Five independent biochemical damage channels, each targeting a distinct
+degradation process:
 
-| Channel | Chemistry | Signal | Read position |
-|---------|-----------|--------|---------------|
-| A | Cytosine deamination | C→T at 5' (ct5), G→A at 3' (ga3/ga0), C→T at 3' (ct3) | Terminal, exponential decay |
-| B | Stop codon conversion via C→T | CAA/CAG/CGA → TAA/TAG/TGA excess at 5' terminus | Terminal, exponential decay |
-| C | 8-oxoG oxidation (stop codon) | GAG/GAA/GGA → TAG/TAA/TGA, uniform across read | Uniform |
-| D | 8-oxoG oxidation (direct) | G→T and C→A transversions, uniformity test | Uniform |
-| E | Depurination / AP-site fragmentation | Purine enrichment at 5' strand-break junctions | 5' terminal |
+### Channel A — Cytosine deamination (primary damage signal)
 
-Channels B–E cross-validate Channel A: if Channel A detects deamination but Channel B
-contradicts it, the signal is flagged as a composition artifact rather than genuine ancient
-damage.
+Cytosine in single-stranded DNA overhangs spontaneously deaminates to uracil,
+which the polymerase reads as thymine. The rate is highest at the fragment
+terminus and decays exponentially inward. This produces:
+
+- **ct5**: C→T excess at 5' terminal positions (positions 0–14)
+- **ga3**: G→A excess at 3' terminal positions — the complementary strand's
+  deaminated cytosines appear as G→A when read 5'→3' from that end
+- **ga0**: isolated G→A spike at 3' position 0 from the ligation junction
+  (single-stranded library protocols)
+- **ct3**: C→T excess at 3' terminal positions (single-stranded original-strand
+  libraries, where the same strand is damaged at both ends)
+
+Channel A drives position masking in fqdup. The decay model is
+`d_max × exp(−λ × pos) + bg`; positions where the excess above background
+exceeds a threshold are masked before hashing.
+
+### Channel B — Stop codon conversion (composition-independent C→T validation)
+
+The same C→T deamination converts specific sense codons to stop codons:
+CAA/CAG/CGA → TAA/TAG/TGA. Because this test uses triplet context rather
+than raw base frequency, it is insensitive to GC-composition bias that can
+confound Channel A. If Channel A fires but Channel B contradicts it, the
+signal is flagged as `damage_artifact` (likely a composition artifact, not
+genuine ancient damage).
+
+### Channel C — 8-oxoG oxidative damage (stop codon uniformity)
+
+8-Oxoguanine forms when guanine is oxidised. The polymerase misreads it as
+adenine, producing G→T transversions. Unlike deamination, oxidation
+accumulates throughout the molecule rather than preferentially at the ends.
+Channel C tracks G→T stop codon conversions (GAG/GAA/GGA → TAG/TAA/TGA)
+and tests whether they are uniformly distributed (genuine oxidation) or
+terminal-enriched (likely co-occurring with deamination rather than
+independent 8-oxoG).
+
+### Channel D — 8-oxoG direct transversion rate
+
+Measures G→T and its complement C→A as raw transversion frequencies at
+terminal vs. interior positions. High terminal/interior ratio with correlated
+G→T and C→A signals on opposite strands confirms genuine 8-oxoG oxidation.
+Flags `ox_damage_detected` and `ox_is_artifact` independently of Channel C.
+
+### Channel E — Depurination / AP-site fragmentation
+
+Purines (A and G) are lost by hydrolysis under acidic or warm burial
+conditions, leaving apurinic (AP) sites that become strand-break points.
+Fragmentation at AP sites enriches purines at the newly exposed 5' ends.
+Channel E measures this purine enrichment at 5' terminal positions versus
+the interior baseline. High enrichment confirms that fragmentation occurred
+at AP sites — independent evidence of genuine ancient origin even when
+deamination is low.
+
+---
+
+Channels B–E cross-validate Channel A: if Channel A detects deamination but
+Channel B contradicts it, the signal is flagged as a composition artifact
+rather than genuine ancient damage. Channels C–E are reported for sample
+characterisation but do not directly affect position masking.
 
 ## What it classifies
 
