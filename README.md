@@ -121,6 +121,49 @@ the library type cannot be inferred from sequence alone — it is not an error.
 
 ---
 
+## fqdup integration
+
+[fqdup](https://github.com/genomewalker/fqdup) uses libdart-damage for
+reference-free damage estimation before deduplication. The standalone
+`fqdup damage` subcommand runs the full profiler and prints a human-readable
+report:
+
+```
+$ fqdup damage -i merged.fq.gz
+
+=== fqdup damage ===
+Input:   merged.fq.gz
+Threads: 16
+Reads:   5,582,073 scanned
+Length:  min=30  mean=91.2  max=150
+
+Library: DS (auto-detected)
+  BIC  bias=0.0  DS=125432.1  SS=42.0  SS_full=89.3
+  fit  CT5_amp=0.1928  ΔBIC=125432  GA3_amp=0.0403  ΔBIC=1249  GA0_amp=0.0201  ΔBIC=22  CT3_amp=0.0012  ΔBIC=0.1
+  5' terminal shift: +0.0193  (z=18.4)
+  3' terminal shift: +0.0040  (z=3.9)
+
+5'-end   d_max=0.1928  lambda=0.246  bg=0.4872
+3'-end   d_max=0.0403  lambda=0.069  bg=0.5091
+combined d_max=0.1928  (source=5prime) [validated]
+
+Mask threshold: 0.05 → 1 position masked (pos 0)
+
+pos  5'_CT   5'_GA   3'_GA
+---  ------  ------  ------
+  0  0.2194  0.4895  0.0521  *
+  1  0.1571  0.4888  0.0458
+  2  0.1048  0.4891  0.0432
+  ...
+```
+
+The report shows library type with BIC evidence, decay parameters per end,
+per-position frequencies, and which positions exceed the mask threshold.
+Run it before `fqdup extend` or `fqdup derep --damage-auto` to verify
+auto-detection or supply parameters manually.
+
+---
+
 ## Quick start
 
 ```cpp
