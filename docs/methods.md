@@ -37,6 +37,10 @@ where $n_p$ is coverage (T+C count) at position $p$.
 
 ## Library-type classifier
 
+See [Damage types](damage-types.md) for a full description of the biological origin of each
+class, which substitution channels distinguish them, and how fqdup uses the classification
+for damage-aware hashing.
+
 ### Biological basis
 
 | Library prep | Damage pattern |

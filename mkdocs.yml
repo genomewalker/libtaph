@@ -49,5 +49,6 @@ extra_javascript:
 nav:
   - Home: index.md
   - Methods: methods.md
+  - Damage types: damage-types.md
   - API Reference: api.md
   - Changelog: changelog.md
