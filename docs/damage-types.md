@@ -10,7 +10,7 @@ classifier used by fqdup for damage-aware deduplication.
 
 ## The five biochemical channels
 
-### Channel A — Cytosine deamination (C→T / G→A)
+### Channel A: Cytosine deamination (C→T / G→A)
 
 **Chemistry:** Cytosine spontaneously deaminates to uracil, which the polymerase reads as
 thymine. The rate is fastest at single-stranded regions near the ends of fragmented
@@ -43,7 +43,7 @@ from the smooth ga3 decay (see library classification below).
 
 ---
 
-### Channel B — Stop codon conversion (composition-independent C→T validation)
+### Channel B: Stop codon conversion (composition-independent C→T validation)
 
 **Chemistry:** The same C→T deamination that creates the ct5 signal also converts specific
 sense codons to stop codons. CAA (Gln), CAG (Gln), and CGA (Arg) each become a stop codon
@@ -72,11 +72,11 @@ validate the 3′ signal in SS libraries.
 
 ---
 
-### Channel C — Oxidative stop codon tracking (G→T uniformity test)
+### Channel C: Oxidative stop codon tracking (G→T uniformity test)
 
 **Chemistry:** 8-Oxoguanine (8-oxoG) forms when guanine is oxidized. The polymerase
 misreads 8-oxoG as adenine, producing G→T transversions. Unlike cytosine deamination,
-oxidation occurs throughout the molecule, not preferentially at the ends — damage
+oxidation occurs throughout the molecule, not preferentially at the ends, damage
 accumulates wherever guanine is exposed during burial.
 
 **What is measured:** Stop codon conversion via G→T at glutamate and glycine codons
@@ -86,7 +86,7 @@ The key diagnostic statistic is the uniformity ratio:
 
 $$U_C = \frac{\text{stop rate (terminal)}}{\text{stop rate (interior)}}$$
 
-$U_C \approx 1$ means the G→T conversion is evenly distributed along the read — the
+$U_C \approx 1$ means the G→T conversion is evenly distributed along the read, the
 signature of genuine oxidative damage. $U_C \gg 1$ means the signal is terminal-enriched,
 suggesting co-occurrence with deamination rather than independent oxidation.
 
@@ -96,7 +96,7 @@ artifact flag, not as additional deamination evidence.
 
 ---
 
-### Channel D — Direct G→T / C→A transversion tracking (8-oxoG rate)
+### Channel D: Direct G→T / C→A transversion tracking (8-oxoG rate)
 
 **Chemistry:** Same 8-oxoG chemistry as Channel C, but measured directly as a raw
 transversion frequency rather than through stop codon context. G→T and its complement C→A
@@ -104,10 +104,10 @@ are tracked at terminal positions and compared to the interior baseline.
 
 **What is measured:**
 
-- `ox_gt_rate_terminal` / `ox_gt_rate_interior` — G→T rate at terminals vs. interior.
-- `ox_ca_rate_terminal` / `ox_ca_rate_interior` — C→A rate at terminals vs. interior.
-- `ox_gt_uniformity` — terminal/interior ratio; ≈ 1 for genuine oxidation.
-- `ox_gt_asymmetry` — correlation of G→T with C→A; high asymmetry confirms 8-oxoG
+- `ox_gt_rate_terminal` / `ox_gt_rate_interior`, G→T rate at terminals vs. interior.
+- `ox_ca_rate_terminal` / `ox_ca_rate_interior`, C→A rate at terminals vs. interior.
+- `ox_gt_uniformity`, terminal/interior ratio; ≈ 1 for genuine oxidation.
+- `ox_gt_asymmetry`, correlation of G→T with C→A; high asymmetry confirms 8-oxoG
   because C→A is the complementary transversion expected on the opposite strand.
 
 **Diagnostic role:** Direct quantification of oxidative damage rate. `ox_damage_detected`
@@ -117,7 +117,7 @@ during sample preparation rather than in situ).
 
 ---
 
-### Channel E — Depurination (AP-site enrichment at strand breaks)
+### Channel E: Depurination (AP-site enrichment at strand breaks)
 
 **Chemistry:** Purines (adenine and guanine) are more susceptible than pyrimidines to
 hydrolytic base loss (depurination) under acidic and warm conditions. The resulting
@@ -127,10 +127,10 @@ enrichment at the 5′ terminus that is distinct from both deamination and oxida
 
 **What is measured:**
 
-- `purine_rate_terminal_5prime` — A+G fraction at 5′ terminal positions.
-- `purine_rate_interior` — A+G fraction at interior positions (baseline).
-- `purine_enrichment_5prime` / `purine_enrichment_3prime` — excess above interior baseline.
-- `depurination_detected` — flag when 5′ enrichment is statistically significant.
+- `purine_rate_terminal_5prime`, A+G fraction at 5′ terminal positions.
+- `purine_rate_interior`, A+G fraction at interior positions (baseline).
+- `purine_enrichment_5prime` / `purine_enrichment_3prime`, excess above interior baseline.
+- `depurination_detected`, flag when 5′ enrichment is statistically significant.
 
 **Diagnostic role:** Independent evidence that fragmentation occurred at AP sites (genuine
 ancient damage), rather than random mechanical shearing. High depurination enrichment
@@ -157,7 +157,7 @@ The four Channel A sub-channels (ct5, ga3, ga0, ct3) together determine which of
 biological damage patterns best describes the library. Which sub-channels are active
 depends on how the library was prepared.
 
-### DS — double-stranded (symmetric deamination)
+### DS: double-stranded (symmetric deamination)
 
 **Library prep:** Blunt-end ligation (NEBNext, TruSeq). Both strands of each fragment are
 adapter-ligated.
@@ -233,7 +233,7 @@ they do not directly change which positions are masked.
 
 ### Revcomp-equivariant masking
 
-fqdup uses a canonical hash — `min(hash(seq), hash(rc(seq)))` — so that a molecule and
+fqdup uses a canonical hash, `min(hash(seq), hash(rc(seq)))`, so that a molecule and
 its reverse complement always land in the same cluster. The mask must therefore satisfy:
 
 $$\text{mask}(\text{rc}(\text{seq})) = \text{rc}(\text{mask}(\text{seq}))$$

@@ -2,7 +2,7 @@
 
 Reference-free ancient DNA damage estimation and library-type classification from raw FASTQ reads.
 
-libdart-damage scans raw FASTQ reads for five independent biochemical damage signals, quantifies each, and classifies each library as double-stranded (DS), single-stranded (SS), or undetermined — all without a reference genome or alignment.
+libdart-damage scans raw FASTQ reads for five independent biochemical damage signals, quantifies each, and classifies each library as double-stranded (DS), single-stranded (SS), or undetermined, all without a reference genome or alignment.
 
 ---
 
@@ -17,14 +17,14 @@ Reference-based damage estimation (mapDamage, metaDMG) requires a mapped BAM fil
 Five independent biochemical damage channels, each targeting a distinct
 degradation process:
 
-### Channel A — Cytosine deamination (primary damage signal)
+### Channel A: Cytosine deamination (primary damage signal)
 
 Cytosine in single-stranded DNA overhangs spontaneously deaminates to uracil,
 which the polymerase reads as thymine. The rate is highest at the fragment
 terminus and decays exponentially inward. This produces:
 
 - **ct5**: C→T excess at 5' terminal positions (positions 0–14)
-- **ga3**: G→A excess at 3' terminal positions — the complementary strand's
+- **ga3**: G→A excess at 3' terminal positions, the complementary strand's
   deaminated cytosines appear as G→A when read 5'→3' from that end
 - **ga0**: isolated G→A spike at 3' position 0 from the ligation junction
   (single-stranded library protocols)
@@ -35,7 +35,7 @@ Channel A drives position masking in fqdup. The decay model is
 `d_max × exp(−λ × pos) + bg`; positions where the excess above background
 exceeds a threshold are masked before hashing.
 
-### Channel B — Stop codon conversion (composition-independent C→T validation)
+### Channel B: Stop codon conversion (composition-independent C→T validation)
 
 The same C→T deamination converts specific sense codons to stop codons:
 CAA/CAG/CGA → TAA/TAG/TGA. Because this test uses triplet context rather
@@ -44,7 +44,7 @@ confound Channel A. If Channel A fires but Channel B contradicts it, the
 signal is flagged as `damage_artifact` (likely a composition artifact, not
 genuine ancient damage).
 
-### Channel C — 8-oxoG oxidative damage (stop codon uniformity)
+### Channel C: 8-oxoG oxidative damage (stop codon uniformity)
 
 8-Oxoguanine forms when guanine is oxidised. The polymerase misreads it as
 adenine, producing G→T transversions. Unlike deamination, oxidation
@@ -54,21 +54,21 @@ and tests whether they are uniformly distributed (genuine oxidation) or
 terminal-enriched (likely co-occurring with deamination rather than
 independent 8-oxoG).
 
-### Channel D — 8-oxoG direct transversion rate
+### Channel D: 8-oxoG direct transversion rate
 
 Measures G→T and its complement C→A as raw transversion frequencies at
 terminal vs. interior positions. High terminal/interior ratio with correlated
 G→T and C→A signals on opposite strands confirms genuine 8-oxoG oxidation.
 Flags `ox_damage_detected` and `ox_is_artifact` independently of Channel C.
 
-### Channel E — Depurination / AP-site fragmentation
+### Channel E: Depurination / AP-site fragmentation
 
 Purines (A and G) are lost by hydrolysis under acidic or warm burial
 conditions, leaving apurinic (AP) sites that become strand-break points.
 Fragmentation at AP sites enriches purines at the newly exposed 5' ends.
 Channel E measures this purine enrichment at 5' terminal positions versus
 the interior baseline. High enrichment confirms that fragmentation occurred
-at AP sites — independent evidence of genuine ancient origin even when
+at AP sites, independent evidence of genuine ancient origin even when
 deamination is low.
 
 ---
@@ -114,10 +114,10 @@ and selects the best-fitting description:
 | SS complement-orientation | ga0 | Spike at 3' position 0 only; 5' flat |
 | SS original-orientation | ct5 + ct3 | C→T at both 5' and 3' ends; no G→A |
 | SS mixed orientations | ct5 + ga0 | C→T decay at 5' + spike at 3' pos 0; no smooth ga3 |
-| UNKNOWN | — | No channel above null; standard exact-match deduplication |
+| UNKNOWN | - | No channel above null; standard exact-match deduplication |
 
 UNKNOWN is the correct call for zero-damage or near-zero-damage libraries where
-the library type cannot be inferred from sequence alone — it is not an error.
+the library type cannot be inferred from sequence alone, it is not an error.
 
 ---
 

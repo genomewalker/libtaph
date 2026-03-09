@@ -85,13 +85,13 @@ Lower BIC wins. The null model has 0 free parameters; each active channel contri
 The classifier runs a waterfall over models in this order:
 
 1. Start: `best = BIC(M_bias)`, type = DS
-2. M_DS_symm — DS
-3. M_DS_spike (only when `spike_is_ss = false`) — DS
-4. M_DS_symm_art — DS
-5. M_SS_comp — SS
-6. M_SS_orig (only when ct3 ΔBIC > 0) — SS
-7. M_DS_spike as SS (only when `spike_is_ss = true`) — SS
-8. M_SS_asym (only when `spike_is_ss = true`) — SS
+2. M_DS_symm, DS
+3. M_DS_spike (only when `spike_is_ss = false`), DS
+4. M_DS_symm_art, DS
+5. M_SS_comp, SS
+6. M_SS_orig (only when ct3 ΔBIC > 0), SS
+7. M_DS_spike as SS (only when `spike_is_ss = true`), SS
+8. M_SS_asym (only when `spike_is_ss = true`), SS
 
 `spike_is_ss = (ga0.amplitude ≥ 0.10)`: a GA0 spike above 10% amplitude is too large to be a DS end-repair artifact and enters the SS model set.
 
