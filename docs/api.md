@@ -50,6 +50,8 @@ static void update_sample_profile_weighted(
 
 Weighted accumulation for alignability-weighted damage estimation.
 
+> **Note:** Only accumulates Channel A (T/(T+C), A/(A+G)), interior baseline, codon-position, and CpG counts. Channel B/C/D/E codon counts, hexamers, and GC-bin stratified data are **not** accumulated. Profiles built with this method will have `channel_b_valid = false` and GC-stratified fields unpopulated after finalization.
+
 ---
 
 ### `finalize_sample_profile`
@@ -80,7 +82,9 @@ Merge raw counts from `src` into `dst`. Useful for parallel accumulation. Call `
 static void reset_sample_profile(SampleDamageProfile& profile);
 ```
 
-Zero all counters and reset all fields. Use before reusing a profile object for a new sample.
+Zero all counters and reset Channel A, Channel B (5'), joint model, and mixture model fields. Use before reusing a profile object for a new sample.
+
+> **Note:** Channel B₃′, Channel C, Channel D, GC histogram, and alignability accumulator arrays are **not** explicitly reset. Reusing a profile via `reset_sample_profile` followed by `update_sample_profile` calls will leave those fields with stale values. For a guaranteed clean state, construct a new `SampleDamageProfile()` (zero-initialized) instead.
 
 ---
 
@@ -140,10 +144,10 @@ All arrays are 15 elements, indexed 0–14 from the read terminus.
 |-------|-------------|
 | `damage_rate_5prime[p]` | C→T excess rate at 5' position `p` |
 | `damage_rate_3prime[p]` | G→A excess rate at 3' position `p` |
-| `t_freq_5prime[p]` | Raw T count at 5' position `p` |
-| `tc_total_5prime[p]` | T+C coverage at 5' position `p` |
-| `a_freq_3prime[p]` | Raw A count at 3' position `p` |
-| `ag_total_3prime[p]` | A+G coverage at 3' position `p` |
+| `t_freq_5prime[p]` | **Before** `finalize_sample_profile`: raw T count. **After**: T/(T+C) ratio (normalized in-place). |
+| `tc_total_5prime[p]` | T+C coverage at 5' position `p` (raw count; not normalized by finalization) |
+| `a_freq_3prime[p]` | **Before** `finalize_sample_profile`: raw A count. **After**: A/(A+G) ratio (normalized in-place). |
+| `ag_total_3prime[p]` | A+G coverage at 3' position `p` (raw count; not normalized by finalization) |
 
 ### GC-stratified mixture model
 

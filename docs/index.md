@@ -45,7 +45,7 @@ std::cout << "Library:    " << profile.library_type_str() << "\n";
 | Reference-free | Works directly on FASTQ, no BAM, no alignment |
 | D_max estimation | Calibrated, metaDMG-comparable damage rates |
 | Library-type detection | BIC classifier: DS / SS / UNKNOWN |
-| Multi-channel validation | 5 damage channels (A, B, B₃′, C, D) cross-validate signal |
+| Multi-channel validation | 6 damage channels (A, B, B₃′, C, D, E) cross-validate signal |
 | GC-stratified estimation | Separates ancient from modern DNA in mixed samples |
 | Streaming API | Incremental updates for memory-efficient processing |
 
@@ -58,7 +58,7 @@ Tested on 315 Mediterranean sediment aDNA libraries (two independent datasets):
 | Dataset | Correct | UNKNOWN | Wrong | Accuracy (determined) |
 |---------|---------|---------|-------|-----------------------|
 | Dataset 1 (91 samples) | 88 | 3 | 0 | **100%** |
-| Dataset 2 (224 samples) | 193 | 25 DS + 1 SS | 3 | **98.5%** |
+| Dataset 2 (224 samples) | 193 | 28 | 3 | **98.5%** |
 
 UNKNOWN: no detectable signal above the null model (zero-damage libraries where no library type can be inferred from sequence alone).
 

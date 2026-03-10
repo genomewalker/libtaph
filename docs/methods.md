@@ -130,15 +130,16 @@ If no model beats M_bias (`best == BIC(M_bias)` exactly), the library has no det
 
 ## Multi-channel validation
 
-libdart-damage uses five independent damage channels to cross-validate the C→T signal:
+libdart-damage uses six independent damage channels to cross-validate the C→T signal:
 
 | Channel | Signal | Notes |
 |---------|--------|-------|
 | A | C→T rate per position | Primary deamination channel |
 | B | Stop codon conversion (CAA/CAG/CGA → TAA/TAG/TGA) at 5' | Sequence-composition-independent |
 | B₃′ | Stop codon conversion via G→A at 3' (TGG → TAG/TGA) | Validates SS 3' damage |
-| C | G→T transversions (8-oxoG) | Uniform across read, composition artifact flag |
-| D | G→T / C→A transversions (oxidative) | Uniform signal distinguishes from deamination |
+| C | G→T transversions (8-oxoG) via stop codon uniformity | Uniform across read; non-exponential distinguishes from deamination |
+| D | G→T / C→A direct transversion rates | Terminal/interior ratio confirms genuine 8-oxoG vs. artefact |
+| E | Purine enrichment at 5' termini (depurination) | AP-site fragmentation; evidence of ancient origin independent of deamination |
 
 A library is `damage_validated` when both Channel A and Channel B agree. If Channel A fires but Channel B contradicts it, `damage_artifact = true` (likely composition bias or modern contamination).
 
@@ -183,11 +184,19 @@ If Channel A ΔBIC > threshold but Channel B ΔBIC ≤ 0 (stop codon ratio flat 
 
 ## GC-stratified estimation
 
-Reads are binned by their interior GC content (10 bins, 0–100%). Within each bin, damage is estimated independently, enabling separation of high-damage ancient DNA from low-damage modern contamination in mixed samples. The mixture model (EM over GC bins) reports:
+Reads are binned by their interior GC content (10 bins, 0–100%). Within each bin, damage is estimated independently, enabling separation of high-damage ancient DNA from low-damage modern contamination in mixed samples.
 
-- `mixture_pi_ancient`: fraction of C-sites in high-damage components
+Two mixture models operate over GC bins:
+
+**`DamageMixtureModel`** (2-component Gaussian, used internally by `JointDamageModel`): fits a simple undamaged (μ=0, σ=0.01) and damaged (μ estimated, σ=0.10) component over per-bin d_max values. Runs standard EM up to 50 iterations.
+
+**`MixtureDamageModel`** (K=2–4 categorical, full GC-aware model): tries K=2, 3, 4 components with 5 random restarts each, selects by BIC. Per-component δ_max is updated by grid search (61 points, 0–0.60); shared a_max by golden-section search. Reports:
+
+- `mixture_pi_ancient`: fraction of C-sites in high-damage components (δ > 5%)
 - `mixture_d_ancient`: expected damage rate among ancient reads
 - `mixture_d_population`: population-average damage rate
+- `mixture_d_reference`: damage rate in GC ≥ 50% bins (metaDMG proxy)
+- `mixture_K`: number of components selected by BIC
 
 ---
 

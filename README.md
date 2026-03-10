@@ -14,7 +14,7 @@ Reference-based damage estimation (mapDamage, metaDMG) requires a mapped BAM fil
 
 ## What it measures
 
-Five independent biochemical damage channels, each targeting a distinct
+Six independent biochemical damage channels, each targeting a distinct
 degradation process:
 
 ### Channel A: Cytosine deamination (primary damage signal)
@@ -35,7 +35,7 @@ Channel A drives position masking in fqdup. The decay model is
 `d_max × exp(−λ × pos) + bg`; positions where the excess above background
 exceeds a threshold are masked before hashing.
 
-### Channel B: Stop codon conversion (composition-independent C→T validation)
+### Channel B: Stop codon conversion at 5' (composition-independent C→T validation)
 
 The same C→T deamination converts specific sense codons to stop codons:
 CAA/CAG/CGA → TAA/TAG/TGA. Because this test uses triplet context rather
@@ -43,6 +43,14 @@ than raw base frequency, it is insensitive to GC-composition bias that can
 confound Channel A. If Channel A fires but Channel B contradicts it, the
 signal is flagged as `damage_artifact` (likely a composition artifact, not
 genuine ancient damage).
+
+### Channel B₃′: Stop codon conversion at 3' (SS G→A validation)
+
+The complement of Channel B at the 3' end: TGG → TAG or TGA via G→A
+deamination. Validates the 3' damage signal, particularly in SS libraries
+where smooth ga3 decay may be absent and the G→A signal is limited to
+position 0. `d_max` from Channel B₃′ can serve as an alternative structural
+estimate when Channel A is unreliable at the 3' end.
 
 ### Channel C: 8-oxoG oxidative damage (stop codon uniformity)
 
