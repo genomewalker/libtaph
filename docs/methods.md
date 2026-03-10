@@ -142,6 +142,43 @@ libdart-damage uses five independent damage channels to cross-validate the C→T
 
 A library is `damage_validated` when both Channel A and Channel B agree. If Channel A fires but Channel B contradicts it, `damage_artifact = true` (likely composition bias or modern contamination).
 
+### Channel B: frame-agnostic codon scanning
+
+Channel B requires no reference alignment, no ORF prediction, and no frame or strand selection. It works by scanning all three forward reading frames simultaneously at every position in every read:
+
+- For each frame offset $f \in \{0, 1, 2\}$ and each codon starting at position $p$, classify the codon as:
+  - **pre-image** (CAA, CAG, CGA) — a codon that becomes a stop codon if C→T damage occurs
+  - **stop** (TAA, TAG, TGA) — could be genuine stop or damage-converted
+
+- Accumulate counts at each distance from the 5' terminus (positions 0–14) and in the interior (positions 30 to $L-30$) independently.
+
+The key insight is that frame composition bias cancels in the ratio. Because the same mixture of three reading frames is scanned at both terminal and interior positions, any frame-specific enrichment of stop codons is identical at both locations. The only thing that can cause the **ratio** $r_p = \text{stop} / (\text{pre} + \text{stop})$ to be higher at terminal positions than in the interior is real C→T damage converting pre-image codons into stops.
+
+### Joint damage model (JointDamageModel)
+
+Rather than evaluating Channel A and Channel B independently, libdart-damage fits them jointly via `JointDamageModel::fit()`. This separates three signals that are otherwise conflated:
+
+| Signal | Formula | What it captures |
+|--------|---------|-----------------|
+| Channel A (ct5) | $\pi_{TC}(p) = (b_{tc} + a(p)) + (1 - b_{tc} - a(p)) \cdot \delta_{\max} \cdot e^{-\lambda p}$ | Deamination + compositional artifact |
+| Control (5' AG) | $\pi_{AG}(p) = b_{ag} + a(p)$ | Compositional artifact only |
+| Channel B (stop) | $\pi_{stop}(p) = b_{stop} + (1 - b_{stop}) \cdot \delta_{\max} \cdot e^{-\lambda p}$ | Deamination only |
+
+The artifact term $a(p) = a_{\max} \cdot e^{-\lambda p}$ is shared by Channel A and the control channel, but is **absent from Channel B**. This means:
+
+- If T/(T+C) rises terminally because of GC composition bias, both Channel A and the control rise together and $a_{\max} > 0$ absorbs it — Channel B stays flat.
+- If T/(T+C) rises because of genuine deamination, Channel A rises but the control stays flat; simultaneously Channel B rises. Only real damage drives both $\delta_{\max} > 0$ and a Channel B excess.
+
+The model has four free parameters: $\delta_{\max}$, $\lambda$, $a_{\max}$, and implicitly the background rates estimated from the interior baseline. A grid search over $(\lambda, \delta_{\max})$ with closed-form $a_{\max}$ at each grid point finds the joint maximum-likelihood fit.
+
+Firing thresholds: `damage_validated = true` when any of the following hold after joint fitting:
+
+- Posterior probability $p_{\text{damage}} > 0.95$ (Bayesian model comparison)
+- $\Delta\text{BIC} = \text{BIC}(M_0) - \text{BIC}(M_1) > 10$ (frequentist model comparison)
+- Bayes factor is infinite (degenerate null, only possible with extreme data)
+
+If Channel A ΔBIC > threshold but Channel B ΔBIC ≤ 0 (stop codon ratio flat or inverted), `damage_artifact = true` and `d_max` is set to zero.
+
 ---
 
 ## GC-stratified estimation
