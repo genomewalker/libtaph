@@ -1875,8 +1875,16 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // Only considered when spike_is_ss=true so it cannot compete with M_DS_spike in the DS-only path.
             const double bic_M_SS_asym     = ct5.bic_alt    + ga3.bic_null + ga0.bic_alt  + ct3.bic_null;
 
-            // ga0 amplitude distinguishes DS end-repair artifact (<0.10) from SS ligation spike (>=0.10)
-            const bool spike_is_ss = (ga0.amplitude >= 0.10f);
+            // ga0 amplitude distinguishes DS end-repair artifact (<0.10) from SS ligation spike (>=0.10).
+            // Exception: if the channel-B structural analysis (computed before BIC, line ~1200)
+            // confirmed bilateral symmetric damage with d_max_from_channel_b > 0.10, then the
+            // 3' pos-0 GA excess is the mirror of the bilateral 5' C→T on the bottom strand —
+            // not an SS ligation artifact.  Without this guard, highly damaged DS libraries
+            // (d_max > 0.20, steep lambda) produce large GA0_ΔBIC from the 3' bilateral
+            // reflection and are wrongly classified as SS.
+            const bool structural_bilateral = profile.channel_b_quantifiable
+                                           && (profile.d_max_from_channel_b > 0.10f);
+            const bool spike_is_ss = (ga0.amplitude >= 0.10f) && !structural_bilateral;
             const double best_ds = std::min({bic_M_DS_symm,
                                              spike_is_ss ? 1e300 : bic_M_DS_symm_art,
                                              spike_is_ss ? 1e300 : bic_M_DS_spike});
@@ -1983,6 +1991,22 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 ga0.delta_bic > 0.0 &&
                 profile.max_damage_5prime <= 0.005f) {
                 profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+            }
+            // Channel-B structural DS rescue: if channel-B (stop codon conversion, immune to
+            // composition bias) confirmed bilateral symmetric damage > 0.10, AND the 3' ligation
+            // spike (GA0) dominates the smooth GA3 decay by ≥5×, override SS→DS.
+            // Handles highly damaged DS libraries where steep lambda suppresses CT5 in the BIC
+            // fit, causing M_SS_comp to win by capturing GA3+GA0 independently. Channel B is
+            // only quantifiable when real C→T bilateral damage exists at 5'; SS-complement
+            // libraries have ch_b_quant=False and are not affected.
+            // The GA0 dominance guard (ga3 * 5 < ga0) excludes SS-orig libraries: they have
+            // real bilateral-looking channels (ch_b_quant=True, large GA3) but their GA3 decay
+            // is comparable to GA0 rather than being dwarfed by it.
+            const bool ga_spike_dominant = (ga3.delta_bic * 5.0 < ga0.delta_bic);
+            if (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED
+                && structural_bilateral && ga_spike_dominant) {
+                profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+                profile.library_type_rescued = true;
             }
             // Uninformative: if nothing beat M_bias (best unchanged), no damage channel
             // provided evidence for either DS or SS. Use exact equality — best is only
