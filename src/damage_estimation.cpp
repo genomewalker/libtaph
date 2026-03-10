@@ -184,15 +184,18 @@ static ChannelDecayFit fit_decay_fixed_lambda(
 
     ChannelDecayFit fit;
     fit.baseline = std::clamp(baseline, 0.001f, 0.999f);
-    fit.lambda   = std::clamp(lambda,   0.05f,  0.50f);
+    // Allow up to 10.0 to capture steep single-position spikes (e.g. adapter-truncated profiles).
+    fit.lambda   = std::clamp(lambda,   0.05f,  10.0f);
 
     // WLS amplitude: A_hat = max(0, Σ n·x·(y - b) / Σ n·x²)
+    // Basis is offset-normalised: x = exp(-lambda*(p-start_pos)) so that A is the amplitude
+    // at the first fitted position and large lambdas remain numerically well-conditioned.
     double numer = 0.0, denom = 0.0;
     int n_valid = 0;
     for (int p = start_pos; p <= end_pos && p < 15; ++p) {
         double n = coverage[p];
         if (n < 100.0) continue;
-        double x = std::exp(-fit.lambda * p);
+        double x = std::exp(-fit.lambda * (p - start_pos));
         numer += n * x * (freq[p] - fit.baseline);
         denom += n * x * x;
         fit.n_trials += static_cast<uint64_t>(n);
@@ -208,7 +211,7 @@ static ChannelDecayFit fit_decay_fixed_lambda(
         double n = coverage[p];
         if (n < 100.0) continue;
         double k     = freq[p] * n;
-        double x     = std::exp(-fit.lambda * p);
+        double x     = std::exp(-fit.lambda * (p - start_pos));
         double p_alt = std::clamp(static_cast<double>(fit.baseline + fit.amplitude * x), 0.001, 0.999);
         double p_null = std::clamp(static_cast<double>(fit.baseline), 0.001, 0.999);
         fit.log_lik_alt  += binomial_ll(k, n, p_alt);
@@ -251,13 +254,13 @@ static ChannelDecayFit fit_decay_fixed_lambda_joint(
 
     ChannelDecayFit fit;
     fit.baseline = std::clamp(baseline1, 0.001f, 0.999f);
-    fit.lambda   = std::clamp(lambda, 0.05f, 0.50f);
+    fit.lambda   = std::clamp(lambda, 0.05f, 10.0f);
 
-    // WLS joint amplitude summed over both channels
+    // WLS joint amplitude summed over both channels (offset-normalised basis)
     double numer = 0.0, denom = 0.0;
     int n_valid1 = 0, n_valid2 = 0;
     for (int p = start_pos; p <= end_pos && p < 15; ++p) {
-        double x = std::exp(-fit.lambda * p);
+        double x = std::exp(-fit.lambda * (p - start_pos));
         double n1 = cov1[p];
         if (n1 >= 100.0) {
             numer += n1 * x * (freq1[p] - baseline1);
@@ -282,7 +285,7 @@ static ChannelDecayFit fit_decay_fixed_lambda_joint(
 
     // Joint log-likelihoods at A_joint and at null (A=0) for both channels
     for (int p = start_pos; p <= end_pos && p < 15; ++p) {
-        double x = std::exp(-fit.lambda * p);
+        double x = std::exp(-fit.lambda * (p - start_pos));
         double n1 = cov1[p];
         if (n1 >= 100.0) {
             double k1    = freq1[p] * n1;
@@ -310,21 +313,26 @@ static ChannelDecayFit fit_decay_fixed_lambda_joint(
     return fit;
 }
 
-// Try start_pos in {1, 2, 3}; return the fit with the highest delta_bic and its winning offset.
-// Used to correct for adapter remnants that shift the biological damage signal inward.
+// Try start_pos in {1,2,3} × lambda in {caller_lambda, 2.0, 5.0, 10.0}.
+// Returns the fit with the highest delta_bic (best BIC improvement over null).
+// High-lambda templates capture single-position spikes caused by adapter remnants.
 // GA0 is always at pos 0 and must NOT use this helper.
 static std::pair<ChannelDecayFit, int> fit_decay_best_offset(
         const std::array<double, 15>& freq,
         const std::array<double, 15>& coverage,
         float baseline, float lambda,
         int end_pos = 10, int min_valid = 3) {
+    static constexpr float lambda_extra[] = {2.0f, 5.0f, 10.0f};
     ChannelDecayFit best;
     int best_offset = 1;
     for (int sp = 1; sp <= 3; ++sp) {
+        // Try caller's lambda
         ChannelDecayFit f = fit_decay_fixed_lambda(freq, coverage, baseline, lambda, sp, end_pos, min_valid);
-        if (f.valid && (!best.valid || f.delta_bic > best.delta_bic)) {
-            best = f;
-            best_offset = sp;
+        if (f.valid && (!best.valid || f.delta_bic > best.delta_bic)) { best = f; best_offset = sp; }
+        // Try steep-decay templates
+        for (float lam : lambda_extra) {
+            f = fit_decay_fixed_lambda(freq, coverage, baseline, lam, sp, end_pos, min_valid);
+            if (f.valid && (!best.valid || f.delta_bic > best.delta_bic)) { best = f; best_offset = sp; }
         }
     }
     if (!best.valid) {
@@ -335,18 +343,24 @@ static std::pair<ChannelDecayFit, int> fit_decay_best_offset(
 }
 
 // Joint offset search for the DS symmetric model (CT5 + GA3 share one amplitude).
+// Also iterates over high-lambda templates for consistency with the single-channel search.
 static std::pair<ChannelDecayFit, int> fit_decay_joint_best_offset(
         const std::array<double, 15>& freq1, const std::array<double, 15>& cov1, float baseline1,
         const std::array<double, 15>& freq2, const std::array<double, 15>& cov2, float baseline2,
-        float lambda, int end_pos = 10, int min_valid = 3) {
+        float lambda, int end_pos = 10, int min_valid = 3, bool restrict_high_lambda = false) {
+    static constexpr float lambda_extra[] = {2.0f, 5.0f, 10.0f};
     ChannelDecayFit best;
     int best_offset = 1;
     for (int sp = 1; sp <= 3; ++sp) {
         ChannelDecayFit f = fit_decay_fixed_lambda_joint(
             freq1, cov1, baseline1, freq2, cov2, baseline2, lambda, sp, end_pos, min_valid);
-        if (f.valid && (!best.valid || f.delta_bic > best.delta_bic)) {
-            best = f;
-            best_offset = sp;
+        if (f.valid && (!best.valid || f.delta_bic > best.delta_bic)) { best = f; best_offset = sp; }
+        if (!restrict_high_lambda) {
+            for (float lam : lambda_extra) {
+                f = fit_decay_fixed_lambda_joint(
+                    freq1, cov1, baseline1, freq2, cov2, baseline2, lam, sp, end_pos, min_valid);
+                if (f.valid && (!best.valid || f.delta_bic > best.delta_bic)) { best = f; best_offset = sp; }
+            }
         }
     }
     if (!best.valid) {
@@ -1797,12 +1811,16 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         ChannelDecayFit ga0 = fit_decay_fixed_lambda(
             profile.a_freq_3prime, profile.ag_total_3prime,
             static_cast<float>(baseline_ag), lambda_lib, 0, 0, 1);
-        // Symmetric DS model: offset search only when either end has artifact
+        // Symmetric DS model: offset search only when either end has artifact.
+        // Restrict high-lambda candidates when ga0 dominates ct5 (SS-complement indicator):
+        // the high-lambda CT5 fit should not inflate the DS joint BIC when the sample already
+        // shows a large GA0 spike (spike_is_ss-like pattern). ga0 is fit before this point.
+        const bool restrict_joint_lambda = (ga0.amplitude >= 0.10f && ga0.delta_bic > ct5.delta_bic);
         if (artifact_5 || artifact_3) {
             std::tie(ds_symm, ds_symm_offset) = fit_decay_joint_best_offset(
                 profile.t_freq_5prime, profile.tc_total_5prime, static_cast<float>(baseline_tc),
                 profile.a_freq_3prime, profile.ag_total_3prime, static_cast<float>(baseline_ag),
-                lambda_lib, 10);
+                lambda_lib, 10, 3, restrict_joint_lambda);
         } else {
             ds_symm = fit_decay_fixed_lambda_joint(
                 profile.t_freq_5prime, profile.tc_total_5prime, static_cast<float>(baseline_tc),
@@ -1859,7 +1877,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
             // ga0 amplitude distinguishes DS end-repair artifact (<0.10) from SS ligation spike (>=0.10)
             const bool spike_is_ss = (ga0.amplitude >= 0.10f);
-            const double best_ds = std::min({bic_M_DS_symm, bic_M_DS_symm_art,
+            const double best_ds = std::min({bic_M_DS_symm,
+                                             spike_is_ss ? 1e300 : bic_M_DS_symm_art,
                                              spike_is_ss ? 1e300 : bic_M_DS_spike});
             // M_SS_full excluded: 4-param model unfairly defeats M_DS_symm_art for asymmetric DS.
             // M_SS_asym only enters the SS set when spike_is_ss, preventing competition with M_DS_spike
@@ -1918,7 +1937,18 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // If DS wins but CT5 ΔBIC / GA3 ΔBIC < 0.50, the winning model's own symmetry
             // assumption is violated → reclassify as SS. Guard ga3.delta_bic > 3e4 to avoid
             // misfiring on low-damage DS libraries where small asymmetry is noise.
+            // Symmetry veto: DS won BIC, but GA3 >> CT5 asymmetry suggests SS.
+            // Only apply when there is positive biological evidence for SS orientation:
+            //   ga0.delta_bic > 1e4 — meaningful GA0 ligation spike (amplitude-independent,
+            //                         avoids false negatives from samples near the 0.10 amplitude
+            //                         threshold that spike_is_ss uses)
+            //   inverted_5prime     — 5' CT profile depressed below interior (SS adapter suppression)
+            // Without either, the asymmetry likely reflects 3'-adapter inflation of GA3_ΔBIC in a DS
+            // library (e.g., high-λ fit capturing sharp pos2+ GA3 decay after 3' adapter suppression).
+            const bool ss_orientation_evidence = (ga0.delta_bic > 1e4)
+                                              || profile.inverted_pattern_5prime;
             if (profile.library_type == SampleDamageProfile::LibraryType::DOUBLE_STRANDED &&
+                ss_orientation_evidence &&
                 ga3.delta_bic > 3e4 &&
                 ct5.delta_bic / ga3.delta_bic < 0.50) {
                 profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
@@ -1968,6 +1998,60 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             profile.library_bic_mix  = 0.0;
             profile.library_type = SampleDamageProfile::LibraryType::UNKNOWN;
         }
+
+        // Rescue rule: when BIC classification returns UNKNOWN due to known model
+        // misspecification (adapter artifact / composition bias) but empirical CT5 signal
+        // clearly shows ancient damage and SS-specific channels (GA0, CT3) are flat,
+        // classify as DS. Uses raw per-position rates (not BIC-fitted amplitudes) to
+        // avoid circularity. Effect-size thresholds (not z-scores) for depth robustness.
+        if (profile.library_type == SampleDamageProfile::LibraryType::UNKNOWN) {
+            const bool misspec = profile.composition_bias_5prime
+                              || profile.position_0_artifact_5prime
+                              || profile.fit_offset_5prime > 1;
+            if (misspec && profile.d_max_5prime >= 0.03f) {
+                // CT5 empirical excess: max T/(T+C) at pos 1-4 over baseline
+                float ct5_exc = 0.0f;
+                float n_ct5   = 1.0f;
+                for (int p = 1; p <= 4; ++p) {
+                    double ntc = profile.tc_total_5prime[p];
+                    if (ntc < 100.0) continue;
+                    float exc = static_cast<float>(profile.t_freq_5prime[p] / ntc)
+                              - static_cast<float>(baseline_tc);
+                    if (exc > ct5_exc) { ct5_exc = exc; n_ct5 = static_cast<float>(ntc); }
+                }
+                // GA0 empirical excess at 3' pos-0 (SS complement-orientation indicator)
+                float ga0_exc = 0.0f;
+                if (profile.ag_total_3prime[0] >= 100.0) {
+                    float ga0_rate = static_cast<float>(
+                        profile.a_freq_3prime[0] / profile.ag_total_3prime[0]);
+                    ga0_exc = std::max(0.0f, ga0_rate - static_cast<float>(baseline_ag));
+                }
+                // CT3 empirical excess at 3' pos 1-4 (SS original-orientation indicator)
+                float ct3_exc = 0.0f;
+                for (int p = 1; p <= 4; ++p) {
+                    double ntc3 = profile.tc_total_3prime[p];
+                    if (ntc3 < 100.0) continue;
+                    float exc = static_cast<float>(ctrl_freq_3p[p])
+                              - static_cast<float>(baseline_tc);
+                    if (exc > ct3_exc) ct3_exc = exc;
+                }
+                // Overdispersed lower-95 CI for ct5_exc: SE × 2× inflation factor.
+                // Avoids z-score dependence (which is depth-driven at 10M+ reads).
+                float p_hat    = ct5_exc + static_cast<float>(baseline_tc);
+                float se_od    = std::sqrt(p_hat * (1.0f - p_hat) / n_ct5) * 2.0f;
+                float lower95  = ct5_exc - 1.96f * se_od;
+
+                if (ct5_exc  >= 0.025f
+                    && lower95  >= 0.01f
+                    && ga0_exc  <= 0.01f
+                    && ct3_exc  <= 0.01f
+                    && std::max(ga0_exc, ct3_exc) <= 0.4f * ct5_exc) {
+                    profile.library_type         = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+                    profile.library_type_rescued = true;
+                }
+            }
+        }
+
         profile.library_type_auto_detected = true;
     }
 
@@ -2438,6 +2522,37 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             n_total += b.n_reads;
         }
         profile.mean_alignability = (n_total > 0) ? static_cast<float>(alignability_total / n_total) : 0.5f;
+    }
+
+    // Damage status: effect-size based, independent of library type.
+    // Must run after d_max_5prime/d_max_3prime are finalized (line ~2356+).
+    // t_freq_5prime[p] has been normalized to rate at line ~990, so use directly.
+    // tc_total_5prime[p] still holds raw T+C counts, used for SE calculation.
+    // Uses overdispersed CI (2× SE inflation) so depth alone doesn't drive PRESENT.
+    {
+        float dmax = std::max(profile.d_max_5prime, profile.d_max_3prime);
+        if (dmax >= 0.02f) {
+            float ct5_exc = 0.0f, n_ct5 = 1.0f;
+            for (int p = 1; p <= 4; ++p) {
+                double ntc = profile.tc_total_5prime[p];
+                if (ntc < 100.0) continue;
+                float exc = static_cast<float>(profile.t_freq_5prime[p])  // already a rate
+                          - static_cast<float>(baseline_tc);
+                if (exc > ct5_exc) { ct5_exc = exc; n_ct5 = static_cast<float>(ntc); }
+            }
+            if (ct5_exc > 0.0f && n_ct5 > 0.0f) {
+                float p_hat   = ct5_exc + static_cast<float>(baseline_tc);
+                float se_od   = std::sqrt(p_hat * (1.0f - p_hat) / n_ct5) * 2.0f;
+                float lower95 = ct5_exc - 1.96f * se_od;
+                profile.damage_status = (lower95 >= 0.01f)
+                    ? SampleDamageProfile::DamageStatus::PRESENT
+                    : SampleDamageProfile::DamageStatus::WEAK;
+            } else {
+                profile.damage_status = SampleDamageProfile::DamageStatus::WEAK;
+            }
+        } else {
+            profile.damage_status = SampleDamageProfile::DamageStatus::ABSENT;
+        }
     }
 }
 

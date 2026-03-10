@@ -130,6 +130,11 @@ struct SampleDamageProfile {
     LibraryType library_type = LibraryType::DOUBLE_STRANDED;  // Default to double-stranded
     LibraryType forced_library_type = LibraryType::UNKNOWN;  // User override (UNKNOWN = auto-detect)
     bool library_type_auto_detected = false;  // true when set by auto-detection, not user override
+    bool library_type_rescued = false;  // true when DS call recovered from BIC failure via rescue rule
+
+    // Damage status: independent of library type, based on effect size + confidence interval
+    enum class DamageStatus { ABSENT, WEAK, PRESENT };
+    DamageStatus damage_status = DamageStatus::ABSENT;
 
     // Inverted pattern: terminal T/(T+C) < interior (reference-free detection unreliable)
     bool inverted_pattern_5prime = false;  // 5' terminal T/(T+C) < interior
