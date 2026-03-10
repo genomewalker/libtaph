@@ -21,7 +21,7 @@ One-shot profile computation from a vector of sequences. Internally calls `reset
 
 | Name | Type | Description |
 |------|------|-------------|
-| `sequences` | `const std::vector<std::string>&` | DNA sequences (ACGT, any length ≥ 20) |
+| `sequences` | `const std::vector<std::string>&` | DNA sequences (ACGT). Reliable estimation requires enough read length and coverage to define both terminal (positions 0–14) and interior (positions 30 to L-30) regions. |
 
 **Returns** A fully populated `SampleDamageProfile`. Call `profile.is_valid()` to check whether enough reads were processed (≥ 1000).
 
@@ -35,7 +35,9 @@ static void update_sample_profile(
     const std::string& seq);
 ```
 
-Accumulate one read into `profile`. Thread-safe per profile object (not across profiles).
+Accumulate one read into `profile`.
+
+Safe parallel pattern: update separate `SampleDamageProfile` objects in parallel threads, then merge them on the main thread with `merge_sample_profiles`. Do not call this on the same profile object from multiple threads without external synchronization.
 
 ---
 
@@ -82,9 +84,9 @@ Merge raw counts from `src` into `dst`. Useful for parallel accumulation. Call `
 static void reset_sample_profile(SampleDamageProfile& profile);
 ```
 
-Zero all counters and reset Channel A, Channel B (5'), joint model, and mixture model fields. Use before reusing a profile object for a new sample.
+Zero the main accumulators used by standard damage estimation and library classification.
 
-> **Note:** Channel B₃′, Channel C, Channel D, GC histogram, and alignability accumulator arrays are **not** explicitly reset. Reusing a profile via `reset_sample_profile` followed by `update_sample_profile` calls will leave those fields with stale values. For a guaranteed clean state, construct a new `SampleDamageProfile()` (zero-initialized) instead.
+> **Important:** `reset_sample_profile` does not currently clear every auxiliary diagnostic accumulator — including Channel B₃′/C/D/E, GC-stratified, and alignability-weighted fields. For guaranteed clean reuse, prefer constructing a fresh `SampleDamageProfile{}` (zero-initialized) rather than calling `reset_sample_profile` on a previously populated object.
 
 ---
 
@@ -167,12 +169,14 @@ Available after `finalize_sample_profile`. Requires at least one GC bin with suf
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `damage_validated` | `bool` | Channel A and B agree |
-| `damage_artifact` | `bool` | Channel A fires, Channel B contradicts |
-| `terminal_inversion` | `bool` | Terminal damage rate < interior (detection unreliable) |
-| `composition_bias_5prime/3prime` | `bool` | Control channel comparable to damage channel, likely bias |
+| `damage_validated` | `bool` | Joint model evidence supports genuine terminal deamination |
+| `damage_artifact` | `bool` | Channel A-like enrichment is present, but joint evidence indicates composition/artifact rather than real damage |
+| `terminal_inversion` | `bool` | Summary flag: terminal damage rate < interior at either end |
+| `inverted_pattern_5prime` / `inverted_pattern_3prime` | `bool` | End-specific terminal depletion flags |
+| `position_0_artifact_5prime` / `position_0_artifact_3prime` | `bool` | Position-0 depletion with downstream enrichment; likely adapter/ligation artifact |
+| `composition_bias_5prime` / `composition_bias_3prime` | `bool` | Control channel rises with the damage channel, suggesting compositional rather than damage-driven enrichment |
 | `is_valid()` | `bool` | `n_reads >= 1000` |
-| `is_detection_unreliable()` | `bool` | Any inversion or composition bias flag is set |
+| `is_detection_unreliable()` | `bool` | `true` when inversion or composition-bias flags indicate unreliable reference-free detection |
 
 ### Utility functions
 
