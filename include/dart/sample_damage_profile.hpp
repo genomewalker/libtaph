@@ -148,6 +148,14 @@ struct SampleDamageProfile {
     float fit_rmse_5prime = 0.0f;
     float fit_rmse_3prime = 0.0f;
 
+    // Detected adapter offset: start_pos that gave the best BIC channel fit.
+    // 1 = no adapter (default); 2 = 1-bp adapter remnant shifted signal to pos 1;
+    // 3 = 2-bp adapter remnant shifted signal to pos 2.
+    // Used to correct d_max estimation when terminal positions carry adapter sequence
+    // rather than biological damage signal.
+    int fit_offset_5prime = 1;
+    int fit_offset_3prime = 1;
+
     // Calibrated D_max values (comparable to metaDMG)
     // D = A / (1 - b), the fraction of C that became T
     float d_max_5prime = 0.0f;  // Calibrated D_max for 5' end
@@ -320,6 +328,13 @@ struct SampleDamageProfile {
     float ox_d_max = 0.0f;
     bool ox_damage_detected = false;
     bool ox_is_artifact = false;
+
+    // GT exponential-background fit: GT(p) = A*exp(-mu*p) + B
+    // B = uniform background (8-oxoG estimate); A = terminal excess (artifact)
+    float g_bg_fitted  = 0.0f;   // B: uniform G→T background
+    float g_term_fitted = 0.0f;  // A: terminal excess
+    float g_decay_fitted = 0.0f; // mu: terminal decay rate
+    float s_gt = 0.0f;           // B - ox_ca_baseline: Chargaff contrast (signal for SS; ~0 for DS)
 
     // Channel E: depurination (purine loss at strand breaks)
     float purine_rate_terminal_5prime = 0.0f;

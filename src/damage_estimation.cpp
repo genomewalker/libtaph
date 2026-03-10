@@ -310,6 +310,53 @@ static ChannelDecayFit fit_decay_fixed_lambda_joint(
     return fit;
 }
 
+// Try start_pos in {1, 2, 3}; return the fit with the highest delta_bic and its winning offset.
+// Used to correct for adapter remnants that shift the biological damage signal inward.
+// GA0 is always at pos 0 and must NOT use this helper.
+static std::pair<ChannelDecayFit, int> fit_decay_best_offset(
+        const std::array<double, 15>& freq,
+        const std::array<double, 15>& coverage,
+        float baseline, float lambda,
+        int end_pos = 10, int min_valid = 3) {
+    ChannelDecayFit best;
+    int best_offset = 1;
+    for (int sp = 1; sp <= 3; ++sp) {
+        ChannelDecayFit f = fit_decay_fixed_lambda(freq, coverage, baseline, lambda, sp, end_pos, min_valid);
+        if (f.valid && (!best.valid || f.delta_bic > best.delta_bic)) {
+            best = f;
+            best_offset = sp;
+        }
+    }
+    if (!best.valid) {
+        best = fit_decay_fixed_lambda(freq, coverage, baseline, lambda, 1, end_pos, min_valid);
+        best_offset = 1;
+    }
+    return {best, best_offset};
+}
+
+// Joint offset search for the DS symmetric model (CT5 + GA3 share one amplitude).
+static std::pair<ChannelDecayFit, int> fit_decay_joint_best_offset(
+        const std::array<double, 15>& freq1, const std::array<double, 15>& cov1, float baseline1,
+        const std::array<double, 15>& freq2, const std::array<double, 15>& cov2, float baseline2,
+        float lambda, int end_pos = 10, int min_valid = 3) {
+    ChannelDecayFit best;
+    int best_offset = 1;
+    for (int sp = 1; sp <= 3; ++sp) {
+        ChannelDecayFit f = fit_decay_fixed_lambda_joint(
+            freq1, cov1, baseline1, freq2, cov2, baseline2, lambda, sp, end_pos, min_valid);
+        if (f.valid && (!best.valid || f.delta_bic > best.delta_bic)) {
+            best = f;
+            best_offset = sp;
+        }
+    }
+    if (!best.valid) {
+        best = fit_decay_fixed_lambda_joint(
+            freq1, cov1, baseline1, freq2, cov2, baseline2, lambda, 1, end_pos, min_valid);
+        best_offset = 1;
+    }
+    return {best, best_offset};
+}
+
 void FrameSelector::update_sample_profile(
     SampleDamageProfile& profile,
     const std::string& seq) {
@@ -559,11 +606,25 @@ void FrameSelector::update_sample_profile(
         }
     }
 
-    // Channel D: G count at 5' end for G→T asymmetry tracking
+    // Channel D: G→T and C→A transversion tracking (8-oxoG, Chargaff-balance cross-check).
+    // Accumulate raw G, T, C, A counts at 5' terminal positions (0-14).
+    // T/(T+G) and A/(A+C) at interior vs terminal positions detect G→T oxidation without alignment.
     for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
         char base = fast_upper(seq[i]);
-        if (base == 'G') {
-            profile.g_count_5prime[i]++;
+        if      (base == 'G') profile.g_count_5prime[i]++;
+        else if (base == 'T') profile.t_from_g_5prime[i]++;
+        if      (base == 'C') profile.c_count_ox_5prime[i]++;
+        else if (base == 'A') profile.a_from_c_5prime[i]++;
+    }
+    // Interior baseline: T/(T+G) and A/(A+C) in middle third (undamaged reference).
+    {
+        size_t mid_s = len / 3, mid_e = 2 * len / 3;
+        for (size_t i = mid_s; i < mid_e; ++i) {
+            char base = fast_upper(seq[i]);
+            if      (base == 'G') profile.baseline_g_total++;
+            else if (base == 'T') profile.baseline_g_to_t_count++;
+            if      (base == 'C') profile.baseline_c_ox_total++;
+            else if (base == 'A') profile.baseline_c_to_a_count++;
         }
     }
 
@@ -1211,7 +1272,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
         if (profile.channel_c_valid && elevated && uniform) {
             profile.ox_damage_detected = true;
-            profile.ox_d_max = std::max(0.0f, ox_stop_excess * 100.0f);  // Convert to percentage
+            profile.ox_d_max = std::max(0.0f, ox_stop_excess);  // fraction [0,1], consistent with other d_max fields
         }
 
         // Terminal much higher than interior suggests deamination cross-contamination, not true G→T
@@ -1226,11 +1287,118 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         }
     }
 
-    // Channel D: G→T asymmetry inferred from Channel C stop codon data
-    // (reference-free; cannot directly measure G→T vs T→G without alignment)
+    // Channel D: Chargaff-balance G→T / C→A oxidation estimate.
+    // Reference-free: under no damage, T/(T+G) ≈ A/(A+C) (Chargaff) and terminal ≈ interior.
+    // 8-oxoG converts G→T uniformly, raising T/(T+G) above A/(A+C) throughout reads.
     {
-        if (profile.channel_c_valid) {
-            profile.ox_gt_asymmetry = profile.ox_uniformity_ratio;
+        // Interior baseline T/(T+G) and A/(A+C)
+        double gt_base_total = profile.baseline_g_total + profile.baseline_g_to_t_count;
+        double ca_base_total = profile.baseline_c_ox_total + profile.baseline_c_to_a_count;
+        if (gt_base_total >= 500.0) {
+            profile.ox_gt_baseline = static_cast<float>(profile.baseline_g_to_t_count / gt_base_total);
+        }
+        if (ca_base_total >= 500.0) {
+            profile.ox_ca_baseline = static_cast<float>(profile.baseline_c_to_a_count / ca_base_total);
+        }
+
+        // T/(T+G) at positions 0-4 (terminal) and 5-14 (mid-read)
+        double t_term = 0, g_term = 0, t_mid = 0, g_mid = 0;
+        for (int p = 0; p < 5; ++p)  { t_term += profile.t_from_g_5prime[p]; g_term += profile.g_count_5prime[p]; }
+        for (int p = 5; p < 15; ++p) { t_mid  += profile.t_from_g_5prime[p]; g_mid  += profile.g_count_5prime[p]; }
+        if (t_term + g_term >= 200.0) profile.ox_gt_rate_terminal = static_cast<float>(t_term / (t_term + g_term));
+        if (t_mid  + g_mid  >= 200.0) {
+            profile.ox_gt_rate_interior = static_cast<float>(t_mid / (t_mid + g_mid));
+            if (profile.ox_gt_rate_interior > 0.001f && profile.ox_gt_rate_terminal > 0.0f)
+                profile.ox_gt_uniformity = profile.ox_gt_rate_terminal / profile.ox_gt_rate_interior;
+        }
+
+        // A/(A+C) at positions 0-4 (terminal) and 5-14 (mid-read)
+        double a_term = 0, c_term = 0, a_mid = 0, c_mid = 0;
+        for (int p = 0; p < 5; ++p)  { a_term += profile.a_from_c_5prime[p]; c_term += profile.c_count_ox_5prime[p]; }
+        for (int p = 5; p < 15; ++p) { a_mid  += profile.a_from_c_5prime[p]; c_mid  += profile.c_count_ox_5prime[p]; }
+        if (a_term + c_term >= 200.0) profile.ox_ca_rate_terminal = static_cast<float>(a_term / (a_term + c_term));
+        if (a_mid  + c_mid  >= 200.0) {
+            profile.ox_ca_rate_interior = static_cast<float>(a_mid / (a_mid + c_mid));
+            if (profile.ox_ca_rate_interior > 0.001f && profile.ox_ca_rate_terminal > 0.0f)
+                profile.ox_ca_uniformity = profile.ox_ca_rate_terminal / profile.ox_ca_rate_interior;
+        }
+
+        // Chargaff asymmetry: excess T/(T+G) over A/(A+C) at interior (= Chargaff deviation)
+        if (gt_base_total >= 500.0 && ca_base_total >= 500.0)
+            profile.ox_gt_asymmetry = profile.ox_gt_baseline - profile.ox_ca_baseline;
+    }
+
+    // GT exponential-background fit: GT(p) = A*exp(-mu*p) + B
+    // B is the uniform background (8-oxoG rate); A is the terminal artifact.
+    // Mirrors the C→T deamination model, extracting the position-independent component.
+    // For SS: s_gt = B - ox_ca_baseline is a valid 8-oxoG signal (no Chargaff cancellation).
+    // For DS: B and A/(A+C) both increase with 8-oxoG, so s_gt ≈ 0; report B directly.
+    {
+        float y[15] = {}, w[15] = {};
+        float total_w = 0;
+        for (int p = 0; p < 15; ++p) {
+            double tot = profile.t_from_g_5prime[p] + profile.g_count_5prime[p];
+            if (tot > 10.0) {
+                w[p] = (float)tot;
+                y[p] = (float)(profile.t_from_g_5prime[p] / tot);
+            }
+            total_w += w[p];
+        }
+
+        if (total_w >= 200.0f) {
+            static constexpr float mu_grid[] = {0.05f, 0.1f, 0.2f, 0.3f, 0.5f, 0.7f, 1.0f, 1.5f, 2.0f, 3.0f};
+            float best_sse = 1e30f, best_A = 0.0f, best_mu = 0.3f, best_B = 0.0f;
+
+            for (float mu : mu_grid) {
+                float sx2=0, sx=0, sxy=0, sy=0, sw=0;
+                for (int p = 0; p < 15; ++p) {
+                    if (w[p] == 0) continue;
+                    float x = std::exp(-mu * p);
+                    sx2 += w[p] * x * x;
+                    sx  += w[p] * x;
+                    sxy += w[p] * x * y[p];
+                    sy  += w[p] * y[p];
+                    sw  += w[p];
+                }
+                float det = sx2*sw - sx*sx;
+                if (std::abs(det) < 1e-12f) continue;
+                float A = (sxy*sw - sy*sx) / det;
+                float B = (sx2*sy - sx*sxy) / det;
+                A = std::max(0.0f, A);
+                B = std::max(0.0f, std::min(0.5f, B));
+
+                float sse = 0;
+                for (int p = 0; p < 15; ++p) {
+                    if (w[p] == 0) continue;
+                    float res = y[p] - A * std::exp(-mu * p) - B;
+                    sse += w[p] * res * res;
+                }
+                if (sse < best_sse) {
+                    best_sse = sse;
+                    best_A = A; best_mu = mu; best_B = B;
+                }
+            }
+
+            profile.g_bg_fitted   = best_B;
+            profile.g_term_fitted  = best_A;
+            profile.g_decay_fitted = best_mu;
+            if (profile.ox_ca_baseline > 0.0f)
+                profile.s_gt = best_B - profile.ox_ca_baseline;
+
+            // Update detection: model-based uniform G→T signal replaces codon-based Channel C.
+            // For SS: s_gt > threshold (Chargaff contrast valid because no complementary strand).
+            // For DS: B elevated above ca_baseline indicates library-level oxidation.
+            const bool is_ss_lib = (profile.library_type ==
+                                    dart::SampleDamageProfile::LibraryType::SINGLE_STRANDED);
+            float signal    = profile.s_gt;
+            float threshold = is_ss_lib ? 0.004f : 0.006f;
+
+            // Require the terminal component to also be non-trivial (rules out flat noise)
+            bool has_data   = total_w >= 500.0f;
+            bool elevated   = signal > threshold;
+            bool not_inverted = best_A >= 0.0f;
+
+            profile.ox_damage_detected = has_data && elevated && not_inverted;
         }
     }
 
@@ -1595,24 +1763,77 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         // Joint BIC = sum of per-channel BICs (bic_alt for alt channels, bic_null for null).
         // M_DS_symm uses 1 free parameter for both ct5+ga3; all other models use per-channel params.
         // Winner = lowest joint BIC. No post-hoc thresholds.
-        ChannelDecayFit ct5 = fit_decay_fixed_lambda(
-            profile.t_freq_5prime, profile.tc_total_5prime,
-            static_cast<float>(baseline_tc), lambda_lib, 1, 10);
-        ChannelDecayFit ga3 = fit_decay_fixed_lambda(
-            profile.a_freq_3prime, profile.ag_total_3prime,
-            static_cast<float>(baseline_ag), lambda_lib, 1, 10);
-        // ga0: single-position fit at 3' pos-0; min_valid=1 to allow 1-point fit
+        // Offset search: only applied when an adapter artifact or terminal inversion was detected
+        // (position_0_artifact or inverted_pattern). For normal samples always use start_pos=1
+        // to avoid perturbing the BIC scores used in library-type classification.
+        const bool artifact_5 = profile.position_0_artifact_5prime || profile.inverted_pattern_5prime;
+        const bool artifact_3 = profile.position_0_artifact_3prime || profile.inverted_pattern_3prime;
+        ChannelDecayFit ct5;  int ct5_offset = 1;
+        ChannelDecayFit ga3;  int ga3_offset = 1;
+        ChannelDecayFit ct3;  int ct3_offset = 1;
+        ChannelDecayFit ds_symm;  int ds_symm_offset = 1;
+        if (artifact_5) {
+            std::tie(ct5, ct5_offset) = fit_decay_best_offset(
+                profile.t_freq_5prime, profile.tc_total_5prime,
+                static_cast<float>(baseline_tc), lambda_lib, 10);
+        } else {
+            ct5 = fit_decay_fixed_lambda(profile.t_freq_5prime, profile.tc_total_5prime,
+                static_cast<float>(baseline_tc), lambda_lib, 1, 10);
+        }
+        if (artifact_3) {
+            std::tie(ga3, ga3_offset) = fit_decay_best_offset(
+                profile.a_freq_3prime, profile.ag_total_3prime,
+                static_cast<float>(baseline_ag), lambda_lib, 10);
+            std::tie(ct3, ct3_offset) = fit_decay_best_offset(
+                ctrl_freq_3p, ctrl_total_3p,
+                static_cast<float>(baseline_tc), lambda_lib, 10);
+        } else {
+            ga3 = fit_decay_fixed_lambda(profile.a_freq_3prime, profile.ag_total_3prime,
+                static_cast<float>(baseline_ag), lambda_lib, 1, 10);
+            ct3 = fit_decay_fixed_lambda(ctrl_freq_3p, ctrl_total_3p,
+                static_cast<float>(baseline_tc), lambda_lib, 1, 10);
+        }
+        // ga0: single-position fit at 3' pos-0; no offset search (it IS the pos-0 spike signal)
         ChannelDecayFit ga0 = fit_decay_fixed_lambda(
             profile.a_freq_3prime, profile.ag_total_3prime,
             static_cast<float>(baseline_ag), lambda_lib, 0, 0, 1);
-        ChannelDecayFit ct3 = fit_decay_fixed_lambda(
-            ctrl_freq_3p, ctrl_total_3p,
-            static_cast<float>(baseline_tc), lambda_lib, 1, 10);
-        // Symmetric DS model: ct5 and ga3 jointly fitted with one shared amplitude
-        ChannelDecayFit ds_symm = fit_decay_fixed_lambda_joint(
-            profile.t_freq_5prime, profile.tc_total_5prime, static_cast<float>(baseline_tc),
-            profile.a_freq_3prime, profile.ag_total_3prime, static_cast<float>(baseline_ag),
-            lambda_lib, 1, 10);
+        // Symmetric DS model: offset search only when either end has artifact
+        if (artifact_5 || artifact_3) {
+            std::tie(ds_symm, ds_symm_offset) = fit_decay_joint_best_offset(
+                profile.t_freq_5prime, profile.tc_total_5prime, static_cast<float>(baseline_tc),
+                profile.a_freq_3prime, profile.ag_total_3prime, static_cast<float>(baseline_ag),
+                lambda_lib, 10);
+        } else {
+            ds_symm = fit_decay_fixed_lambda_joint(
+                profile.t_freq_5prime, profile.tc_total_5prime, static_cast<float>(baseline_tc),
+                profile.a_freq_3prime, profile.ag_total_3prime, static_cast<float>(baseline_ag),
+                lambda_lib, 1, 10);
+        }
+
+        // Store detected offsets; use the single-channel offsets as the canonical per-end values
+        // (ds_symm_offset is derived from the joint fit and may differ from individual channels)
+        profile.fit_offset_5prime = ct5_offset;
+        profile.fit_offset_3prime = ga3_offset;
+
+        // When adapter artifact or terminal inversion is detected, scan positions 1-5 for the peak
+        // damage rate. Using damage_rate[fit_offset] is unreliable because the BIC-best offset may
+        // point to a position still below baseline (e.g. BPN103cm: fit_offset=3 but pos3 < bg,
+        // while actual biological damage is at pos1). Scan-for-peak handles all shift lengths.
+        if (profile.position_0_artifact_5prime || profile.inverted_pattern_5prime) {
+            float peak = 0.0f;
+            for (int p = 1; p <= 5 && p < 15; ++p) {
+                if (profile.damage_rate_5prime[p] > peak) peak = profile.damage_rate_5prime[p];
+            }
+            if (peak > 0.0f) profile.max_damage_5prime = peak;
+        }
+        if (profile.position_0_artifact_3prime || profile.inverted_pattern_3prime) {
+            float peak = 0.0f;
+            for (int p = 1; p <= 5 && p < 15; ++p) {
+                if (profile.damage_rate_3prime[p] > peak) peak = profile.damage_rate_3prime[p];
+            }
+            if (peak > 0.0f) profile.max_damage_3prime = peak;
+        }
+        (void)ct3_offset; (void)ds_symm_offset;
 
         profile.libtype_amp_ct5  = ct5.amplitude;
         profile.libtype_amp_ga3  = ga3.amplitude;
@@ -1813,8 +2034,28 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     // Channel B is the independent validator: T/(T+C) elevation can come from composition OR damage,
     // but stop conversions in CAA/CAG/CGA contexts can only come from real C→T damage.
     {
-        float raw_d_max_5prime = std::clamp(profile.damage_rate_5prime[0], 0.0f, 1.0f);
-        float raw_d_max_3prime = std::clamp(profile.damage_rate_3prime[0], 0.0f, 1.0f);
+        // Scan positions 1-5 for peak damage rate when adapter artifact or inversion detected.
+        // Using damage_rate[0] fails when pos 0 carries adapter artifact (below baseline);
+        // using damage_rate[fit_offset] fails when BIC-best offset points to a below-baseline pos.
+        float raw_d_max_5prime, raw_d_max_3prime;
+        if (profile.position_0_artifact_5prime || profile.inverted_pattern_5prime) {
+            float peak = 0.0f;
+            for (int p = 1; p <= 5 && p < 15; ++p) {
+                if (profile.damage_rate_5prime[p] > peak) peak = profile.damage_rate_5prime[p];
+            }
+            raw_d_max_5prime = peak;
+        } else {
+            raw_d_max_5prime = std::clamp(profile.damage_rate_5prime[0], 0.0f, 1.0f);
+        }
+        if (profile.position_0_artifact_3prime || profile.inverted_pattern_3prime) {
+            float peak = 0.0f;
+            for (int p = 1; p <= 5 && p < 15; ++p) {
+                if (profile.damage_rate_3prime[p] > peak) peak = profile.damage_rate_3prime[p];
+            }
+            raw_d_max_3prime = peak;
+        } else {
+            raw_d_max_3prime = std::clamp(profile.damage_rate_3prime[0], 0.0f, 1.0f);
+        }
 
 
         float d_sum = raw_d_max_5prime + raw_d_max_3prime;
@@ -2114,10 +2355,17 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 profile.d_max_combined = profile.d_max_5prime;
                 profile.d_max_source = SampleDamageProfile::DmaxSource::FIVE_PRIME_ONLY;
             } else if (profile.inverted_pattern_5prime && profile.inverted_pattern_3prime) {
-                profile.d_max_5prime = 0.0f;
-                profile.d_max_3prime = 0.0f;
-                profile.d_max_combined = 0.0f;
-                profile.d_max_source = SampleDamageProfile::DmaxSource::NONE;
+                // Both ends inverted: normally zero everything (no reliable Channel A signal).
+                // Exception: if adapter offset was detected on either end, the scan-for-peak
+                // already found the biological damage in pos 1-5. Preserve those values.
+                bool has_adapter_5 = profile.position_0_artifact_5prime || profile.fit_offset_5prime > 1;
+                bool has_adapter_3 = profile.position_0_artifact_3prime || profile.fit_offset_3prime > 1;
+                if (!has_adapter_5 && !has_adapter_3) {
+                    profile.d_max_5prime = 0.0f;
+                    profile.d_max_3prime = 0.0f;
+                    profile.d_max_combined = 0.0f;
+                    profile.d_max_source = SampleDamageProfile::DmaxSource::NONE;
+                }
             }
         }
 
@@ -2256,8 +2504,16 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         dst.convertible_taa_ox_5prime[i] += src.convertible_taa_ox_5prime[i];
         dst.convertible_gga_5prime[i] += src.convertible_gga_5prime[i];
         dst.convertible_tga_ox_5prime[i] += src.convertible_tga_ox_5prime[i];
-        dst.g_count_5prime[i] += src.g_count_5prime[i];
+        dst.g_count_5prime[i]    += src.g_count_5prime[i];
+        dst.t_from_g_5prime[i]  += src.t_from_g_5prime[i];
+        dst.c_count_ox_5prime[i]+= src.c_count_ox_5prime[i];
+        dst.a_from_c_5prime[i]  += src.a_from_c_5prime[i];
     }
+    dst.baseline_g_to_t_count  += src.baseline_g_to_t_count;
+    dst.baseline_g_total       += src.baseline_g_total;
+    dst.baseline_c_to_a_count  += src.baseline_c_to_a_count;
+    dst.baseline_c_ox_total    += src.baseline_c_ox_total;
+
     dst.convertible_gag_interior += src.convertible_gag_interior;
     dst.convertible_tag_ox_interior += src.convertible_tag_ox_interior;
     dst.convertible_gaa_interior += src.convertible_gaa_interior;
@@ -2455,6 +2711,9 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.mixture_pi_ancient = 0.0f;
     profile.mixture_bic = 0.0f;
     profile.mixture_converged = false;
+
+    profile.fit_offset_5prime = 1;
+    profile.fit_offset_3prime = 1;
 
     profile.n_reads = 0;
 }
