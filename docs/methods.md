@@ -1,97 +1,132 @@
 # Methods
 
-libdart-damage builds a sample profile in two phases. During `update_sample_profile`, it accumulates terminal and interior counts from raw reads. During `finalize_sample_profile`, it converts those counts into derived estimates in this order: joint damage validation, library-type classification, GC-stratified mixture modelling, and final `d_max` selection. The sections below follow that execution order while keeping the underlying mathematical model explicit.
+libdart-damage estimates ancient-DNA damage directly from raw reads, without alignment or a reference genome. That makes the method useful early in a workflow, but it also creates an identifiability problem: terminal base composition, library preparation, and genuine post-mortem damage can all produce superficially similar sequence patterns. The implementation therefore does not rely on a single signal. Instead, it accumulates several terminal and interior summaries during `update_sample_profile`, then converts those summaries into derived estimates during `finalize_sample_profile` in this order: joint damage validation, library-type classification, GC-stratified mixture modelling, and final `d_max` selection.
+
+The sections below follow that execution order. The emphasis is not only on what the code computes, but on why each stage is needed and what ambiguity it resolves.
 
 ## Per-position accumulation and baseline estimation
 
-libdart-damage scans each read and accumulates base counts at the first and last 15 positions. For each position $p$:
+The raw material for all downstream inference is a set of terminal and interior counts accumulated directly from reads. For each read, libdart-damage inspects the first and last 15 positions and records the base combinations relevant to deamination and its controls. The goal at this stage is deliberately simple: count what is observed at the termini, count what is observed away from the termini, and postpone interpretation until enough evidence has accumulated.
 
-- **5' damage channel (ct5)**: $r_p = T_p / (T_p + C_p)$, excess T where C expected
-- **3' damage channel (ga3)**: $r_p = A_p / (A_p + G_p)$, excess A where G expected
-- **5' control channel**: $A_p / (A_p + G_p)$ at 5' end, should be flat if ct5 is real
-- **3' control channel (ct3)**: $T_p / (T_p + C_p)$ at 3' end, carries SS original-orientation signal
+For each terminal position $p$:
 
-The middle third of each read (positions 30 to $L-30$) provides the background baseline $b$.
+- **5' damage channel (ct5)**: $r_p = T_p / (T_p + C_p)$, excess T where C is expected
+- **3' damage channel (ga3)**: $r_p = A_p / (A_p + G_p)$, excess A where G is expected
+- **5' control channel**: $A_p / (A_p + G_p)$ at the 5' end, which should remain flat if the 5' C→T signal is genuine deamination rather than composition bias
+- **3' control channel (ct3)**: $T_p / (T_p + C_p)$ at the 3' end, which acts as a negative control in DS libraries but becomes a biologically meaningful SS signal when the original strand is sequenced
 
-WLS amplitude estimation uses the fixed decay rate $\hat\lambda$ estimated from these accumulated terminal profiles:
+The interior of the read provides the undamaged reference state. libdart-damage uses the middle third of each read (positions 30 to $L-30$) to estimate the background rate $b$. This region is far enough from the termini to be largely insensitive to terminal overhang damage, but still reflects the sample's intrinsic sequence composition. In a reference-free setting this interior baseline is essential: the method does not ask whether a specific read differs from a reference genome, but whether terminal positions deviate from that sample's own interior composition.
+
+These per-position ratios are later summarized with a weighted least-squares (WLS) amplitude estimate using a fixed decay rate $\hat\lambda$:
 
 $$\hat{A} = \max\!\left(0,\; \frac{\sum_p n_p \cdot e^{-\hat\lambda p} \cdot (r_p - b)}{\sum_p n_p \cdot e^{-2\hat\lambda p}}\right)$$
 
-where $n_p$ is coverage (T+C count) at position $p$.
+where $n_p$ is the coverage at terminal position $p$. Intuitively, this expression asks whether terminal positions that ought to carry the strongest damage signal are systematically elevated above the interior baseline, while giving more weight to positions with more observations. The WLS estimate is not the whole method; it is one summary of a richer terminal pattern that is cross-checked later against composition controls and codon-based evidence.
 
 ---
 
 ## Damage model
 
-With terminal and interior counts in hand, libdart-damage models ancient-DNA deamination as an exponential decay from the read terminus. In double-stranded libraries this produces C→T substitutions at the 5' end and G→A substitutions at the 3' end (the complement of C→T on the opposite strand):
+Once terminal and interior counts have been accumulated, libdart-damage models ancient-DNA deamination as a terminal process that decays inward from each end of the fragment. In double-stranded libraries this appears as C→T excess at the 5' end and G→A excess at the 3' end, because the complementary strand carries the same damaged cytosines as G→A when read in the opposite orientation.
+
+The terminal signal is modelled as
 
 $$\delta(p) = b + A \cdot e^{-\lambda p}$$
 
-where $p$ is the distance from the read terminus (0-indexed), $b$ is the background (interior) substitution rate, $A$ is the damage amplitude, and $\lambda$ is the decay constant.
+where:
 
-D_max is the calibrated damage estimate at position 0:
+- $p$ is distance from the terminus (0-indexed)
+- $b$ is the interior background rate
+- $A$ is the terminal excess above that background
+- $\lambda$ is the decay constant that controls how rapidly the excess disappears with distance from the end
+
+The role of this equation is not just descriptive. It encodes the central biological assumption of the method: genuine terminal damage should be strongest at the edge of the fragment and should decay smoothly inward, whereas many confounders either remain flat or fail to reproduce the same decay in independent channels.
+
+To report a quantity comparable to mapDamage and metaDMG, libdart-damage converts the fitted amplitude into a calibrated terminal damage rate,
 
 $$D_{\max} = \frac{A}{1 - b}$$
 
-This matches the definition used by metaDMG and mapDamage.
+which estimates the fraction of terminal C sites that were converted to T after accounting for the fact that some T is already expected from background composition. In other words, $A$ measures absolute excess, whereas $D_{\max}$ rescales that excess into a biologically interpretable fraction of damage-susceptible sites.
 
 ---
 
 ## Multi-channel validation
 
-The first major inference step in `finalize_sample_profile` asks whether apparent terminal C→T enrichment is genuine damage or a compositional artefact. Conceptually, libdart-damage validates terminal C→T damage by asking whether Channel A (terminal nucleotide excess) is supported by Channel B (composition-robust stop-codon conversion). Operationally, the implementation fits a joint model over three observed 5' signals — Channel A (T/(T+C)), the 5' control channel (A/(A+G)), and Channel B (stop/(pre+stop)) — that simultaneously estimates genuine deamination (`delta_max`) and composition artefact (`a_max`).
+The first major inference step in `finalize_sample_profile` asks a question that is specific to reference-free damage estimation: is terminal T enrichment actually ancient-DNA damage, or is it simply a compositional feature of the reads? A single nucleotide-frequency channel cannot answer that reliably, because elevated terminal T/(T+C) can arise from real C→T deamination or from a terminal sequence bias unrelated to damage.
 
-Six biochemical channels are tracked in total:
+libdart-damage addresses this by evaluating several independent biochemical channels. Some channels are primary evidence for deamination, while others act as controls or orthogonal diagnostics.
 
 | Channel | Signal | Notes |
 |---------|--------|-------|
 | A | C→T rate per position | Primary deamination channel |
-| B | Stop codon conversion (CAA/CAG/CGA → TAA/TAG/TGA) at 5' | Sequence-composition-independent |
+| B | Stop codon conversion (CAA/CAG/CGA → TAA/TAG/TGA) at 5' | Sequence-composition-independent validation |
 | B₃′ | Stop codon conversion via G→A at 3' (TGG → TAG/TGA) | Validates SS 3' damage |
-| C | G→T transversions (8-oxoG) via stop codon uniformity | Uniform across read; non-exponential distinguishes from deamination |
-| D | G→T / C→A direct transversion rates | Terminal/interior ratio confirms genuine 8-oxoG vs. artefact |
-| E | Purine enrichment at 5' termini (depurination) | AP-site fragmentation; evidence of ancient origin independent of deamination |
+| C | G→T transversions (8-oxoG) via stop codon uniformity | Uniform across read; distinguishes oxidation from terminal deamination |
+| D | G→T / C→A direct transversion rates | Terminal/interior contrast for oxidative damage |
+| E | Purine enrichment at 5' termini (depurination) | Independent evidence of fragmentation at AP sites |
 
-At a high level, `damage_validated` means the primary nucleotide signal is supported by composition-robust evidence, whereas `damage_artifact` means terminal enrichment is present in Channel A but contradicted by the stop-codon signal.
+In practice, the decision about whether 5' deamination is real is driven by a joint model built from Channel A, its 5' control channel, and Channel B. The other channels remain informative diagnostics, especially in asymmetric or unusual libraries, but they do not replace the core logic: a valid deamination call should be supported by an independent signal that composition alone cannot mimic.
+
+At a high level, `damage_validated` means the primary nucleotide signal is supported by composition-robust evidence. Conversely, `damage_artifact` means terminal enrichment is present in Channel A but contradicted by the stop-codon signal, so the observed excess is more plausibly explained by composition than by genuine damage.
 
 ### Channel B: frame-agnostic codon scanning
 
-Channel B requires no reference alignment, no ORF prediction, and no frame or strand selection. It works by scanning all three forward reading frames simultaneously at every position in every read:
+Channel B is designed to answer exactly the question that Channel A cannot: if terminal C→T damage is real, do we also see the specific codon changes that such damage should create? The key convertible codons are CAA, CAG, and CGA, which become the stop codons TAA, TAG, and TGA after a single C→T event at the first position.
+
+Crucially, this test does **not** require reference alignment, ORF prediction, strand selection, or choosing a single reading frame. Instead, libdart-damage scans all three forward reading frames simultaneously at every position in every read:
 
 - For each frame offset $f \in \{0, 1, 2\}$ and each codon starting at position $p$, classify the codon as:
-  - **pre-image** (CAA, CAG, CGA) — a codon that becomes a stop codon if C→T damage occurs
-  - **stop** (TAA, TAG, TGA) — could be genuine stop or damage-converted
+  - **pre-image** (CAA, CAG, CGA): a codon that would become a stop after C→T damage
+  - **stop** (TAA, TAG, TGA): either a genuine stop or a damage-converted pre-image
+- Accumulate those counts separately at each terminal distance (positions 0-14) and in the interior (positions 30 to $L-30$)
 
-- Accumulate counts at each distance from the 5' terminus (positions 0–14) and in the interior (positions 30 to $L-30$) independently.
+Why does this work without frame selection? Because the method does not need to know which individual codons are biologically translated. It only needs the **relative excess** of stop codons near the terminus compared with the interior. Any bias caused by the mixture of frames is present at both locations, because the same three-frame scan is applied everywhere. As a result, the ratio
 
-The key insight is that frame composition bias cancels in the ratio. Because the same mixture of three reading frames is scanned at both terminal and interior positions, any frame-specific enrichment of stop codons is identical at both locations. The only thing that can cause the **ratio** $r_p = \text{stop} / (\text{pre} + \text{stop})$ to be higher at terminal positions than in the interior is real C→T damage converting pre-image codons into stops.
+$$r_p = \frac{\text{stop}}{\text{pre} + \text{stop}}$$
 
-### Joint damage model (JointDamageModel)
+is largely insensitive to frame composition itself. What can change this ratio specifically at the termini is real C→T damage converting pre-image codons into stops. This is why Channel B is useful as a composition-robust validator rather than merely another way of counting terminal bases.
 
-Rather than evaluating Channel A and Channel B independently, libdart-damage fits them jointly via `JointDamageModel::fit()`. This separates three signals that are otherwise conflated:
+The trade-off is statistical rather than conceptual. Channel B is more specific than Channel A, but it uses a smaller subset of informative sites, so it needs more data before it becomes decisive. In low-complexity or low-coverage samples, Channel A may show a suggestive terminal pattern while Channel B remains underpowered.
+
+### Joint damage model (`JointDamageModel`)
+
+Rather than interpreting Channel A, the control channel, and Channel B separately, libdart-damage fits them jointly with `JointDamageModel::fit()`. The motivation is straightforward: the observed 5' terminal profile can be a mixture of at least two effects.
+
+1. **Real deamination**, which should elevate Channel A and Channel B but not the control channel.
+2. **Compositional artifact**, which can elevate Channel A and the control channel together, but has no reason to elevate Channel B.
+
+The joint model makes that distinction explicit:
 
 | Signal | Formula | What it captures |
 |--------|---------|-----------------|
-| Channel A (ct5) | $\pi_{TC}(p) = (b_{tc} + a(p)) + (1 - b_{tc} - a(p)) \cdot \delta_{\max} \cdot e^{-\lambda p}$ | Deamination + compositional artefact |
-| Control (5' AG) | $\pi_{AG}(p) = b_{ag} + a(p)$ | Compositional artefact only |
+| Channel A (ct5) | $\pi_{TC}(p) = (b_{tc} + a(p)) + (1 - b_{tc} - a(p)) \cdot \delta_{\max} \cdot e^{-\lambda p}$ | Deamination + compositional artifact |
+| Control (5' AG) | $\pi_{AG}(p) = b_{ag} + a(p)$ | Compositional artifact only |
 | Channel B (stop) | $\pi_{stop}(p) = b_{stop} + (1 - b_{stop}) \cdot \delta_{\max} \cdot e^{-\lambda p}$ | Deamination only |
 
-The artefact term $a(p) = a_{\max} \cdot e^{-\lambda p}$ is shared by Channel A and the control channel, but is **absent from Channel B**. This means:
+Here $b_{tc}$, $b_{ag}$, and $b_{stop}$ are interior baselines estimated directly from the accumulated counts. The term
 
-- If T/(T+C) rises terminally because of GC composition bias, both Channel A and the control rise together and $a_{\max} > 0$ absorbs it; Channel B stays flat.
-- If T/(T+C) rises because of genuine deamination, Channel A rises but the control stays flat; simultaneously Channel B rises. Only real damage drives both $\delta_{\max} > 0$ and a Channel B excess.
+$$a(p) = a_{\max} \cdot e^{-\lambda p}$$
 
-The fitted model has three free parameters: $\delta_{\max}$, $\lambda$, and $a_{\max}$. The background rates $b_{tc}$, $b_{ag}$, and $b_{stop}$ are estimated directly from the interior counts and then treated as fixed. The implementation searches a grid over $(\lambda, \delta_{\max})$ and uses a nested golden-section optimization for $a_{\max}$ at each grid point.
+represents a terminal compositional shift that affects Channel A and the control in parallel. The damage term, parameterized by $\delta_{\max}$, affects Channel A and Channel B. This structure is what makes the model identifiable in practice:
 
-`damage_validated` is set when the joint damage model ($M_1$: $\delta_{\max} > 0$) is favored over the no-damage model ($M_0$: $\delta_{\max} = 0$) by posterior probability ($p_{\text{damage}} > 0.95$), by BIC evidence ($\Delta\text{BIC} > 10$), or by a degenerate Bayes factor.
+- If the apparent terminal excess is due to composition, Channel A and the control rise together and $a_{\max}$ absorbs that pattern, while Channel B remains flat.
+- If the excess is due to genuine deamination, Channel A rises, the control stays comparatively flat, and Channel B rises in parallel with the damage term.
 
-`damage_artifact` is set when terminal enrichment is present in Channel A but the stop-codon channel (Channel B) remains flat or inverted, indicating the excess is better explained by sequence composition than by genuine deamination. When `damage_artifact = true`, `d_max_combined` is set to zero.
+This is the core reason the joint model is more robust than thresholding Channel A alone. It does not merely ask whether the terminal frequency is high; it asks which of two mechanistic explanations better accounts for the joint behavior of all three observed channels.
+
+The fitted model has three free parameters: $\delta_{\max}$, $\lambda$, and $a_{\max}$. The baselines are fixed from the interior counts. The implementation searches a grid over $(\lambda, \delta_{\max})$ and, at each grid point, optimizes $a_{\max}$ by a nested golden-section search. It then compares the best damage model ($M_1$: $\delta_{\max} > 0$) to a no-damage model ($M_0$: $\delta_{\max} = 0$) using both BIC and an approximate Bayes factor.
+
+`damage_validated` is set when the joint damage model is favored strongly enough by the implemented criteria: posterior probability $p_{\text{damage}} > 0.95$, BIC evidence $\Delta\text{BIC} > 10$, or a degenerate Bayes factor in extreme cases. `damage_artifact` is set when Channel A shows terminal enrichment but the stop-codon channel remains flat or inverted, implying that the enrichment is not supported by composition-independent evidence. When `damage_artifact = true`, `d_max_combined` is forced to zero so that downstream tools do not treat a compositional bias as authentic damage.
 
 ---
 
 ## Library-type classifier
 
-Once damage validation has been assessed, `finalize_sample_profile` fits a separate four-channel BIC classifier to distinguish double-stranded and single-stranded library signatures. See [Damage types](damage-types.md) for a full description of the biological origin of each class, which substitution channels distinguish them, and how fqdup uses the classification for damage-aware hashing.
+After establishing whether terminal damage is genuine, libdart-damage asks a different question: **which library architecture produced the observed terminal asymmetry?** This is a separate inference problem. Damage validation is about distinguishing authentic deamination from artifact; library classification is about determining which ends and strands are expected to carry that damage signal.
+
+This separation matters. A sample can have real damage but still show very different terminal patterns depending on whether the library is double-stranded, single-stranded in the original orientation, single-stranded in the complement orientation, or a mixture. The classifier therefore works with four observable channels rather than only the damage-validation trio.
+
+See [Damage types](damage-types.md) for the biological background of these categories and how fqdup uses the resulting call for damage-aware hashing.
 
 ### Biological basis
 
@@ -103,12 +138,18 @@ Once damage validation has been assessed, `finalize_sample_profile` fits a separ
 | SS, original orientation | ct5 + ct3; no ga3 |
 | SS, mixed orientations | ct5 + ga0; weak residual ga3 may be present depending on protocol |
 
+The main difficulty is that these patterns are not perfectly separable by any single statistic. For example, a strong `ga0` spike can reflect either a DS end-repair artifact or a genuinely single-stranded complement-orientation library. Likewise, asymmetric mixtures of SS orientations can partially mimic a DS signal if one end dominates the evidence. The classifier therefore uses a model-comparison approach rather than a fixed decision tree.
+
 ### Four channels and the GA0 spike
 
-In addition to the smooth exponential channels, a single-position model fits position 0 of the 3' end (**ga0**). This captures:
+In addition to the smooth exponential channels, the classifier treats position 0 of the 3' end as a separate single-position feature (**ga0**). This is necessary because some library-preparation artifacts and some SS signatures are localized almost entirely at the ligation junction rather than forming a smooth inward decay.
 
-- DS end-repair artefacts: bilateral, both 5' pos-0 CT and 3' pos-0 GA elevated
-- SS complement-orientation reads: unilateral, 3' GA0 spike only, no 5' counterpart
+The `ga0` term is particularly informative because it captures two biologically distinct cases:
+
+- **DS end-repair artifacts**: bilateral behavior, with elevated terminal substitutions caused by enzymatic processing rather than unilateral SS damage
+- **SS complement-orientation reads**: unilateral 3' G→A spikes without the 5' counterpart expected under DS symmetry
+
+Treating `ga0` as its own channel prevents the classifier from forcing a spike into an exponential model that does not actually describe the data.
 
 ### BIC models
 
@@ -124,21 +165,21 @@ Seven composite BIC models partition the four channels into active (alt) and ina
 | M_SS_orig | alt | null | null | alt | SS original-orientation only |
 | M_SS_asym | alt | null | alt | null | SS both orientations, no smooth ga3 |
 
-↑ `joint` = ct5 and ga3 share one amplitude parameter (M_DS_symm constraint). This is 1 free parameter for 2 channels; if ct5 ≠ ga3, the joint fit is penalised and a pure SS model wins.
+In `M_DS_symm`, ct5 and ga3 share one amplitude parameter (`joint↑`). This reflects the biological expectation that genuine DS libraries should show comparable terminal damage on the two complementary ends. The shared parameter improves efficiency when that assumption is correct, but it also deliberately penalizes a DS interpretation when the ends are strongly asymmetric. In effect, the model is using symmetry itself as evidence.
 
-Each composite BIC is the sum of component BICs:
+Each composite BIC is the sum of channel-level BIC terms:
 
 $$\text{BIC}(M) = \sum_{\text{channels}} \text{BIC}_{\text{component}}(\text{channel}, \text{active/null})$$
 
-Lower BIC wins. The null model has 0 free parameters; each active channel contributes 1 free parameter (amplitude) with penalty $\ln(n_{\text{trials}})$.
+Lower BIC wins. The null model contributes no amplitude parameter; each active channel contributes one amplitude parameter with a complexity penalty of $\ln(n_{\text{trials}})$. This formulation makes the trade-off explicit: a more complex library explanation is only preferred if it improves fit enough to justify the additional flexibility.
 
-In addition to the candidate models used in the waterfall, the implementation also evaluates an unconstrained four-channel SS model (`M_SS_full`: ct5=alt, ga3=alt, ga0=alt, ct3=alt), reported as `library_bic_mix` in `SampleDamageProfile`. This score is available for diagnostic purposes and for constructing likelihood ratios but is not itself a winner in the cascade.
+In addition to the waterfall candidates, the implementation also evaluates an unconstrained four-channel SS model (`M_SS_full`: ct5=alt, ga3=alt, ga0=alt, ct3=alt), reported as `library_bic_mix` in `SampleDamageProfile`. This model is useful diagnostically and for likelihood-based summaries, even though it is not itself the winner in the cascade.
 
 ### Cascade
 
-The classifier runs a waterfall over models in this order:
+The classifier evaluates candidate models in the following order:
 
-1. Start: `best = BIC(M_bias)`, type = DS
+1. Start with `best = BIC(M_bias)`, type = DS
 2. M_DS_symm, DS
 3. M_DS_spike (only when `spike_is_ss = false`), DS
 4. M_DS_symm_art, DS
@@ -147,62 +188,80 @@ The classifier runs a waterfall over models in this order:
 7. M_DS_spike as SS (only when `spike_is_ss = true`), SS
 8. M_SS_asym (only when `spike_is_ss = true`), SS
 
-`spike_is_ss = (ga0.amplitude ≥ 0.10)`: a GA0 spike above 10% amplitude is too large to be a DS end-repair artifact and enters the SS model set.
+Here `spike_is_ss = (ga0.amplitude >= 0.10)`. A very large `ga0` spike is difficult to reconcile with a simple DS end-repair artifact, so once it crosses that threshold the classifier explicitly allows single-stranded interpretations that would otherwise be disfavored.
+
+The cascade structure is a practical compromise between exhaustive model comparison and biological prior knowledge. It keeps the classifier interpretable while still allowing asymmetric or spike-dominated libraries to escape an overly rigid DS default.
 
 ### Post-hoc symmetry check
 
-If DS wins but the ct5/ga3 amplitude ratio is highly asymmetric, the DS symmetry assumption is violated:
+If a DS model wins but the evidence is strongly asymmetric between ct5 and ga3, the symmetry assumption underlying the DS call is revisited:
 
 ```
-if DS wins AND ga3.ΔBIC > 30,000 AND ct5.ΔBIC / ga3.ΔBIC < 0.50 → SS
+if DS wins AND ga3.ΔBIC > 30,000 AND ct5.ΔBIC / ga3.ΔBIC < 0.50 -> SS
 ```
 
-Applied when SS libraries have original-orientation reads dominating ct5 and complement reads dominating ga3, creating apparent asymmetry that breaks M_DS_symm.
+This rule is motivated by a known failure mode: an SS library can contain a mixture of original-orientation and complement-orientation reads such that one end dominates ct5 and the other dominates ga3, creating a superficially DS-like pattern without true bilateral symmetry. The post-hoc check prevents the shared-amplitude DS model from winning purely because both ends have signal, even when that signal is clearly imbalanced.
 
 ### Rescue rules
 
-**M_DS_spike rescue** (for `spike_is_ss = false`): when M_DS_spike won but d5 ≈ 0, the pos-0 spike is unilateral (complement-orientation SS), not bilateral DS end-repair:
+The rescue rules exist because real libraries do not always occupy cleanly separated regions of model space. In particular, a localized `ga0` spike can dominate the likelihood and pull the classifier toward a DS artifact explanation even when the underlying biology is unilateral SS damage.
+
+**M_DS_spike rescue** (for `spike_is_ss = false`): when `M_DS_spike` wins but `d5` is effectively absent, the 3' spike is more consistent with complement-orientation SS than with bilateral DS end repair:
 
 ```
-if DS wins AND ds_spike_won AND ct5.ΔBIC ≤ 0 AND ga3.ΔBIC ≤ 0
-   AND ga0.ΔBIC > 0 AND ga0.amplitude > 0.02 AND d5 ≤ 0.005 → SS
+if DS wins AND ds_spike_won AND ct5.ΔBIC <= 0 AND ga3.ΔBIC <= 0
+   AND ga0.ΔBIC > 0 AND ga0.amplitude > 0.02 AND d5 <= 0.005 -> SS
 ```
 
-**GA0 bilateral rescue** (for `spike_is_ss = true`): when a large GA0 spike (≥ 0.10) drives M_DS_symm_art to win, d5 discriminates DS bilateral from SS complement-only:
+**GA0 bilateral rescue** (for `spike_is_ss = true`): when a very large `ga0` spike drives `M_DS_symm_art` to win, `d5` is used to distinguish true bilateral DS behavior from complement-only SS behavior:
 
 ```
-if DS wins AND spike_is_ss AND ga0.ΔBIC > 0 AND d5 ≤ 0.005 → SS
+if DS wins AND spike_is_ss AND ga0.ΔBIC > 0 AND d5 <= 0.005 -> SS
 ```
 
-Validated on 24 DS controls with ga0_amp ≥ 0.10: all have d5 ≥ 0.11. All SS mixed failures with ga0_amp ≥ 0.10 have d5 = 0.00. The gap is >20× the threshold.
+These rescue rules are not ad hoc patches in the pejorative sense; they encode biological asymmetries that the base model family only approximates. Without them, the classifier would be too willing to interpret unilateral junction spikes as DS artifacts simply because those spikes are statistically strong. The trade-off is that the rules introduce a small amount of thresholded expert knowledge, but they do so precisely to avoid a larger systematic bias.
+
+Validated on 24 DS controls with `ga0_amp >= 0.10`, all had `d5 >= 0.11`. In contrast, the observed SS mixed failures with `ga0_amp >= 0.10` had `d5 = 0.00`. That separation is large enough to support a deterministic rescue threshold.
 
 ### UNKNOWN category
 
-If no model beats M_bias (`best == BIC(M_bias)` exactly), the library has no detectable damage in any channel. The result is `UNKNOWN` rather than a default DS call. The caller should use `--library-type ds` or provide metadata.
+If no model beats `M_bias` exactly, the library has no detectable damage in any channel and the result is `UNKNOWN` rather than a default DS call. This is an important design choice: in a genuinely low-damage or modern library, the correct answer is often that library type cannot be inferred from sequence alone. Reporting `UNKNOWN` makes that uncertainty explicit instead of converting absence of evidence into a potentially misleading structural call.
 
 ---
 
 ## GC-stratified estimation
 
-After the global damage and library-type calls are established, reads are binned by their interior GC content (10 bins, 0–100%). Within each bin, damage is estimated independently, enabling separation of high-damage ancient DNA from low-damage modern contamination in mixed samples.
+After the global damage call and library-type classification are established, libdart-damage asks whether the sample is compositionally heterogeneous. This matters because environmental and metagenomic ancient-DNA datasets often contain mixtures of genuinely ancient molecules and lower-damage background DNA, and those components can differ systematically in GC content. A single global `d_max` is still useful, but it can blur together distinct populations.
 
-Two mixture models operate over GC bins:
+To expose that heterogeneity, reads are binned by **interior** GC content into 10 bins spanning 0-100%. Interior GC is used rather than whole-read GC so that the binning itself is less sensitive to terminal damage. Within each bin, the method re-estimates damage using terminal and interior counts aggregated across reads in that bin.
 
-**`DamageMixtureModel`** (2-component Gaussian, used internally by `JointDamageModel`): fits a simple undamaged (μ=0, σ=0.01) and damaged (μ estimated, σ=0.10) component over per-bin d_max values. Runs standard EM up to 50 iterations.
+This introduces a deliberate trade-off. Stratifying by GC can reveal mixtures that a global estimate would average away, but each bin has fewer observations than the full sample. The implementation therefore regularizes low-information bins and treats bins with insufficient support as invalid rather than forcing unstable estimates.
 
-**`MixtureDamageModel`** (K=2–4 categorical, full GC-aware model): tries K=2, 3, 4 components with 5 random restarts each, selects by BIC. Per-component δ_max is updated by grid search (61 points, 0–0.60); shared a_max by golden-section search. Reports:
+Two mixture models operate over the GC bins:
 
-- `mixture_pi_ancient`: fraction of C-sites in high-damage components (δ > 5%)
-- `mixture_d_ancient`: expected damage rate among ancient reads
-- `mixture_d_population`: population-average damage rate
-- `mixture_d_reference`: damage rate in GC ≥ 50% bins (metaDMG proxy)
-- `mixture_K`: number of components selected by BIC
+**`DamageMixtureModel`** is a simple 2-component Gaussian model over per-bin `d_max` values. It treats one component as effectively undamaged ($\mu = 0$, $\sigma = 0.01$) and one as damaged ($\mu$ estimated, $\sigma = 0.10$), and uses EM to estimate the fraction and mean damage of the damaged component. This model provides a compact summary of whether the GC bins separate into low-damage and high-damage groups.
+
+**`MixtureDamageModel`** is the full GC-aware model. It fits $K = 2, 3, 4$ latent classes with multiple random restarts and selects the best solution by BIC. Each class has its own `delta_max`, while `lambda` and `a_max` are shared. The model also learns a GC distribution for each class, so it can represent situations in which high-damage and low-damage molecules occupy different GC ranges rather than simply different damage levels.
+
+In implementation terms, the full model operates on per-bin "super-reads": for each GC bin it aggregates Channel A, the control channel, and Channel B counts, then evaluates how well each latent class explains those summaries. Per-class `delta_max` values are updated by grid search, shared `a_max` is updated by golden-section search, and per-bin baselines are shrunk toward global baselines to stabilize sparse bins. This regularization is important: without it, a few low-count bins could dominate the mixture fit through sampling noise alone.
+
+The reported outputs summarize different biological questions:
+
+- `mixture_pi_ancient`: fraction of C-sites assigned to high-damage classes (`delta_max > 5%`)
+- `mixture_d_ancient`: expected damage rate among the high-damage component only
+- `mixture_d_population`: population-average damage across all C-sites
+- `mixture_d_reference`: expected damage restricted to GC >= 50% classes, intended as a rough proxy for the GC-rich fraction that reference-based tools often emphasize
+- `mixture_K`: number of classes selected by BIC
+
+The full GC-stratified model is therefore not just a refinement of the global call. It is an attempt to separate "how damaged are the ancient molecules?" from "what fraction of the sample is ancient at all?" Those are distinct questions in mixed environmental samples, and collapsing them into one global `d_max` can be misleading.
 
 ---
 
 ## D_max combination
 
-The final step combines the end-specific estimates into `d_max_combined` using an asymmetry-aware decision rule:
+The final step converts several end-specific and channel-specific estimates into a single reported `d_max_combined`. A naive strategy would simply average the 5' and 3' estimates, but that is not robust across library types. In DS libraries, averaging is sensible because both ends should reflect the same terminal damage process. In SS, mixed-orientation, or artifact-affected libraries, however, one end can be informative while the other is structurally absent, biased by adapter effects, or driven by a different biochemical process.
+
+libdart-damage therefore uses an asymmetry-aware combination rule rather than unconditional averaging. The selected strategy is recorded in `d_max_source`.
 
 | Condition | Strategy |
 |-----------|----------|
@@ -210,3 +269,12 @@ The final step combines the end-specific estimates into `d_max_combined` using a
 | High asymmetry (SS mixed) | Use whichever end is more reliable |
 | Only one end valid | Use that end alone |
 | Channel B₃′ available | Structural estimate from stop codon decay |
+
+The rationale is as follows:
+
+- **When both ends agree**, averaging reduces variance and yields the most stable estimate.
+- **When one end is clearly less reliable**, averaging would dilute the biologically meaningful signal with structural noise or protocol-specific asymmetry.
+- **When only one end is supported**, forcing a two-end summary would create a false sense of symmetry.
+- **When Channel B₃′ is informative**, its stop-codon conversion signal can provide a structural 3' estimate even when a simple terminal nucleotide fit is weak or confounded.
+
+This final combination stage is where several earlier diagnostics matter operationally. Position-0 artifacts, inverted terminal patterns, strong library asymmetry, and Channel B/B₃′ structural estimates all influence which end should be trusted. The output `d_max_combined` is therefore not merely the result of one exponential fit; it is the end product of the full evidence cascade described above.
