@@ -6,9 +6,9 @@
 
 ## What it does
 
-libdart-damage estimates cytosine deamination damage in ancient DNA without a reference genome or read alignment. It scans terminal positions of raw FASTQ sequences for C→T (5' end) and G→A (3' end) substitution patterns and fits an exponential decay model to each end.
+libdart-damage estimates ancient-DNA terminal damage directly from raw reads, without a reference genome or read alignment. It measures six damage and fragmentation channels, fits exponential terminal-decay models, cross-validates apparent C→T damage against composition-robust stop-codon evidence, and reports an asymmetry-aware `d_max_combined`.
 
-It also classifies each library as **double-stranded (DS)** or **single-stranded (SS)** using a 4-channel joint BIC model, so downstream tools can apply library-appropriate deduplication and damage masking.
+It also classifies each library as **double-stranded (DS)**, **single-stranded (SS)**, or **UNKNOWN** using a four-channel BIC classifier. `UNKNOWN` is the expected result when no damage model clearly beats the null — it is not an error.
 
 ---
 
@@ -23,8 +23,7 @@ dart::SampleDamageProfile profile =
     dart::FrameSelector::compute_sample_profile(reads);
 
 // Streaming: accumulate reads incrementally
-dart::SampleDamageProfile profile;
-dart::FrameSelector::reset_sample_profile(profile);
+dart::SampleDamageProfile profile{};
 for (const auto& seq : reads)
     dart::FrameSelector::update_sample_profile(profile, seq);
 dart::FrameSelector::finalize_sample_profile(profile);

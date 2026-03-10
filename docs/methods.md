@@ -16,7 +16,7 @@ This matches the definition used by metaDMG and mapDamage.
 
 ---
 
-## Pass 0: per-position frequency estimation
+## Per-position accumulation and baseline estimation
 
 libdart-damage scans each read and accumulates base counts at the first and last 15 positions. For each position $p$:
 
@@ -27,7 +27,7 @@ libdart-damage scans each read and accumulates base counts at the first and last
 
 The middle third of each read (positions 30 to $L-30$) provides the background baseline $b$.
 
-WLS amplitude estimation uses the fixed decay rate $\hat\lambda$ estimated in Pass 0:
+WLS amplitude estimation uses the fixed decay rate $\hat\lambda$ estimated in this accumulation pass:
 
 $$\hat{A} = \max\!\left(0,\; \frac{\sum_p n_p \cdot e^{-\hat\lambda p} \cdot (r_p - b)}{\sum_p n_p \cdot e^{-2\hat\lambda p}}\right)$$
 
@@ -43,13 +43,13 @@ for damage-aware hashing.
 
 ### Biological basis
 
-| Library prep | Damage pattern |
-|-------------|----------------|
-| Double-stranded (DS) | Symmetric: ct5 ≈ ga3, both exponential decay |
-| DS + end-repair artifact | As above + GA0 spike at 3' pos-0 |
-| Single-stranded (SS), complement orientation | GA0 spike only; no ct5, no ga3 smooth decay |
-| SS, original orientation | ct5 + ct3 (C→T at both ends); no ga3 |
-| SS, mixed (both orientations) | ct5 + ga3 + GA0; asymmetric |
+| Library prep | Typical observed pattern |
+|-------------|--------------------------|
+| Double-stranded (DS) | Symmetric ct5 and ga3 exponential decay |
+| DS + end-repair artifact | DS pattern plus a ga0 spike |
+| Single-stranded (SS), complement orientation | ga0-dominated 3' G→A signal; often without smooth ga3 |
+| SS, original orientation | ct5 + ct3; no ga3 |
+| SS, mixed orientations | ct5 + ga0; weak residual ga3 may be present depending on protocol |
 
 ### Four channels and the GA0 spike
 
@@ -79,6 +79,8 @@ Each composite BIC is the sum of component BICs:
 $$\text{BIC}(M) = \sum_{\text{channels}} \text{BIC}_{\text{component}}(\text{channel}, \text{active/null})$$
 
 Lower BIC wins. The null model has 0 free parameters; each active channel contributes 1 free parameter (amplitude) with penalty $\ln(n_{\text{trials}})$.
+
+In addition to the candidate models used in the waterfall, the implementation also evaluates an unconstrained four-channel SS model (`M_SS_full`: ct5=alt, ga3=alt, ga0=alt, ct3=alt), reported as `library_bic_mix` in `SampleDamageProfile`. This score is available for diagnostic purposes and for constructing likelihood ratios but is not itself a winner in the cascade.
 
 ### Cascade
 
@@ -130,7 +132,9 @@ If no model beats M_bias (`best == BIC(M_bias)` exactly), the library has no det
 
 ## Multi-channel validation
 
-libdart-damage uses six independent damage channels to cross-validate the C→T signal:
+Conceptually, libdart-damage validates terminal C→T damage by asking whether Channel A (terminal nucleotide excess) is supported by Channel B (composition-robust stop-codon conversion). Operationally, the implementation fits a joint model over three observed signals at the 5' end — Channel A (T/(T+C)), the 5' control channel (A/(A+G)), and Channel B (stop/(pre+stop)) — that simultaneously estimates genuine deamination (`delta_max`) and composition artifact (`a_max`).
+
+Six biochemical channels are tracked in total:
 
 | Channel | Signal | Notes |
 |---------|--------|-------|
@@ -172,13 +176,9 @@ The artifact term $a(p) = a_{\max} \cdot e^{-\lambda p}$ is shared by Channel A 
 
 The model has four free parameters: $\delta_{\max}$, $\lambda$, $a_{\max}$, and implicitly the background rates estimated from the interior baseline. A grid search over $(\lambda, \delta_{\max})$ with closed-form $a_{\max}$ at each grid point finds the joint maximum-likelihood fit.
 
-Firing thresholds: `damage_validated = true` when any of the following hold after joint fitting:
+`damage_validated` is set when the joint damage model ($M_1$: $\delta_{\max} > 0$) is favored over the no-damage model ($M_0$: $\delta_{\max} = 0$) by posterior probability ($p_{\text{damage}} > 0.95$), by BIC evidence ($\Delta\text{BIC} > 10$), or by a degenerate Bayes factor.
 
-- Posterior probability $p_{\text{damage}} > 0.95$ (Bayesian model comparison)
-- $\Delta\text{BIC} = \text{BIC}(M_0) - \text{BIC}(M_1) > 10$ (frequentist model comparison)
-- Bayes factor is infinite (degenerate null, only possible with extreme data)
-
-If Channel A ΔBIC > threshold but Channel B ΔBIC ≤ 0 (stop codon ratio flat or inverted), `damage_artifact = true` and `d_max` is set to zero.
+`damage_artifact` is set when terminal enrichment is present in Channel A but the stop-codon channel (Channel B) remains flat or inverted, indicating the excess is better explained by sequence composition than by genuine deamination. When `damage_artifact = true`, `d_max_combined` is set to zero.
 
 ---
 

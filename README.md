@@ -2,7 +2,7 @@
 
 Reference-free ancient DNA damage estimation and library-type classification from raw FASTQ reads.
 
-libdart-damage scans raw FASTQ reads for five independent biochemical damage signals, quantifies each, and classifies each library as double-stranded (DS), single-stranded (SS), or undetermined, all without a reference genome or alignment.
+libdart-damage scans raw FASTQ reads for six independent damage and fragmentation channels, estimates terminal deamination, cross-validates C→T damage with composition-robust stop-codon signals, and classifies each library as double-stranded (DS), single-stranded (SS), or UNKNOWN — all without a reference genome or read alignment.
 
 ---
 
@@ -26,8 +26,10 @@ terminus and decays exponentially inward. This produces:
 - **ct5**: C→T excess at 5' terminal positions (positions 0–14)
 - **ga3**: G→A excess at 3' terminal positions, the complementary strand's
   deaminated cytosines appear as G→A when read 5'→3' from that end
-- **ga0**: isolated G→A spike at 3' position 0 from the ligation junction
-  (single-stranded library protocols)
+- **ga0**: isolated G→A spike at 3' position 0. Common in single-stranded
+  complement-orientation libraries, but can also arise as a double-stranded
+  end-repair artifact; the classifier distinguishes these cases using the
+  full four-channel pattern.
 - **ct3**: C→T excess at 3' terminal positions (single-stranded original-strand
   libraries, where the same strand is damaged at both ends)
 
@@ -115,14 +117,14 @@ depends on which strand is sequenced:
 The BIC classifier evaluates seven models jointly against all four sub-channels
 and selects the best-fitting description:
 
-| Library type | Active channels | Damage plot appearance |
+| Library type | Dominant channels | Typical damage plot appearance |
 |---|---|---|
-| DS | ct5 + ga3 | Symmetric C→T (5') and G→A (3'), both smooth decay |
-| DS + end-repair artifact | ct5 + ga3 + ga0 | As above + isolated spike at 3' position 0 |
-| SS complement-orientation | ga0 | Spike at 3' position 0 only; 5' flat |
+| DS | ct5 + ga3 | Symmetric 5' C→T and 3' G→A, both smooth decay |
+| DS + end-repair artifact | ct5 + ga3 + ga0 | DS pattern plus isolated 3' pos-0 G→A spike |
+| SS complement-orientation | ga0-dominated | Strong 3' pos-0 G→A spike; little or no smooth ga3; 5' flat |
 | SS original-orientation | ct5 + ct3 | C→T at both 5' and 3' ends; no G→A |
-| SS mixed orientations | ct5 + ga0 | C→T decay at 5' + spike at 3' pos 0; no smooth ga3 |
-| UNKNOWN | - | No channel above null; standard exact-match deduplication |
+| SS mixed orientations | ct5 + ga0 | 5' C→T decay plus 3' pos-0 G→A spike; weak residual ga3 may occur |
+| UNKNOWN | none | No channel clearly beats the null model |
 
 UNKNOWN is the correct call for zero-damage or near-zero-damage libraries where
 the library type cannot be inferred from sequence alone, it is not an error.
@@ -183,8 +185,7 @@ dart::SampleDamageProfile profile =
     dart::FrameSelector::compute_sample_profile(reads);
 
 // Streaming
-dart::SampleDamageProfile profile;
-dart::FrameSelector::reset_sample_profile(profile);
+dart::SampleDamageProfile profile{};
 for (const auto& seq : reads)
     dart::FrameSelector::update_sample_profile(profile, seq);
 dart::FrameSelector::finalize_sample_profile(profile);
