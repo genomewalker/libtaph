@@ -27,7 +27,7 @@ where $n_p$ is the coverage at terminal position $p$. Intuitively, this expressi
 
 ## Damage model
 
-Once terminal and interior counts have been accumulated, libdart-damage models ancient-DNA deamination as a terminal process that decays inward from each end of the fragment. In double-stranded libraries this appears as C→T excess at the 5' end and G→A excess at the 3' end, because the complementary strand carries the same damaged cytosines as G→A when read in the opposite orientation.
+Once terminal and interior counts have been accumulated, libdart-damage models ancient-DNA deamination as a terminal process that decays inward from each end of the fragment. In double-stranded libraries this appears as C→T excess at the 5' end and G→A excess at the 3' end, because the complementary strand carries the same damaged cytosines as G→A when read in the opposite orientation. This characteristic pattern was first systematically described by [Briggs et al. (2007)](https://www.pnas.org/doi/10.1073/pnas.0704665104) and subsequently formalized as an exponential decay model by [Jónsson et al. (2013)](https://doi.org/10.1093/bioinformatics/btt193).
 
 The terminal signal is modelled as
 
@@ -42,7 +42,7 @@ where:
 
 The role of this equation is not just descriptive. It encodes the central biological assumption of the method: genuine terminal damage should be strongest at the edge of the fragment and should decay smoothly inward, whereas many confounders either remain flat or fail to reproduce the same decay in independent channels.
 
-To report a quantity comparable to mapDamage and metaDMG, libdart-damage converts the fitted amplitude into a calibrated terminal damage rate,
+To report a quantity comparable to [mapDamage2.0](https://doi.org/10.1093/bioinformatics/btt193) and [metaDMG](https://doi.org/10.1101/2022.12.06.519264), libdart-damage converts the fitted amplitude into a calibrated terminal damage rate,
 
 $$D_{\max} = \frac{A}{1 - b}$$
 
@@ -137,6 +137,8 @@ See [Damage types](damage-types.md) for the biological background of these categ
 | Single-stranded (SS), complement orientation | ga0-dominated 3' G→A signal; often without smooth ga3 |
 | SS, original orientation | ct5 + ct3; no ga3 |
 | SS, mixed orientations | ct5 + ga0; weak residual ga3 may be present depending on protocol |
+
+Single-stranded library protocols include [Gansauge & Meyer (2013)](https://doi.org/10.1038/nprot.2013.038) and the SRSLY protocol (Claret Bioscience).
 
 The main difficulty is that these patterns are not perfectly separable by any single statistic. For example, a strong `ga0` spike can reflect either a DS end-repair artifact or a genuinely single-stranded complement-orientation library. Likewise, asymmetric mixtures of SS orientations can partially mimic a DS signal if one end dominates the evidence. The classifier therefore uses a model-comparison approach rather than a fixed decision tree.
 
