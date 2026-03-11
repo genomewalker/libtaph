@@ -1,9 +1,11 @@
 # Damage types and channels
 
 Ancient DNA carries a record of post-mortem chemistry in its substitution patterns.
-libdart-damage tracks five core biochemical damage channels (A–E) plus three supplementary
-analyses (CpG-context split, interior CT clustering, oxoG 16-context panel) and two
-compositional controls (codon-position-aware damage, GC-conditional damage bins). The
+libdart-damage tracks five core biochemical damage channels (A–E) plus eight supplementary
+analyses: CpG-context split, interior CT clustering, oxoG 16-context panel, hexamer-based
+detection, Briggs biophysical model, joint probabilistic model (BIC + Bayes factor),
+mixture model (K-component EM), metaDMG-comparable estimate, adapter offset detection,
+and two compositional controls (codon-position-aware damage, GC-conditional damage bins). The
 channels cross-validate each other, distinguish genuine ancient damage from modern
 library-prep artifacts, and together feed the library-type classifier used by fqdup for
 damage-aware deduplication.
@@ -141,6 +143,151 @@ directly by fqdup for masking, but reported for sample characterisation.
 
 ---
 
+## Hexamer-based damage detection
+
+**Background:** Single-position statistics (e.g. T/(T+C) at position 0) can be noisy
+for short reads or low coverage. Averaging over a hexamer window (positions 1–6) reduces
+single-position artifacts and is less sensitive to the position-0 adapter bias.
+
+**What is measured:** The first and interior hexamers of each read are tallied separately.
+Terminal T/(T+C) and interior T/(T+C) are computed from the hexamer counts.
+
+**Key outputs:**
+
+| Field | Description |
+|-------|-------------|
+| `hexamer_terminal_tc` | T/(T+C) at terminal from hexamer analysis (pos 1–6) |
+| `hexamer_interior_tc` | T/(T+C) at interior from hexamer analysis |
+| `hexamer_excess_tc` | Terminal − interior excess (negative = inverted) |
+| `hexamer_damage_llr` | Hexamer-based damage log-likelihood ratio |
+
+**Interpretation:** `hexamer_excess_tc > 0` with a significant `hexamer_damage_llr`
+corroborates Channel A independently of single-position artifacts.
+
+---
+
+## Briggs biophysical model
+
+**Background:** Briggs et al. (2007) parameterised aDNA deamination as a two-state model:
+each base is either in a single-stranded overhang (deamination rate δ_s, high) or in a
+double-stranded interior (deamination rate δ_d, low). The observed position-dependent
+rate is a mixture weighted by the probability of being in the overhang at that distance
+from the terminus.
+
+**What is measured:** The same exponential decay profile as Channel A is re-fitted under
+the Briggs parameterisation to yield δ_s and δ_d at each end, plus R² goodness of fit.
+
+**Key outputs:**
+
+| Field | Description |
+|-------|-------------|
+| `delta_s_5prime` / `delta_s_3prime` | Single-stranded deamination rate (overhang) |
+| `delta_d_5prime` / `delta_d_3prime` | Double-stranded background deamination rate |
+| `r_squared_5prime` / `r_squared_3prime` | Goodness of fit for the Briggs model at each end |
+
+**Interpretation:** High δ_s and low δ_d confirm classic aDNA terminal damage. R² < 0.5
+indicates the exponential decay model fits poorly (possibly SS library, composition bias,
+or very old heavily degraded material).
+
+---
+
+## Joint probabilistic model (BIC + Bayes factor)
+
+**Background:** The per-channel statistics (Channel A LLR, Channel B LLR, etc.) are
+combined into a single Bayesian model comparison: M₁ (damage present) vs M₀ (no damage).
+The BIC difference ΔBIC = BIC₀ − BIC₁ quantifies evidence for damage relative to a null
+model that expects flat terminal frequencies.
+
+**What is measured:**
+
+| Field | Description |
+|-------|-------------|
+| `joint_delta_max` | MLE damage rate under M₁ |
+| `joint_lambda` | MLE decay constant under M₁ |
+| `joint_delta_bic` | ΔBIC = BIC_M0 − BIC_M1 (positive = evidence for damage) |
+| `joint_bayes_factor` | BF₁₀ ≈ exp(ΔBIC/2) |
+| `joint_p_damage` | Posterior P(damage \| data) |
+| `joint_model_valid` | True if sufficient read coverage for the joint model |
+
+**Interpretation:** `joint_delta_bic > 10` is strong evidence for damage (BF > 150).
+`joint_p_damage` can be used as a per-sample weight in downstream analyses.
+
+---
+
+## Mixture model (K-component EM over GC bins)
+
+**Background:** A sequencing library may contain a mixture of ancient and modern DNA
+molecules. Rather than a single d_max for the whole library, a K-component mixture
+fitted over the GC-stratified bins separates high-damage components (ancient) from
+low-damage components (modern or contamination).
+
+**What is measured:** EM is run with BIC-guided component selection. Each component
+has its own damage rate; reads are assigned soft membership probabilities.
+
+**Key outputs:**
+
+| Field | Description |
+|-------|-------------|
+| `mixture_K` | Number of components selected by BIC |
+| `mixture_d_population` | E[δ] over all C-sites (whole-library average) |
+| `mixture_d_ancient` | E[δ \| δ > 5%] — damage rate of the ancient tail |
+| `mixture_pi_ancient` | Fraction of C-sites in high-damage components |
+| `mixture_d_reference` | E[δ \| GC > 50%] — metaDMG proxy |
+| `mixture_bic` | BIC for the selected K |
+| `mixture_converged` | Whether EM converged |
+
+**Interpretation:** `mixture_pi_ancient` close to 1 = pure ancient library.
+`mixture_pi_ancient` near 0 with elevated `mixture_d_ancient` = small ancient fraction
+contaminating a mostly modern library.
+
+---
+
+## metaDMG-comparable estimate (alignability-weighted d_max)
+
+**Background:** Reference-based tools like metaDMG weight damage by read alignability:
+highly unique reads (high alignability) contribute more to the d_max estimate than
+repetitive reads that map to many locations. libdart-damage approximates this without
+a reference by using per-read GC content and sequence complexity as an alignability
+proxy, and blending the global and weighted estimates.
+
+**Key outputs:**
+
+| Field | Description |
+|-------|-------------|
+| `d_metamatch` | Calibrated metaDMG-comparable d_max estimate |
+| `d_alignability_weighted` | Raw alignability-proxy-weighted d_max |
+| `metamatch_gamma` | Blending coefficient (0 = global, 1 = weighted) |
+| `mean_alignability` | Mean alignability proxy score across reads |
+| `alignability_damage_corr` | Correlation between alignability and per-read damage |
+
+**Interpretation:** `d_metamatch` is designed to be numerically comparable to metaDMG's
+`D_max` output on the same library. It enables cross-tool comparisons without requiring
+BAM alignment.
+
+---
+
+## Adapter offset detection
+
+**Background:** Short adapter remnants (1–2 bp) at fragment termini displace the
+biological damage signal by one or two positions. If position 0 appears depleted while
+position 1 is enriched, the fit is restarted with the signal window shifted accordingly.
+
+**Key outputs:**
+
+| Field | Description |
+|-------|-------------|
+| `fit_offset_5prime` | 1 = no offset, 2 = 1-bp remnant, 3 = 2-bp remnant |
+| `fit_offset_3prime` | Same for 3' end |
+| `position_0_artifact_5prime` | True if pos 0 depleted but pos 1 enriched |
+| `position_0_artifact_3prime` | Same for 3' end |
+
+**Interpretation:** `fit_offset > 1` does not indicate damage failure — it means the
+damage is real but the reported `d_max` is taken from the corrected start position.
+Callers should use `d_max_combined` (which already incorporates the offset) rather than
+`damage_rate_5prime[0]` directly.
+
+---
+
 ## Codon-position-aware damage
 
 **Background:** Not all positions within a codon are equally susceptible to creating a
@@ -213,6 +360,12 @@ high-GC or low-GC bins show elevated d_max suggests a composition confound.
 | oxoG 16-ctx | G→T asymmetry per trinucleotide | 8-oxoG specificity | Interior | Context specificity of oxidation |
 | Codon-position | C→T rate at codon positions 0/1/2 | Deamination at coding positions | 5′ and 3′ terminal | Wobble vs non-wobble damage; selection bias |
 | GC bins | Per-GC-bin d_max and baseline | Composition control | All positions | GC-composition artefact rejection |
+| Hexamer | T/(T+C) over hexamer window | Deamination | 5′ terminal (pos 1–6) | Robust terminal enrichment; adapter-bias resistant |
+| Briggs model | δ_s, δ_d, R² | Biophysical deamination model | Both termini | Comparable to Briggs 2007; goodness of fit |
+| Joint BIC | ΔBIC, Bayes factor, P(damage) | Multi-channel evidence integration | Whole read | Single-number damage evidence score |
+| Mixture EM | K, π_ancient, d_ancient | Ancient/modern mixture | Whole library | Ancient fraction estimation |
+| metaDMG proxy | d_metamatch, alignability | Alignability-weighted estimate | Whole read | Reference-free metaDMG comparison |
+| Adapter offset | fit_offset, pos-0 artifact flag | Adapter remnant detection | Position 0 | Corrects d_max for 1–2 bp adapter remnants |
 
 ---
 
