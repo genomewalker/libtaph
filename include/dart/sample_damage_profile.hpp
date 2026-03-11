@@ -71,12 +71,13 @@ struct SampleDamageProfile {
     size_t non_cpg_t_count = 0;
 
     // 5' context-split C/T accumulators (CpG-like vs non-CpG-like)
-    std::array<std::array<float, N_POS>, N_CT_CTX> ct_ctx_t_5prime = {};
-    std::array<std::array<float, N_POS>, N_CT_CTX> ct_ctx_total_5prime = {};
+    // double to avoid float precision loss at >16M observations per position
+    std::array<std::array<double, N_POS>, N_CT_CTX> ct_ctx_t_5prime = {};
+    std::array<std::array<double, N_POS>, N_CT_CTX> ct_ctx_total_5prime = {};
 
     // Interior baseline accumulators for context split
-    std::array<float, N_CT_CTX> ct_ctx_t_interior = {};
-    std::array<float, N_CT_CTX> ct_ctx_total_interior = {};
+    std::array<double, N_CT_CTX> ct_ctx_t_interior = {};
+    std::array<double, N_CT_CTX> ct_ctx_total_interior = {};
 
     // Fitted baselines and amplitudes for context split
     float fit_baseline_ct5_cpg_like    = std::numeric_limits<float>::quiet_NaN();
