@@ -42,7 +42,7 @@ where:
 
 The role of this equation is not just descriptive. It encodes the central biological assumption of the method: genuine terminal damage should be strongest at the edge of the fragment and should decay smoothly inward, whereas many confounders either remain flat or fail to reproduce the same decay in independent channels.
 
-To report a quantity comparable to [mapDamage2.0](https://doi.org/10.1093/bioinformatics/btt193) and [metaDMG](https://doi.org/10.1101/2022.12.06.519264), libdart-damage converts the fitted amplitude into a calibrated terminal damage rate,
+To report a quantity comparable to [mapDamage2.0 (Jónsson et al. 2013)](https://doi.org/10.1093/bioinformatics/btt193) and [metaDMG (Michelsen et al. 2022)](https://doi.org/10.1101/2022.12.06.519264), libdart-damage converts the fitted amplitude into a calibrated terminal damage rate,
 
 $$D_{\max} = \frac{A}{1 - b}$$
 
@@ -65,7 +65,7 @@ libdart-damage addresses this by evaluating several independent biochemical chan
 | D | G→T / C→A direct transversion rates | Terminal/interior contrast for oxidative damage |
 | E | Purine enrichment at 5' termini (depurination) | Independent evidence of fragmentation at AP sites |
 
-In practice, the decision about whether 5' deamination is real is driven by a joint model built from Channel A, its 5' control channel, and Channel B. The other channels remain informative diagnostics, especially in asymmetric or unusual libraries, but they do not replace the core logic: a valid deamination call should be supported by an independent signal that composition alone cannot mimic.
+In practice, the decision about whether 5' deamination is real is driven by a joint model built from Channel A, its 5' control channel, and Channel B. The other channels remain informative diagnostics, especially in asymmetric or unusual libraries, but they do not replace the core logic: a valid deamination call should be supported by an independent signal that composition alone cannot mimic. Channels D and E are described in detail in [Damage types](damage-types.md); the biochemical basis for Channel D (8-oxoG G→T misincorporation) is reviewed in [Shibutani et al. (1991)](#ref-shibutani1991) and [Neeley & Essigmann (2006)](#ref-neeley2006), and for Channel E (depurination fragmentation and AP-site strand cleavage) in [Lindahl (1993)](#ref-lindahl1993).
 
 At a high level, `damage_validated` means the primary nucleotide signal is supported by composition-robust evidence. Conversely, `damage_artifact` means terminal enrichment is present in Channel A but contradicted by the stop-codon signal, so the observed excess is more plausibly explained by composition than by genuine damage.
 
@@ -116,7 +116,7 @@ This is the core reason the joint model is more robust than thresholding Channel
 
 The fitted model has three free parameters: $\delta_{\max}$, $\lambda$, and $a_{\max}$. The baselines are fixed from the interior counts. The implementation searches a grid over $(\lambda, \delta_{\max})$ and, at each grid point, optimizes $a_{\max}$ by a nested golden-section search. It then compares the best damage model ($M_1$: $\delta_{\max} > 0$) to a no-damage model ($M_0$: $\delta_{\max} = 0$) using both BIC and an approximate Bayes factor.
 
-`damage_validated` is set when the joint damage model is favored strongly enough by the implemented criteria: posterior probability $p_{\text{damage}} > 0.95$, BIC evidence $\Delta\text{BIC} > 10$, or a degenerate Bayes factor in extreme cases. `damage_artifact` is set when Channel A shows terminal enrichment but the stop-codon channel remains flat or inverted, implying that the enrichment is not supported by composition-independent evidence. When `damage_artifact = true`, `d_max_combined` is forced to zero so that downstream tools do not treat a compositional bias as authentic damage.
+`damage_validated` is set when the joint damage model is favored strongly enough by the implemented criteria: posterior probability $p_{\text{damage}} > 0.95$, BIC evidence $\Delta\text{BIC} > 10$ ([Kass & Raftery 1995](#ref-kass1995)), or a degenerate Bayes factor in extreme cases. `damage_artifact` is set when Channel A shows terminal enrichment but the stop-codon channel remains flat or inverted, implying that the enrichment is not supported by composition-independent evidence. When `damage_artifact = true`, `d_max_combined` is forced to zero so that downstream tools do not treat a compositional bias as authentic damage.
 
 ---
 
@@ -167,13 +167,13 @@ Seven composite BIC models partition the four channels into active (alt) and ina
 | M_SS_orig | alt | null | null | alt | SS original-orientation only |
 | M_SS_asym | alt | null | alt | null | SS both orientations, no smooth ga3 |
 
-In `M_DS_symm`, ct5 and ga3 share one amplitude parameter (`joint↑`). This reflects the biological expectation that genuine DS libraries should show comparable terminal damage on the two complementary ends. The shared parameter improves efficiency when that assumption is correct, but it also deliberately penalizes a DS interpretation when the ends are strongly asymmetric. In effect, the model is using symmetry itself as evidence.
+In `M_DS_symm`, ct5 and ga3 share one amplitude parameter (`joint↑`). This reflects a direct consequence of Chargaff's first rule: in double-stranded DNA, [C] = [G] between strands by complementarity ([Chargaff et al. 1950](#ref-chargaff1950)). Deaminated cytosines on the original strand appear as C→T when that strand is sequenced; the same damage events on the complementary strand appear as G→A when it is sequenced. With unbiased adapter ligation capturing both strands in equal proportion, as expected in standard DS library preparation, the two terminal signals should have equal amplitude. The shared parameter improves efficiency when that assumption holds, but it also deliberately penalizes a DS interpretation when the ends are strongly asymmetric — in effect, the model is using symmetry itself as evidence. The post-hoc symmetry check below makes that penalty explicit when asymmetry is extreme.
 
 Each composite BIC is the sum of channel-level BIC terms:
 
 $$\text{BIC}(M) = \sum_{\text{channels}} \text{BIC}_{\text{component}}(\text{channel}, \text{active/null})$$
 
-Lower BIC wins. The null model contributes no amplitude parameter; each active channel contributes one amplitude parameter with a complexity penalty of $\ln(n_{\text{trials}})$. This formulation makes the trade-off explicit: a more complex library explanation is only preferred if it improves fit enough to justify the additional flexibility.
+Lower BIC wins ([Schwarz 1978](#ref-schwarz1978)). The null model contributes no amplitude parameter; each active channel contributes one amplitude parameter with a complexity penalty of $\ln(n_{\text{trials}})$. This formulation makes the trade-off explicit: a more complex library explanation is only preferred if it improves fit enough to justify the additional flexibility.
 
 In addition to the waterfall candidates, the implementation also evaluates an unconstrained four-channel SS model (`M_SS_full`: ct5=alt, ga3=alt, ga0=alt, ct3=alt), reported as `library_bic_mix` in `SampleDamageProfile`. This model is useful diagnostically and for likelihood-based summaries, even though it is not itself the winner in the cascade.
 
@@ -241,7 +241,7 @@ This introduces a deliberate trade-off. Stratifying by GC can reveal mixtures th
 
 Two mixture models operate over the GC bins:
 
-**`DamageMixtureModel`** is a simple 2-component Gaussian model over per-bin `d_max` values. It treats one component as effectively undamaged ($\mu = 0$, $\sigma = 0.01$) and one as damaged ($\mu$ estimated, $\sigma = 0.10$), and uses EM to estimate the fraction and mean damage of the damaged component. This model provides a compact summary of whether the GC bins separate into low-damage and high-damage groups.
+**`DamageMixtureModel`** is a simple 2-component Gaussian model over per-bin `d_max` values. It treats one component as effectively undamaged ($\mu = 0$, $\sigma = 0.01$) and one as damaged ($\mu$ estimated, $\sigma = 0.10$), and uses the EM algorithm ([Dempster, Laird & Rubin 1977](#ref-dempster1977)) to estimate the fraction and mean damage of the damaged component. This model provides a compact summary of whether the GC bins separate into low-damage and high-damage groups.
 
 **`MixtureDamageModel`** is the full GC-aware model. It fits $K = 2, 3, 4$ latent classes with multiple random restarts and selects the best solution by BIC. Each class has its own `delta_max`, while `lambda` and `a_max` are shared. The model also learns a GC distribution for each class, so it can represent situations in which high-damage and low-damage molecules occupy different GC ranges rather than simply different damage levels.
 
@@ -280,3 +280,29 @@ The rationale is as follows:
 - **When Channel B₃′ is informative**, its stop-codon conversion signal can provide a structural 3' estimate even when a simple terminal nucleotide fit is weak or confounded.
 
 This final combination stage is where several earlier diagnostics matter operationally. Position-0 artifacts, inverted terminal patterns, strong library asymmetry, and Channel B/B₃′ structural estimates all influence which end should be trusted. The output `d_max_combined` is therefore not merely the result of one exponential fit; it is the end product of the full evidence cascade described above.
+
+---
+
+## References
+
+<a id="ref-briggs2007"></a>**Briggs AW, Stenzel U, Johnson PLF, Green RE, Kelso J, Prüfer K, Meyer M, Krause J, Ronan MT, Lachmann M, Pääbo S** (2007) Patterns of damage in genomic DNA sequences from a Neandertal. *Proc Natl Acad Sci USA* **104**:14616–14621. [doi:10.1073/pnas.0704665104](https://doi.org/10.1073/pnas.0704665104)
+
+<a id="ref-chargaff1950"></a>**Chargaff E, Zamenhof S, Green C** (1950) Composition of human desoxypentose nucleic acid. *Nature* **165**:756–757. [doi:10.1038/165756b0](https://doi.org/10.1038/165756b0)
+
+<a id="ref-dempster1977"></a>**Dempster AP, Laird NM, Rubin DB** (1977) Maximum likelihood from incomplete data via the EM algorithm. *J R Stat Soc Ser B* **39**:1–22. [doi:10.1111/j.2517-6161.1977.tb01600.x](https://doi.org/10.1111/j.2517-6161.1977.tb01600.x)
+
+<a id="ref-gansauge2013"></a>**Gansauge M-T, Meyer M** (2013) Single-stranded DNA library preparation for the sequencing of ancient or damaged DNA. *Nat Protoc* **8**:737–748. [doi:10.1038/nprot.2013.038](https://doi.org/10.1038/nprot.2013.038)
+
+<a id="ref-jonsson2013"></a>**Jónsson H, Ginolhac A, Schubert M, Johnson PLF, Orlando L** (2013) mapDamage2.0: fast approximate Bayesian estimates of ancient DNA damage parameters. *Bioinformatics* **29**:1682–1684. [doi:10.1093/bioinformatics/btt193](https://doi.org/10.1093/bioinformatics/btt193)
+
+<a id="ref-kass1995"></a>**Kass RE, Raftery AE** (1995) Bayes factors. *J Am Stat Assoc* **90**:773–795. [doi:10.1080/01621459.1995.10476572](https://doi.org/10.1080/01621459.1995.10476572)
+
+<a id="ref-lindahl1993"></a>**Lindahl T** (1993) Instability and decay of the primary structure of DNA. *Nature* **362**:709–715. [doi:10.1038/362709a0](https://doi.org/10.1038/362709a0)
+
+<a id="ref-michelsen2022"></a>**Michelsen C, Fortunato G, Warinner C, Jonsson H, Schroeder H, Orlando L, Renaud G, Librado P** (2022) metaDMG: a fast and accurate ancient DNA damage toolkit for metagenomic sequencing data. *bioRxiv*. [doi:10.1101/2022.12.06.519264](https://doi.org/10.1101/2022.12.06.519264)
+
+<a id="ref-neeley2006"></a>**Neeley WL, Essigmann JM** (2006) Mechanisms of formation, genotoxicity, and mutation of guanine oxidation products. *Chem Res Toxicol* **19**:491–505. [doi:10.1021/tx0600043](https://doi.org/10.1021/tx0600043)
+
+<a id="ref-schwarz1978"></a>**Schwarz G** (1978) Estimating the dimension of a model. *Ann Stat* **6**:461–464. [doi:10.1214/aos/1176344136](https://doi.org/10.1214/aos/1176344136)
+
+<a id="ref-shibutani1991"></a>**Shibutani S, Takeshita M, Grollman AP** (1991) Insertion of specific bases during DNA synthesis past the oxidation-damaged base 8-oxodG. *Nature* **349**:431–434. [doi:10.1038/349431a0](https://doi.org/10.1038/349431a0)
