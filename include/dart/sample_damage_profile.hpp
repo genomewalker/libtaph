@@ -7,6 +7,7 @@
 #include <vector>
 #include <unordered_map>
 #include <array>
+#include <limits>
 #include <utility>
 
 namespace dart {
@@ -16,6 +17,12 @@ class DamageModel;
 struct UnifiedDamageContext;
 
 struct SampleDamageProfile {
+    static constexpr int N_POS = 15;
+    static constexpr int N_CT_CTX = 2;
+    static constexpr int N_OXOG16 = 16;
+
+    enum CtContext : int { CPG_LIKE = 0, NONCPG_LIKE = 1 };
+
     // Position-specific base counts at 5' end (positions 0-14)
     // Using double to avoid float precision loss at >16M reads
     std::array<double, 15> t_freq_5prime = {};  // T count at each position
@@ -62,6 +69,40 @@ struct SampleDamageProfile {
     size_t cpg_t_count = 0;            // T's where C expected in CpG
     size_t non_cpg_c_count = 0;
     size_t non_cpg_t_count = 0;
+
+    // 5' context-split C/T accumulators (CpG-like vs non-CpG-like)
+    std::array<std::array<float, N_POS>, N_CT_CTX> ct_ctx_t_5prime = {};
+    std::array<std::array<float, N_POS>, N_CT_CTX> ct_ctx_total_5prime = {};
+
+    // Interior baseline accumulators for context split
+    std::array<float, N_CT_CTX> ct_ctx_t_interior = {};
+    std::array<float, N_CT_CTX> ct_ctx_total_interior = {};
+
+    // Fitted baselines and amplitudes for context split
+    float fit_baseline_ct5_cpg_like    = std::numeric_limits<float>::quiet_NaN();
+    float fit_baseline_ct5_noncpg_like = std::numeric_limits<float>::quiet_NaN();
+    float dmax_ct5_cpg_like    = std::numeric_limits<float>::quiet_NaN();
+    float dmax_ct5_noncpg_like = std::numeric_limits<float>::quiet_NaN();
+    float cpg_ratio     = std::numeric_limits<float>::quiet_NaN();
+    float log2_cpg_ratio = std::numeric_limits<float>::quiet_NaN();
+
+    // Coverage diagnostics for context split
+    float effcov_ct5_cpg_like_terminal    = 0.0f;
+    float effcov_ct5_noncpg_like_terminal = 0.0f;
+    float effcov_ct5_cpg_like_interior    = 0.0f;
+    float effcov_ct5_noncpg_like_interior = 0.0f;
+    float cov_ct5_cpg_like_terminal       = 0.0f;
+    float cov_ct5_noncpg_like_terminal    = 0.0f;
+    float cov_ct5_cpg_like_interior       = 0.0f;
+    float cov_ct5_noncpg_like_interior    = 0.0f;
+    int   fit_positions_ct5_cpg_like    = 0;
+    int   fit_positions_ct5_noncpg_like = 0;
+
+    // oxoG 16-context interior panel
+    std::array<float, N_OXOG16> oxog16_t        = {};
+    std::array<float, N_OXOG16> oxog16_a_rc     = {};
+    std::array<float, N_OXOG16> s_oxog_16ctx    = {};
+    std::array<float, N_OXOG16> cov_oxog_16ctx  = {};
 
     // Summary statistics
     float max_damage_5prime = 0.0f;  // Maximum C→T rate at position 0

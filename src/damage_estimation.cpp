@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <array>
+#include <limits>
 
 namespace dart {
 
@@ -466,6 +467,51 @@ void FrameSelector::update_sample_profile(
         }
     }
 
+    // CpG-like context split — 5' terminal positions (all 15)
+    for (int p = 0; p < SampleDamageProfile::N_POS && (p + 1) < static_cast<int>(len); ++p) {
+        const char x = fast_upper(seq[p]);
+        const char y = fast_upper(seq[p + 1]);
+        if ((x == 'C' || x == 'T') && (y == 'A' || y == 'C' || y == 'G' || y == 'T')) {
+            const int ctx = (y == 'G') ? SampleDamageProfile::CPG_LIKE : SampleDamageProfile::NONCPG_LIKE;
+            profile.ct_ctx_total_5prime[ctx][p] += 1.0f;
+            if (x == 'T') profile.ct_ctx_t_5prime[ctx][p] += 1.0f;
+        }
+    }
+
+    // Interior baseline + oxoG 16-context (only for reads >= 30 bp, already guarded above)
+    {
+        const int q0 = static_cast<int>(len / 3), q1 = static_cast<int>((2 * len) / 3);
+
+        // Context-split interior baseline
+        for (int q = q0; q < q1 && (q + 1) < static_cast<int>(len); ++q) {
+            const char x = fast_upper(seq[q]), y = fast_upper(seq[q + 1]);
+            if ((x == 'C' || x == 'T') && (y == 'A' || y == 'C' || y == 'G' || y == 'T')) {
+                const int ctx = (y == 'G') ? SampleDamageProfile::CPG_LIKE : SampleDamageProfile::NONCPG_LIKE;
+                profile.ct_ctx_total_interior[ctx] += 1.0f;
+                if (x == 'T') profile.ct_ctx_t_interior[ctx] += 1.0f;
+            }
+        }
+
+        // oxoG 16-context interior panel
+        for (int q = q0; q < q1; ++q) {
+            if (q <= 0 || q >= static_cast<int>(len) - 1) continue;
+            const char l = fast_upper(seq[q-1]), b = fast_upper(seq[q]), r = fast_upper(seq[q+1]);
+            auto enc = [](char c) -> int {
+                switch(c){ case 'A':return 0; case 'C':return 1; case 'G':return 2; case 'T':return 3; default:return -1; }
+            };
+            auto rc_base = [](char c) -> char {
+                switch(c){ case 'A':return 'T'; case 'T':return 'A'; case 'C':return 'G'; case 'G':return 'C'; default:return 'N'; }
+            };
+            if (b == 'T') {
+                int il = enc(l), ir = enc(r);
+                if (il >= 0 && ir >= 0) profile.oxog16_t[4*il+ir] += 1.0f;
+            } else if (b == 'A') {
+                int il = enc(rc_base(r)), ir = enc(rc_base(l));
+                if (il >= 0 && ir >= 0) profile.oxog16_a_rc[4*il+ir] += 1.0f;
+            }
+        }
+    }
+
     if (len >= 18) {
         for (int frame = 0; frame < 3; ++frame) {
             // Scan codons from 5' end up to position 14
@@ -786,6 +832,81 @@ void FrameSelector::update_sample_profile(
     }
 
     profile.n_reads++;
+}
+
+// Context-split 1D amplitude fit for CpG-like / non-CpG-like C→T damage.
+// Fixed lambda (from global fit), golden-section search over d in [0,1].
+struct CtCtxFit {
+    float baseline = std::numeric_limits<float>::quiet_NaN();
+    float dmax     = std::numeric_limits<float>::quiet_NaN();
+    float cov_terminal = 0.0f, cov_interior = 0.0f;
+    float effcov_terminal = 0.0f, effcov_interior = 0.0f;
+    int   fit_positions = 0;
+    bool  valid = false;
+};
+
+static CtCtxFit fit_ct5_ctx_amplitude(
+    const std::array<float, SampleDamageProfile::N_POS>& t_counts,
+    const std::array<float, SampleDamageProfile::N_POS>& total_counts,
+    float t_interior, float total_interior,
+    float lambda)
+{
+    constexpr float MIN_POS_COV  = 50.0f;
+    constexpr float MIN_INT_COV  = 500.0f;
+    constexpr float MIN_EFF_INT  = 100.0f;
+    constexpr float MIN_EFF_TERM = 50.0f;
+    constexpr float EPS = 1e-6f;
+
+    CtCtxFit fit;
+    fit.cov_interior = total_interior;
+    if (total_interior < MIN_INT_COV) return fit;
+
+    const float b = std::clamp(t_interior / total_interior, EPS, 1.0f - EPS);
+    fit.baseline = b;
+    fit.effcov_interior = total_interior * (1.0f - b);
+    if (fit.effcov_interior < MIN_EFF_INT) return fit;
+
+    float cov_term = 0.0f, effcov_term = 0.0f;
+    int n_fit_pos = 0;
+    for (int p = 0; p < SampleDamageProfile::N_POS; ++p) {
+        const float n = total_counts[p];
+        cov_term += n;
+        if (n >= MIN_POS_COV) { ++n_fit_pos; effcov_term += n * (1.0f - b); }
+    }
+    fit.cov_terminal = cov_term;
+    fit.effcov_terminal = effcov_term;
+    fit.fit_positions = n_fit_pos;
+    if (n_fit_pos < 3 || effcov_term < MIN_EFF_TERM) return fit;
+
+    const float lam = std::clamp(lambda, 0.01f, 2.0f);
+
+    auto neg_ll = [&](double d) -> double {
+        d = std::clamp(d, 0.0, 1.0);
+        double nll = 0.0;
+        for (int p = 0; p < SampleDamageProfile::N_POS; ++p) {
+            const double n = static_cast<double>(total_counts[p]);
+            if (n < MIN_POS_COV) continue;
+            const double k = static_cast<double>(t_counts[p]);
+            const double mu = std::clamp(
+                static_cast<double>(b) + (1.0 - b) * d * std::exp(-lam * p),
+                1e-6, 1.0 - 1e-6);
+            nll -= k * std::log(mu) + (n - k) * std::log(1.0 - mu);
+        }
+        return nll;
+    };
+
+    // Golden section search
+    double lo = 0.0, hi = 1.0;
+    const double gr = (std::sqrt(5.0) - 1.0) / 2.0;
+    double c = hi - gr * (hi - lo), d_pt = lo + gr * (hi - lo);
+    for (int iter = 0; iter < 60; ++iter) {
+        if (neg_ll(c) < neg_ll(d_pt)) { hi = d_pt; d_pt = c; c = hi - gr * (hi - lo); }
+        else                           { lo = c;    c = d_pt; d_pt = lo + gr * (hi - lo); }
+        if (hi - lo < 1e-7) break;
+    }
+    fit.dmax = static_cast<float>((lo + hi) / 2.0);
+    fit.valid = true;
+    return fit;
 }
 
 void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
@@ -1446,6 +1567,53 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     }
     if (fit_lambda_3p > 0.05f && fit_lambda_3p < 0.5f) {
         profile.lambda_3prime = fit_lambda_3p;
+    }
+
+    // Context-split amplitude fits (CpG-like vs non-CpG-like)
+    {
+        auto fit_cpg = fit_ct5_ctx_amplitude(
+            profile.ct_ctx_t_5prime[SampleDamageProfile::CPG_LIKE],
+            profile.ct_ctx_total_5prime[SampleDamageProfile::CPG_LIKE],
+            profile.ct_ctx_t_interior[SampleDamageProfile::CPG_LIKE],
+            profile.ct_ctx_total_interior[SampleDamageProfile::CPG_LIKE],
+            profile.lambda_5prime);
+
+        auto fit_ncpg = fit_ct5_ctx_amplitude(
+            profile.ct_ctx_t_5prime[SampleDamageProfile::NONCPG_LIKE],
+            profile.ct_ctx_total_5prime[SampleDamageProfile::NONCPG_LIKE],
+            profile.ct_ctx_t_interior[SampleDamageProfile::NONCPG_LIKE],
+            profile.ct_ctx_total_interior[SampleDamageProfile::NONCPG_LIKE],
+            profile.lambda_5prime);
+
+        profile.fit_baseline_ct5_cpg_like    = fit_cpg.baseline;
+        profile.fit_baseline_ct5_noncpg_like = fit_ncpg.baseline;
+        profile.dmax_ct5_cpg_like    = fit_cpg.valid  ? fit_cpg.dmax  : std::numeric_limits<float>::quiet_NaN();
+        profile.dmax_ct5_noncpg_like = fit_ncpg.valid ? fit_ncpg.dmax : std::numeric_limits<float>::quiet_NaN();
+        profile.cov_ct5_cpg_like_terminal       = fit_cpg.cov_terminal;
+        profile.cov_ct5_noncpg_like_terminal    = fit_ncpg.cov_terminal;
+        profile.cov_ct5_cpg_like_interior       = fit_cpg.cov_interior;
+        profile.cov_ct5_noncpg_like_interior    = fit_ncpg.cov_interior;
+        profile.effcov_ct5_cpg_like_terminal    = fit_cpg.effcov_terminal;
+        profile.effcov_ct5_noncpg_like_terminal = fit_ncpg.effcov_terminal;
+        profile.effcov_ct5_cpg_like_interior    = fit_cpg.effcov_interior;
+        profile.effcov_ct5_noncpg_like_interior = fit_ncpg.effcov_interior;
+        profile.fit_positions_ct5_cpg_like    = fit_cpg.fit_positions;
+        profile.fit_positions_ct5_noncpg_like = fit_ncpg.fit_positions;
+
+        if (fit_cpg.valid && fit_ncpg.valid && fit_ncpg.dmax >= 0.005f) {
+            profile.cpg_ratio    = fit_cpg.dmax / fit_ncpg.dmax;
+            profile.log2_cpg_ratio = std::log2((fit_cpg.dmax + 1e-6f) / (fit_ncpg.dmax + 1e-6f));
+        }
+
+        // oxoG 16-context finalization
+        for (int i = 0; i < SampleDamageProfile::N_OXOG16; ++i) {
+            const float t = profile.oxog16_t[i], a = profile.oxog16_a_rc[i];
+            const float cov = t + a;
+            profile.cov_oxog_16ctx[i] = cov;
+            profile.s_oxog_16ctx[i] = (cov >= 500.0f)
+                ? (t - a) / cov
+                : std::numeric_limits<float>::quiet_NaN();
+        }
     }
 
     // Step 3: Per-position damage rates using fit baseline
@@ -2618,6 +2786,19 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
     dst.non_cpg_c_count += src.non_cpg_c_count;
     dst.non_cpg_t_count += src.non_cpg_t_count;
 
+    for (int ctx = 0; ctx < SampleDamageProfile::N_CT_CTX; ++ctx) {
+        for (int p = 0; p < SampleDamageProfile::N_POS; ++p) {
+            dst.ct_ctx_t_5prime[ctx][p] += src.ct_ctx_t_5prime[ctx][p];
+            dst.ct_ctx_total_5prime[ctx][p] += src.ct_ctx_total_5prime[ctx][p];
+        }
+        dst.ct_ctx_t_interior[ctx] += src.ct_ctx_t_interior[ctx];
+        dst.ct_ctx_total_interior[ctx] += src.ct_ctx_total_interior[ctx];
+    }
+    for (int i = 0; i < SampleDamageProfile::N_OXOG16; ++i) {
+        dst.oxog16_t[i] += src.oxog16_t[i];
+        dst.oxog16_a_rc[i] += src.oxog16_a_rc[i];
+    }
+
     for (uint32_t i = 0; i < 4096; ++i) {
         dst.hexamer_count_5prime[i] += src.hexamer_count_5prime[i];
         dst.hexamer_count_interior[i] += src.hexamer_count_interior[i];
@@ -2797,6 +2978,33 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.non_cpg_t_count = 0;
     profile.cpg_damage_rate = 0.0f;
     profile.non_cpg_damage_rate = 0.0f;
+
+    for (int ctx = 0; ctx < SampleDamageProfile::N_CT_CTX; ++ctx) {
+        profile.ct_ctx_t_5prime[ctx].fill(0.0f);
+        profile.ct_ctx_total_5prime[ctx].fill(0.0f);
+        profile.ct_ctx_t_interior[ctx] = 0.0f;
+        profile.ct_ctx_total_interior[ctx] = 0.0f;
+    }
+    profile.fit_baseline_ct5_cpg_like    = std::numeric_limits<float>::quiet_NaN();
+    profile.fit_baseline_ct5_noncpg_like = std::numeric_limits<float>::quiet_NaN();
+    profile.dmax_ct5_cpg_like    = std::numeric_limits<float>::quiet_NaN();
+    profile.dmax_ct5_noncpg_like = std::numeric_limits<float>::quiet_NaN();
+    profile.cpg_ratio     = std::numeric_limits<float>::quiet_NaN();
+    profile.log2_cpg_ratio = std::numeric_limits<float>::quiet_NaN();
+    profile.effcov_ct5_cpg_like_terminal    = 0.0f;
+    profile.effcov_ct5_noncpg_like_terminal = 0.0f;
+    profile.effcov_ct5_cpg_like_interior    = 0.0f;
+    profile.effcov_ct5_noncpg_like_interior = 0.0f;
+    profile.cov_ct5_cpg_like_terminal       = 0.0f;
+    profile.cov_ct5_noncpg_like_terminal    = 0.0f;
+    profile.cov_ct5_cpg_like_interior       = 0.0f;
+    profile.cov_ct5_noncpg_like_interior    = 0.0f;
+    profile.fit_positions_ct5_cpg_like    = 0;
+    profile.fit_positions_ct5_noncpg_like = 0;
+    profile.oxog16_t.fill(0.0f);
+    profile.oxog16_a_rc.fill(0.0f);
+    profile.s_oxog_16ctx.fill(0.0f);
+    profile.cov_oxog_16ctx.fill(0.0f);
 
     profile.max_damage_5prime = 0.0f;
     profile.max_damage_3prime = 0.0f;
