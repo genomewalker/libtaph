@@ -104,6 +104,33 @@ struct SampleDamageProfile {
     std::array<float, N_OXOG16> s_oxog_16ctx    = {};
     std::array<float, N_OXOG16> cov_oxog_16ctx  = {};
 
+    // Interior clustered C→T: excess short-range co-occurrence of T at non-CpG {C,T} sites
+    struct InteriorCtClusterAccumulator {
+        uint64_t short_reads_skipped = 0;
+        uint64_t reads_used_ct = 0;
+        uint64_t reads_used_ag = 0;
+        uint64_t obs_ct[11]   = {};
+        uint64_t pairs_ct[11] = {};
+        double   exp_ct[11]   = {};
+        double   var_ct[11]   = {};
+        uint64_t obs_ag[11]   = {};
+        uint64_t pairs_ag[11] = {};
+        double   exp_ag[11]   = {};
+        double   var_ag[11]   = {};
+    };
+    InteriorCtClusterAccumulator interior_ct_cluster = {};
+
+    float    interior_ct_cluster_short_log2oe       = 0.0f;  // CT log2(obs/exp), d=1..5
+    float    interior_ct_cluster_short_asym_log2oe  = 0.0f;  // CT minus AG control
+    float    interior_ct_cluster_short_z            = 0.0f;  // Heuristic z-score
+    float    interior_ct_cluster_sep_log2oe[10]     = {};    // Per-separation d=1..10
+    uint64_t interior_ct_cluster_short_obs          = 0;
+    uint64_t interior_ct_cluster_short_pairs        = 0;
+    double   interior_ct_cluster_short_exp          = 0.0;
+    uint64_t interior_ct_cluster_reads_used         = 0;
+    uint64_t interior_ct_cluster_reads_used_control = 0;
+    uint64_t interior_ct_cluster_reads_skipped      = 0;
+
     // Summary statistics
     float max_damage_5prime = 0.0f;  // Maximum C→T rate at position 0
     float max_damage_3prime = 0.0f;  // Maximum G→A rate at last position
