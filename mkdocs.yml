@@ -51,4 +51,5 @@ nav:
   - Methods: methods.md
   - Damage types: damage-types.md
   - API Reference: api.md
+  - Classifier Integration: integration.md
   - Changelog: changelog.md
