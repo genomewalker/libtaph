@@ -14,8 +14,8 @@ Reference-based damage estimation (mapDamage, metaDMG) requires a mapped BAM fil
 
 ## What it measures
 
-Six independent biochemical damage channels, each targeting a distinct
-degradation process:
+Six biochemical damage channels plus three context-sensitive metrics, together
+covering all reference-free FASTQ-detectable aDNA damage types:
 
 ### Channel A: Cytosine deamination (primary damage signal)
 
@@ -87,6 +87,42 @@ Channels B–E cross-validate Channel A: if Channel A detects deamination but
 Channel B contradicts it, the signal is flagged as a composition artifact
 rather than genuine ancient damage. Channels C–E are reported for sample
 characterisation but do not directly affect position masking.
+
+### CpG-like context split
+
+The same cytosine deamination that drives Channel A acts faster at CpG
+dinucleotides when the cytosine was methylated (5mC → T). libdart-damage fits
+the 5' C→T amplitude separately for positions where the next base is G
+(CpG-like context) and positions where it is not (non-CpG). A reference-free
+interior baseline (middle third of each read) is used to estimate the
+background T fraction in each context. The ratio `cpg_ratio = dmax_cpg /
+dmax_noncpg` quantifies the methylation-enhanced component. Values near 1
+indicate uniform deamination independent of methylation status; values
+substantially above 1 suggest enriched CpG methylation in the source organism.
+Reported in the JSON block `deamination.cpg_like`.
+
+### Interior C→T clustering
+
+Beyond terminal overhangs, deamination can cluster in read interiors when
+closely spaced cytosines in single-stranded micro-domains are co-deaminated in
+the same hydrolytic event. libdart-damage measures excess co-occurrence of T at
+adjacent non-CpG `{C,T}` sites within the read interior (middle third) at
+pair separations d = 1–10 bp, using the within-read T fraction as the null.
+An AG-track control (analogous G→A co-occurrence) corrects for strand-composition
+biases. The summary statistic `short_asym_log2oe` is the background-corrected
+log₂ observed/expected ratio; `short_z` is the normalised contrast. Significant
+positive values indicate genuine clustered interior deamination not captured by
+the terminal exponential model. Reported in the JSON block
+`interior_ct_cluster`.
+
+### 8-oxoG 16-context panel
+
+The overall `s_oxog` statistic (G→T strand asymmetry) is split across all 16
+flanking-dinucleotide bins (N**G**N contexts). The resulting 16-element vector
+`s_oxog_16ctx` characterises the trinucleotide specificity of oxidation: genuine
+ancient 8-oxoG shows broad context enrichment, while modern oxidation from
+sample preparation tends to be context-biased. Reported in the JSON block
+`complement_asymmetry.s_oxog_16ctx`.
 
 ## What it classifies
 
