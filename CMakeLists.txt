@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ── Library target ────────────────────────────────────────────────────────────
 add_library(dart-damage
     src/damage_estimation.cpp
+    src/damage_c_api.cpp
 )
 
 target_include_directories(dart-damage PUBLIC
