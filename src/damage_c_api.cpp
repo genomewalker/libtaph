@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstring>
 #include <new>
+#include <string_view>
 
 // ---------------------------------------------------------------------------
 // Internal state bundled behind the opaque handle
@@ -31,7 +32,7 @@ void dart_profile_destroy(dart_profile_t *p) {
 void dart_profile_add_read(dart_profile_t *p, const char *seq, size_t len) {
     if (!p || p->finalized || !seq || len == 0) { return; }
     dart::FrameSelector::update_sample_profile(p->profile,
-                                               std::string(seq, len));
+                                               std::string_view(seq, len));
 }
 
 void dart_profile_finalize(dart_profile_t *p) {

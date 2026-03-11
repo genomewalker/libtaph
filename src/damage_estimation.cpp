@@ -374,7 +374,7 @@ static std::pair<ChannelDecayFit, int> fit_decay_joint_best_offset(
 
 void FrameSelector::update_sample_profile(
     SampleDamageProfile& profile,
-    const std::string& seq) {
+    std::string_view seq) {
 
     if (seq.length() < 30) return;  // Too short for reliable statistics
 
@@ -2081,9 +2081,12 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             std::tie(ga3, ga3_offset) = fit_decay_best_offset(
                 profile.a_freq_3prime, profile.ag_total_3prime,
                 static_cast<float>(baseline_ag), lambda_lib, 10);
-            std::tie(ct3, ct3_offset) = fit_decay_best_offset(
-                ctrl_freq_3p, ctrl_total_3p,
-                static_cast<float>(baseline_tc), lambda_lib, 10);
+            // ct3 does NOT use offset search even when artifact_3 is true: the 3' adapter
+            // artifact suppresses GA3 (complement-strand G→A) but not CT3 (original-strand
+            // C→T). Offset search for ct3 finds spurious C→T signals in adapter-affected DS
+            // libraries and drives false SS-original classifications.
+            ct3 = fit_decay_fixed_lambda(ctrl_freq_3p, ctrl_total_3p,
+                static_cast<float>(baseline_tc), lambda_lib, 1, 10);
         } else {
             ga3 = fit_decay_fixed_lambda(profile.a_freq_3prime, profile.ag_total_3prime,
                 static_cast<float>(baseline_ag), lambda_lib, 1, 10);
@@ -3001,7 +3004,7 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
 
 void FrameSelector::update_sample_profile_weighted(
     SampleDamageProfile& profile,
-    const std::string& seq,
+    std::string_view seq,
     float weight) {
 
     if (seq.length() < 30 || weight < 0.001f) return;
