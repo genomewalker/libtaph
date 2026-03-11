@@ -2576,6 +2576,12 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             }
         } else {
             profile.damage_status = SampleDamageProfile::DamageStatus::ABSENT;
+            // Conservative: absent damage means the BIC competition had no signal.
+            // Report UNKNOWN rather than keeping the DS default — we cannot distinguish
+            // zero-damage DS from zero-damage SS. Only applies in auto-detect mode.
+            if (profile.forced_library_type == SampleDamageProfile::LibraryType::UNKNOWN) {
+                profile.library_type = SampleDamageProfile::LibraryType::UNKNOWN;
+            }
         }
     }
 }
