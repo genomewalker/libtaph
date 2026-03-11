@@ -2,6 +2,7 @@
 
 #include "sample_damage_profile.hpp"
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace dart {
@@ -13,11 +14,11 @@ public:
 
     static void update_sample_profile(
         SampleDamageProfile& profile,
-        const std::string& seq);
+        std::string_view seq);
 
     static void update_sample_profile_weighted(
         SampleDamageProfile& profile,
-        const std::string& seq,
+        std::string_view seq,
         float weight);
 
     static void finalize_sample_profile(SampleDamageProfile& profile);
