@@ -916,9 +916,9 @@ struct CtCtxFit {
 };
 
 static CtCtxFit fit_ct5_ctx_amplitude(
-    const std::array<float, SampleDamageProfile::N_POS>& t_counts,
-    const std::array<float, SampleDamageProfile::N_POS>& total_counts,
-    float t_interior, float total_interior,
+    const std::array<double, SampleDamageProfile::N_POS>& t_counts,
+    const std::array<double, SampleDamageProfile::N_POS>& total_counts,
+    double t_interior, double total_interior,
     float lambda)
 {
     constexpr float MIN_POS_COV  = 50.0f;
@@ -928,20 +928,21 @@ static CtCtxFit fit_ct5_ctx_amplitude(
     constexpr float EPS = 1e-6f;
 
     CtCtxFit fit;
-    fit.cov_interior = total_interior;
+    fit.cov_interior = static_cast<float>(total_interior);
     if (total_interior < MIN_INT_COV) return fit;
 
-    const float b = std::clamp(t_interior / total_interior, EPS, 1.0f - EPS);
+    const double b_d = std::clamp(t_interior / total_interior, (double)EPS, 1.0 - (double)EPS);
+    const float b = static_cast<float>(b_d);
     fit.baseline = b;
-    fit.effcov_interior = total_interior * (1.0f - b);
+    fit.effcov_interior = static_cast<float>(total_interior * (1.0 - b_d));
     if (fit.effcov_interior < MIN_EFF_INT) return fit;
 
     float cov_term = 0.0f, effcov_term = 0.0f;
     int n_fit_pos = 0;
     for (int p = 0; p < SampleDamageProfile::N_POS; ++p) {
-        const float n = total_counts[p];
-        cov_term += n;
-        if (n >= MIN_POS_COV) { ++n_fit_pos; effcov_term += n * (1.0f - b); }
+        const double n = total_counts[p];
+        cov_term += static_cast<float>(n);
+        if (n >= MIN_POS_COV) { ++n_fit_pos; effcov_term += static_cast<float>(n * (1.0 - b_d)); }
     }
     fit.cov_terminal = cov_term;
     fit.effcov_terminal = effcov_term;
@@ -975,7 +976,10 @@ static CtCtxFit fit_ct5_ctx_amplitude(
         if (hi - lo < 1e-7) break;
     }
     fit.dmax = static_cast<float>((lo + hi) / 2.0);
-    fit.valid = true;
+    // Boundary check: d near 1.0 means the optimizer hit the upper wall —
+    // the true optimum is outside [0,1] or the signal is indistinguishable
+    // from noise. Report as invalid rather than a misleading saturated value.
+    fit.valid = (fit.dmax < 0.98f);
     return fit;
 }
 
@@ -2908,6 +2912,24 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
     for (int i = 0; i < SampleDamageProfile::N_OXOG16; ++i) {
         dst.oxog16_t[i] += src.oxog16_t[i];
         dst.oxog16_a_rc[i] += src.oxog16_a_rc[i];
+    }
+
+    {
+        auto& da = dst.interior_ct_cluster;
+        const auto& sa = src.interior_ct_cluster;
+        da.reads_used_ct        += sa.reads_used_ct;
+        da.reads_used_ag        += sa.reads_used_ag;
+        da.short_reads_skipped  += sa.short_reads_skipped;
+        for (int d = 1; d <= 10; ++d) {
+            da.obs_ct[d]   += sa.obs_ct[d];
+            da.pairs_ct[d] += sa.pairs_ct[d];
+            da.exp_ct[d]   += sa.exp_ct[d];
+            da.var_ct[d]   += sa.var_ct[d];
+            da.obs_ag[d]   += sa.obs_ag[d];
+            da.pairs_ag[d] += sa.pairs_ag[d];
+            da.exp_ag[d]   += sa.exp_ag[d];
+            da.var_ag[d]   += sa.var_ag[d];
+        }
     }
 
     for (uint32_t i = 0; i < 4096; ++i) {
