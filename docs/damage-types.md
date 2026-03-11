@@ -1,14 +1,16 @@
 # Damage types and channels
 
 Ancient DNA carries a record of post-mortem chemistry in its substitution patterns.
-libdart-damage tracks five core biochemical damage channels (A–E) plus eight supplementary
-analyses: CpG-context split, interior CT clustering, oxoG 16-context panel, hexamer-based
-detection, Briggs biophysical model, joint probabilistic model (BIC + Bayes factor),
-mixture model (K-component EM), metaDMG-comparable estimate, adapter offset detection,
-and two compositional controls (codon-position-aware damage, GC-conditional damage bins). The
-channels cross-validate each other, distinguish genuine ancient damage from modern
-library-prep artifacts, and together feed the library-type classifier used by fqdup for
-damage-aware deduplication.
+libdart-damage tracks five core biochemical damage channels (A–E) plus supplementary
+analyses: CpG-context split, interior CT clustering, 8-oxoG 16-context panel, and a
+library-type BIC classifier. The channels cross-validate each other, distinguish genuine
+ancient damage from modern library-prep artefacts, and together feed the library-type
+classifier used by fqdup for damage-aware deduplication.
+
+This document describes the biology of each channel and the JSON output fields they
+produce. Fields that are computed internally but not written to JSON (hexamer, Briggs
+model, joint BIC, GC bins, mixture model, codon-position tracking) are described briefly
+in the [Internal analyses](#internal-analyses) section.
 
 ---
 
@@ -24,10 +26,10 @@ molecules and decays exponentially toward the interior.
 
 | Sub-channel | Signal | Where |
 |---|---|---|
-| ct5 | T/(T+C) excess above baseline | 5' end, positions 0–14 |
-| ga3 | A/(A+G) excess above baseline, smooth decay | 3' end, positions 1–14 |
-| ga0 | A/(A+G) excess at position 0 only, spike | 3' position 0 |
-| ct3 | T/(T+C) excess above baseline | 3' end, positions 0–14 |
+| ct5 | T/(T+C) excess above baseline | 5′ end, positions 0–14 |
+| ga3 | A/(A+G) excess above baseline, smooth decay | 3′ end, positions 1–14 |
+| ga0 | A/(A+G) excess at position 0 only, spike | 3′ position 0 |
+| ct3 | T/(T+C) excess above baseline | 3′ end, positions 0–14 |
 
 The decay model at each end is:
 
@@ -40,10 +42,44 @@ The calibrated damage rate at position 0 is:
 
 $$D_{\max} = \frac{A}{1 - b}$$
 
+**JSON output** (`deamination` block):
+
+| Field | Description |
+|-------|-------------|
+| `d_max_5prime` | Fitted $D_{\max}$ at 5′ end (background-corrected amplitude) |
+| `d_max_3prime` | Fitted $D_{\max}$ at 3′ end |
+| `d_max_combined` | Best overall damage estimate — see [source](#d_max-source) |
+| `d_metamatch` | Alignability-weighted $D_{\max}$; comparable to metaDMG output |
+| `source` | How `d_max_combined` was derived (see below) |
+| `lambda_5prime` | Fitted decay constant at 5′ end |
+| `lambda_3prime` | Fitted decay constant at 3′ end |
+| `bg_5prime` | Interior T/(T+C) baseline at 5′ end |
+| `bg_3prime` | Interior A/(A+G) baseline at 3′ end |
+| `validated` | `true` when Channel B corroborates Channel A |
+| `artifact` | `true` when Channel A fires but Channel B contradicts it |
+| `per_pos_5prime_ct[15]` | Raw T/(T+C) at 5′ positions 0–14 |
+| `per_pos_3prime[15]` | Raw A/(A+G) at 3′ positions 0–14 (DS) or T/(T+C) (SS-original) |
+
+**`d_max_combined` source values:**
+
+| `source` value | Meaning |
+|---|---|
+| `"5prime_only"` | 3′ inverted — 5′ value used |
+| `"3prime_only"` | 5′ inverted — 3′ value used |
+| `"average"` | Both ends valid: average (or mixture/joint model estimate) |
+| `"max_ss_asymmetry"` | SS library: `max(d_max_5, d_max_3)` |
+| `"min_asymmetry"` | DS with high asymmetry: conservative `min(d_max_5, d_max_3)` |
+| `"channel_b_structural"` | Channel B codon estimate used (most reliable) |
+| `"none"` | Both ends inverted with no recoverable signal; `d_max_combined = 0` |
+
+**Adapter artifact:** When a 1–2 bp adapter remnant depresses position 0, the fit window
+is shifted to start at position 1 or 2. `d_max_combined` already incorporates this
+correction; do not use `per_pos_5prime_ct[0]` directly for artifact-affected libraries.
+
 **Diagnostic role:** Primary damage quantification channel. Used by fqdup for position
 masking. The ct3 sub-channel is a negative control for DS libraries (should be flat) and a
 damage signal for SS-original libraries. The ga0 spike at position 0 is a distinct signal
-from the smooth ga3 decay (see library classification below).
+from the smooth ga3 decay (see [library classification](#library-type-classification)).
 
 ---
 
@@ -65,23 +101,20 @@ as Channel A to give a structural $D_{\max}$ estimate from codon transitions alo
 A 3′ variant (**Channel B₃′**) tracks G→A stop codon conversions (TGG→TAG, TGG→TGA) to
 validate the 3′ signal in SS libraries.
 
-**Diagnostic role:** Cross-validation of Channel A.
+**JSON output:** Channel B result is reflected in `deamination.validated` and
+`deamination.artifact`:
 
-- If Channel A and Channel B both detect signal → `damage_validated = true`.
-- If Channel A detects signal but Channel B contradicts it →
-  `damage_artifact = true` (likely composition bias or modern contamination passing
-  the terminal frequency test).
-- If Channel B data are insufficient (low coverage or codon-poor reads) →
-  `channel_b_valid = false`, soft suppression only.
+- Both channels detect signal → `validated: true`
+- Channel A fires, Channel B contradicts → `artifact: true`
+- Insufficient coverage → no flag set (soft suppression only)
 
 ---
 
 ### Channel C: Oxidative stop codon tracking (G→T uniformity test)
 
-**Chemistry:** 8-Oxoguanine (8-oxoG) forms when guanine is oxidized. The polymerase
+**Chemistry:** 8-Oxoguanine (8-oxoG) forms when guanine is oxidised. The polymerase
 misreads 8-oxoG as adenine, producing G→T transversions. Unlike cytosine deamination,
-oxidation occurs throughout the molecule, not preferentially at the ends, damage
-accumulates wherever guanine is exposed during burial.
+oxidation occurs throughout the molecule, not preferentially at the ends.
 
 **What is measured:** Stop codon conversion via G→T at glutamate and glycine codons
 (GAG/GAA/GGA → TAG/TAA/TGA), measured at terminal vs. interior positions.
@@ -90,34 +123,36 @@ The key diagnostic statistic is the uniformity ratio:
 
 $$U_C = \frac{\text{stop rate (terminal)}}{\text{stop rate (interior)}}$$
 
-$U_C \approx 1$ means the G→T conversion is evenly distributed along the read, the
-signature of genuine oxidative damage. $U_C \gg 1$ means the signal is terminal-enriched,
-suggesting co-occurrence with deamination rather than independent oxidation.
+$U_C \approx 1$ → genuine oxidative damage (uniform distribution).
+$U_C \gg 1$ → terminal enrichment, suggesting co-occurrence with deamination.
 
-**Diagnostic role:** Detects 8-oxoG oxidative damage independently of deamination. Flags
-`channel_c_valid` when coverage is sufficient. High terminal enrichment is treated as an
-artifact flag, not as additional deamination evidence.
+**JSON output** (`complement_asymmetry.channel_c_detected`):
+`true` when Channel C detects statistically significant G→T stop codon conversion.
 
 ---
 
 ### Channel D: Direct G→T / C→A transversion tracking (8-oxoG rate)
 
-**Chemistry:** Same 8-oxoG chemistry as Channel C, but measured directly as a raw
-transversion frequency rather than through stop codon context. G→T and its complement C→A
-are tracked at terminal positions and compared to the interior baseline.
+**Chemistry:** Same 8-oxoG chemistry as Channel C, measured directly as raw transversion
+frequency rather than through stop codon context. G→T and its complement C→A are tracked
+at terminal positions and compared to the interior baseline.
 
-**What is measured:**
+**JSON output** (`complement_asymmetry` block):
 
-- `ox_gt_rate_terminal` / `ox_gt_rate_interior`, G→T rate at terminals vs. interior.
-- `ox_ca_rate_terminal` / `ox_ca_rate_interior`, C→A rate at terminals vs. interior.
-- `ox_gt_uniformity`, terminal/interior ratio; ≈ 1 for genuine oxidation.
-- `ox_gt_asymmetry`, correlation of G→T with C→A; high asymmetry confirms 8-oxoG
-  because C→A is the complementary transversion expected on the opposite strand.
-
-**Diagnostic role:** Direct quantification of oxidative damage rate. `ox_damage_detected`
-when both G→T and C→A channels agree. `ox_is_artifact` when the pattern is
-terminal-enriched in a way inconsistent with random oxidation (suggests oxidation occurred
-during sample preparation rather than in situ).
+| JSON field | Description |
+|------------|-------------|
+| `tg_interior` | G→T background rate in read interior |
+| `ac_interior` | C→A background rate in read interior |
+| `tg_terminal` | G→T rate at 5′ terminal positions |
+| `ac_terminal` | C→A rate at 5′ terminal positions |
+| `gt_bg_fitted` | Fitted background for the exponential G→T model |
+| `gt_term_fitted` | Fitted terminal amplitude |
+| `gt_decay_fitted` | Fitted decay constant |
+| `s_gt` | Strand asymmetry score (G→T vs C→A contrast) |
+| `D` | Overall 8-oxoG asymmetry index |
+| `per_pos_5prime_gt[15]` | Raw G→T fraction at 5′ positions 0–14 |
+| `s_oxog` | G→T strand asymmetry at interior positions |
+| `se_s_oxog` | Standard error of `s_oxog` |
 
 ---
 
@@ -126,461 +161,253 @@ during sample preparation rather than in situ).
 **Chemistry:** Purines (adenine and guanine) are more susceptible than pyrimidines to
 hydrolytic base loss (depurination) under acidic and warm conditions. The resulting
 apurinic (AP) site is a strand-break precursor; fragmentation preferentially occurs at AP
-sites, leaving purines enriched at the newly formed 5′ ends. This produces a purine
-enrichment at the 5′ terminus that is distinct from both deamination and oxidation.
+sites, leaving purines enriched at the newly formed 5′ ends.
 
-**What is measured:**
+**JSON output** (`depurination` block):
 
-- `purine_rate_terminal_5prime`, A+G fraction at 5′ terminal positions.
-- `purine_rate_interior`, A+G fraction at interior positions (baseline).
-- `purine_enrichment_5prime` / `purine_enrichment_3prime`, excess above interior baseline.
-- `depurination_detected`, flag when 5′ enrichment is statistically significant.
+| JSON field | Description |
+|------------|-------------|
+| `detected` | `true` when 5′ purine enrichment is statistically significant |
+| `enrichment_5prime` | Purine excess at 5′ terminal vs. interior |
+| `enrichment_3prime` | Purine excess at 3′ terminal vs. interior |
+| `rate_interior` | Interior A+G fraction (baseline) |
 
-**Diagnostic role:** Independent evidence that fragmentation occurred at AP sites (genuine
-ancient damage), rather than random mechanical shearing. High depurination enrichment
-confirms the ancient origin of fragmentation even when deamination is low. Not used
-directly by fqdup for masking, but reported for sample characterisation.
-
----
-
-## Hexamer-based damage detection
-
-**Background:** Single-position statistics (e.g. T/(T+C) at position 0) can be noisy
-for short reads or low coverage. Averaging over a hexamer window (positions 1–6) reduces
-single-position artifacts and is less sensitive to the position-0 adapter bias.
-
-**What is measured:** The first and interior hexamers of each read are tallied separately.
-Terminal T/(T+C) and interior T/(T+C) are computed from the hexamer counts.
-
-**Key outputs:**
-
-| Field | Description |
-|-------|-------------|
-| `hexamer_terminal_tc` | T/(T+C) at terminal from hexamer analysis (pos 1–6) |
-| `hexamer_interior_tc` | T/(T+C) at interior from hexamer analysis |
-| `hexamer_excess_tc` | Terminal − interior excess (negative = inverted) |
-| `hexamer_damage_llr` | Hexamer-based damage log-likelihood ratio |
-
-**Interpretation:** `hexamer_excess_tc > 0` with a significant `hexamer_damage_llr`
-corroborates Channel A independently of single-position artifacts.
+**Diagnostic role:** Independent evidence of genuine ancient fragmentation. Not used by
+fqdup for masking; reported for sample characterisation.
 
 ---
 
-## Briggs biophysical model
+## Supplementary analyses
 
-**Background:** Briggs et al. (2007) parameterised aDNA deamination as a two-state model:
-each base is either in a single-stranded overhang (deamination rate δ_s, high) or in a
-double-stranded interior (deamination rate δ_d, low). The observed position-dependent
-rate is a mixture weighted by the probability of being in the overhang at that distance
-from the terminus.
+### CpG-like context split
 
-**What is measured:** The same exponential decay profile as Channel A is re-fitted under
-the Briggs parameterisation to yield δ_s and δ_d at each end, plus R² goodness of fit.
+**Background:** Methylated cytosines (5mC) deaminate several-fold faster than unmethylated
+cytosines. In ancient organisms where CpG dinucleotides are methylated, this produces a
+distinct C→T excess at positions followed by G (CpG context) vs. positions where the next
+base is not G.
 
-**Key outputs:**
+**What is measured:** For each of the 15 5′ terminal positions, T/(C+T) is tallied
+separately for CpG (next base = G) and non-CpG contexts. A reference-free interior
+baseline (middle third of each read) provides the background T fraction. 1D MLE fits:
+
+$$\mu(p) = b_{\rm ctx} + (1 - b_{\rm ctx}) \cdot d_{\rm ctx} \cdot e^{-\lambda p}$$
+
+**JSON output** (`deamination.cpg_like` block):
 
 | Field | Description |
 |-------|-------------|
-| `delta_s_5prime` / `delta_s_3prime` | Single-stranded deamination rate (overhang) |
-| `delta_d_5prime` / `delta_d_3prime` | Double-stranded background deamination rate |
-| `r_squared_5prime` / `r_squared_3prime` | Goodness of fit for the Briggs model at each end |
+| `dmax_ct5_cpg` | 5′ C→T amplitude in CpG context |
+| `dmax_ct5_noncpg` | 5′ C→T amplitude in non-CpG context |
+| `cpg_ratio` | `dmax_cpg / dmax_noncpg`; >1 = methylation-enhanced deamination |
+| `log2_cpg_ratio` | log₂(cpg_ratio); 0 = no context dependence |
+| `baseline_cpg` | Interior T/(C+T) at CpG positions |
+| `baseline_noncpg` | Interior T/(C+T) at non-CpG positions |
+| `cov_terminal_cpg` | Total T+C observations at CpG terminal positions |
+| `cov_terminal_noncpg` | Total T+C observations at non-CpG terminal positions |
+| `effcov_terminal_cpg` | Effective coverage: `cov * (1 − baseline)` |
+| `effcov_terminal_noncpg` | Effective coverage: `cov * (1 − baseline)` |
 
-**Interpretation:** High δ_s and low δ_d confirm classic aDNA terminal damage. R² < 0.5
-indicates the exponential decay model fits poorly (possibly SS library, composition bias,
-or very old heavily degraded material).
+All fields are `null` when the MLE has insufficient signal or converges to its boundary.
+
+**Biological interpretation:** Most eukaryotes with methylated CpGs show `cpg_ratio > 1`.
+Values near 1 indicate unmethylated CpGs, modern contamination, or very old samples where
+the differential context signal has eroded.
 
 ---
 
-## Joint probabilistic model (BIC + Bayes factor)
+### Interior C→T clustering
 
-**Background:** The per-channel statistics (Channel A LLR, Channel B LLR, etc.) are
-combined into a single Bayesian model comparison: M₁ (damage present) vs M₀ (no damage).
-The BIC difference ΔBIC = BIC₀ − BIC₁ quantifies evidence for damage relative to a null
-model that expects flat terminal frequencies.
+**Background:** Beyond terminal single-stranded overhangs, deamination can occur in short
+interior micro-domains. Co-deamination of adjacent cytosines in the same event produces
+more adjacent T's than expected from independent site-by-site deamination.
 
-**What is measured:**
+**What is measured:** Within the interior of each read (middle third, read length ≥ 30),
+non-CpG `{C,T}` sites are identified. For each pair at separation d = 1–10 bp, observed
+co-T fraction is compared to expected under site independence. An AG control track corrects
+for strand-composition bias.
+
+**JSON output** (`interior_ct_cluster` block):
 
 | Field | Description |
 |-------|-------------|
-| `joint_delta_max` | MLE damage rate under M₁ |
-| `joint_lambda` | MLE decay constant under M₁ |
-| `joint_delta_bic` | ΔBIC = BIC_M0 − BIC_M1 (positive = evidence for damage) |
-| `joint_bayes_factor` | BF₁₀ ≈ exp(ΔBIC/2) |
-| `joint_p_damage` | Posterior P(damage \| data) |
-| `joint_model_valid` | True if sufficient read coverage for the joint model |
+| `short_z` | Normalised CT-vs-AG contrast (d=1–5 summed) |
+| `short_asym_log2oe` | log₂(CT obs/exp) − log₂(AG obs/exp); AG-corrected effect size |
+| `short_log2oe` | log₂(CT obs/exp) without AG correction |
+| `short_obs` | Total observed co-T pairs (d=1–5) |
+| `short_exp` | Total expected co-T pairs under independence |
+| `reads_used` | Reads contributing ≥ 2 eligible non-CpG {C,T} sites |
+| `sep_log2oe[10]` | log₂(obs/exp) for each separation d=1–10 |
 
-**Interpretation:** `joint_delta_bic > 10` is strong evidence for damage (BF > 150).
-`joint_p_damage` can be used as a per-sample weight in downstream analyses.
+`short_z > 3` with positive `short_asym_log2oe` indicates excess interior CT
+co-occurrence not explained by strand composition.
 
 ---
 
-## Mixture model (K-component EM over GC bins)
+### 8-oxoG 16-context panel
 
-**Background:** A sequencing library may contain a mixture of ancient and modern DNA
-molecules. Rather than a single d_max for the whole library, a K-component mixture
-fitted over the GC-stratified bins separates high-damage components (ancient) from
-low-damage components (modern or contamination).
+**Background:** 8-oxoG formation has known sequence-context preferences. Splitting the
+G→T asymmetry by flanking dinucleotide reveals whether oxidation follows the context
+pattern of genuine ancient damage or is context-specific (suggesting a preparation
+artefact).
 
-**What is measured:** EM is run with BIC-guided component selection. Each component
-has its own damage rate; reads are assigned soft membership probabilities.
+**What is measured:** For each read position where the base is G, the flanking trinucleotide
+context N**G**N is recorded and the G→T count is accumulated in one of 16 bins
+(4×4 combinations of left and right flanking base). Index = `4*enc(left) + enc(right)`
+where `enc(A)=0, enc(C)=1, enc(G)=2, enc(T)=3`.
 
-**Key outputs:**
+**JSON output** (`complement_asymmetry` block):
 
 | Field | Description |
 |-------|-------------|
-| `mixture_K` | Number of components selected by BIC |
-| `mixture_d_population` | E[δ] over all C-sites (whole-library average) |
-| `mixture_d_ancient` | E[δ \| δ > 5%] — damage rate of the ancient tail |
-| `mixture_pi_ancient` | Fraction of C-sites in high-damage components |
-| `mixture_d_reference` | E[δ \| GC > 50%] — metaDMG proxy |
-| `mixture_bic` | BIC for the selected K |
-| `mixture_converged` | Whether EM converged |
+| `s_oxog_16ctx[16]` | Per-context G→T strand asymmetry; `null` when coverage < 500 |
+| `cov_oxog_16ctx[16]` | Read coverage per context bin |
 
-**Interpretation:** `mixture_pi_ancient` close to 1 = pure ancient library.
-`mixture_pi_ancient` near 0 with elevated `mixture_d_ancient` = small ancient fraction
-contaminating a mostly modern library.
+Ancient 8-oxoG shows broad enrichment across contexts with slight GG-context bias.
+A single-context spike suggests a context-specific artefact.
 
 ---
 
-## metaDMG-comparable estimate (alignability-weighted d_max)
+### Library-type BIC classifier
 
-**Background:** Reference-based tools like metaDMG weight damage by read alignability:
-highly unique reads (high alignability) contribute more to the d_max estimate than
-repetitive reads that map to many locations. libdart-damage approximates this without
-a reference by using per-read GC content and sequence complexity as an alignability
-proxy, and blending the global and weighted estimates.
+**Background:** The four Channel A sub-channels (ct5, ga3, ga0, ct3) are jointly fitted
+under seven biological models (M_bias, M_DS_symm, M_DS_spike, M_DS_symm_art, M_SS_comp,
+M_SS_orig, M_SS_asym). The model with the lowest joint BIC is selected.
 
-**Key outputs:**
+**JSON output** (`bic` block):
 
 | Field | Description |
 |-------|-------------|
-| `d_metamatch` | Calibrated metaDMG-comparable d_max estimate |
-| `d_alignability_weighted` | Raw alignability-proxy-weighted d_max |
-| `metamatch_gamma` | Blending coefficient (0 = global, 1 = weighted) |
-| `mean_alignability` | Mean alignability proxy score across reads |
-| `alignability_damage_corr` | Correlation between alignability and per-read damage |
+| `bias` | BIC of the null model (M_bias: all channels flat) |
+| `ds` | BIC of the best-fitting DS model |
+| `ss` | BIC of the best-fitting SS model |
+| `ct5_amp` | Fitted ct5 amplitude used in classification |
+| `ga3_amp` | Fitted ga3 amplitude |
+| `ga0_amp` | Fitted ga0 amplitude |
+| `ct3_amp` | Fitted ct3 amplitude |
 
-**Interpretation:** `d_metamatch` is designed to be numerically comparable to metaDMG's
-`D_max` output on the same library. It enables cross-tool comparisons without requiring
-BAM alignment.
+Lower BIC = better fit. `library_type` is `"double-stranded"` when `ds < ss`,
+`"single-stranded"` when `ss < ds`, and `"unknown"` when neither beats `bias`.
 
----
-
-## Adapter offset detection
-
-**Background:** Short adapter remnants (1–2 bp) at fragment termini displace the
-biological damage signal by one or two positions. If position 0 appears depleted while
-position 1 is enriched, the fit is restarted with the signal window shifted accordingly.
-
-**Key outputs:**
-
-| Field | Description |
-|-------|-------------|
-| `fit_offset_5prime` | 1 = no offset, 2 = 1-bp remnant, 3 = 2-bp remnant |
-| `fit_offset_3prime` | Same for 3' end |
-| `position_0_artifact_5prime` | True if pos 0 depleted but pos 1 enriched |
-| `position_0_artifact_3prime` | Same for 3' end |
-
-**Interpretation:** `fit_offset > 1` does not indicate damage failure — it means the
-damage is real but the reported `d_max` is taken from the corrected start position.
-Callers should use `d_max_combined` (which already incorporates the offset) rather than
-`damage_rate_5prime[0]` directly.
-
----
-
-## Codon-position-aware damage
-
-**Background:** Not all positions within a codon are equally susceptible to creating a
-damaging amino acid change. Position 3 (wobble) changes are often synonymous; positions 1
-and 2 (non-wobble) changes are non-synonymous or stop-codon-generating. Tracking C→T
-damage by codon position reveals whether terminal deamination disproportionately affects
-functionally constrained positions.
-
-**What is measured:** Within the first 15 bases at the 5′ end (and the last 15 at the 3′
-end), each cytosine and observed thymine is classified by its position within a codon
-(offset modulo 3: position 0, 1, or 2). The T/(T+C) rate is computed per codon position.
-
-**Key outputs:**
-
-| Field | Description |
-|-------|-------------|
-| `codon_pos_t_rate_5prime[3]` | C→T rate at codon positions 0, 1, 2 at 5′ end |
-| `codon_pos_a_rate_3prime[3]` | G→A rate at codon positions 0, 1, 2 at 3′ end |
-
-**Interpretation:** In a strongly damaged ancient library, wobble positions typically show
-higher apparent T/(T+C) than non-wobble positions because stop-codon-creating deamination
-events at non-wobble positions are under negative selection in the source organism's
-evolutionary history. A flat rate across all three positions indicates either very recent
-damage or a library with low coding content.
-
----
-
-## GC-conditional damage bins
-
-**Background:** Read GC content covaries with sequencing depth, mapping efficiency, and
-certain library-preparation artefacts. A high-GC composition can create a spurious
-T/(T+C) excess even in undamaged libraries, because cytosines are more abundant and
-any systematic C-calling error shows up more prominently. Binning reads by GC content
-and fitting damage rates separately per bin controls for this composition confound.
-
-**What is measured:** Each read is classified into one of 10 GC-content bins (0–9, where
-bin $b$ covers reads with GC fraction in $[b/10, (b+1)/10)$). Within each bin, the
-standard exponential decay model is fitted independently, yielding a bin-specific d_max
-and baseline.
-
-**Key outputs** (per bin in `gc_bins[10]`):
-
-| Field | Description |
-|-------|-------------|
-| `d_max` | Fitted D_max for this GC bin |
-| `baseline_tc` | Interior T/(T+C) baseline for this GC bin |
-| `p_damaged` | Posterior P(damaged) for reads in this bin |
-| `valid` | Whether the bin has sufficient coverage for a reliable estimate |
-
-The helper methods `get_gc_bin(seq)`, `get_gc_params(seq)`, and `get_effective_damage(seq,
-prob)` provide per-read access to the bin assignments and GC-corrected damage estimates.
-
-**Interpretation:** Consistent d_max across all populated GC bins is strong evidence that
-the damage signal is genuine and not a GC-composition artefact. A pattern where only
-high-GC or low-GC bins show elevated d_max suggests a composition confound.
+The classification result is at the top level of the JSON: `library_type`,
+`library_type_auto`, `library_type_rescued`.
 
 ---
 
 ## Channel summary
 
-| Channel | Measures | Chemistry | Read position | Used for |
-|---------|----------|-----------|---------------|----------|
-| A (ct5/ga3/ga0/ct3) | C→T and G→A rate | Cytosine deamination | Terminal, exponential decay | Primary damage quantification; position masking in fqdup |
-| B / B₃′ | Stop codon C→T / G→A | Deamination, triplet-context | Terminal, exponential decay | Cross-validation of Channel A; artifact detection |
-| C | G→T stop codon rate | 8-oxoG oxidation | Uniform across read | Uniformity test; oxidative damage detection |
-| D | G→T and C→A rate | 8-oxoG oxidation | Uniform across read | Oxidative damage quantification; artifact flag |
-| E | Purine enrichment at 5′ | Depurination / AP-site fragmentation | 5′ terminal | Ancient origin confirmation; sample characterisation |
-| CpG split | dmax per CpG/non-CpG context | Methylation-enhanced deamination | 5′ terminal + interior | Methylation signal; cpg_ratio diagnostic |
-| Interior clustering | CT co-occurrence at d=1–10 | Clustered deamination | Read interior | Interior damage detection; short_z statistic |
-| oxoG 16-ctx | G→T asymmetry per trinucleotide | 8-oxoG specificity | Interior | Context specificity of oxidation |
-| Codon-position | C→T rate at codon positions 0/1/2 | Deamination at coding positions | 5′ and 3′ terminal | Wobble vs non-wobble damage; selection bias |
-| GC bins | Per-GC-bin d_max and baseline | Composition control | All positions | GC-composition artefact rejection |
-| Hexamer | T/(T+C) over hexamer window | Deamination | 5′ terminal (pos 1–6) | Robust terminal enrichment; adapter-bias resistant |
-| Briggs model | δ_s, δ_d, R² | Biophysical deamination model | Both termini | Comparable to Briggs 2007; goodness of fit |
-| Joint BIC | ΔBIC, Bayes factor, P(damage) | Multi-channel evidence integration | Whole read | Single-number damage evidence score |
-| Mixture EM | K, π_ancient, d_ancient | Ancient/modern mixture | Whole library | Ancient fraction estimation |
-| metaDMG proxy | d_metamatch, alignability | Alignability-weighted estimate | Whole read | Reference-free metaDMG comparison |
-| Adapter offset | fit_offset, pos-0 artifact flag | Adapter remnant detection | Position 0 | Corrects d_max for 1–2 bp adapter remnants |
-
----
-
-## CpG-like context split
-
-**Background:** Methylated cytosines (5mC) deaminate to thymine several-fold faster than
-unmethylated cytosines under the same temperature and pH conditions. In ancient organisms
-where CpG dinucleotides are methylated, this produces a distinct C→T excess at positions
-followed by G (CpG context) compared to positions where the next base is not G.
-
-**What is measured:** For each of the 15 5′ terminal positions, the T/(C+T) fraction is
-tallied separately for positions in a CpG context (next base = G) and non-CpG context
-(next base ≠ G). A reference-free interior baseline (middle third of each read) provides
-the background T fraction in each context. The 1D MLE then fits the amplitude `d` of an
-exponential decay model with the library's existing lambda:
-
-$$\mu(p) = b_{\rm ctx} + (1 - b_{\rm ctx}) \cdot d_{\rm ctx} \cdot e^{-\lambda p}$$
-
-where $b_{\rm ctx}$ is the interior T fraction in that context.
-
-**Key outputs** (`deamination.cpg_like` in JSON):
-
-| Field | Description |
-|-------|-------------|
-| `dmax_ct5_cpg` | 5′ C→T amplitude in CpG context (1D MLE) |
-| `dmax_ct5_noncpg` | 5′ C→T amplitude in non-CpG context (1D MLE) |
-| `cpg_ratio` | `dmax_cpg / dmax_noncpg`; >1 indicates methylation-enhanced deamination |
-| `log2_cpg_ratio` | log₂ of cpg_ratio; 0 = no context dependence |
-| `baseline_cpg` | Interior T/(C+T) at CpG positions (background) |
-| `baseline_noncpg` | Interior T/(C+T) at non-CpG positions |
-
-`dmax_ct5_cpg` and `dmax_ct5_noncpg` are reported as `null` when the sample has
-insufficient signal (d_max < threshold), or when the MLE converges to the boundary
-(flat likelihood), indicating the estimate is uninformative.
-
-**Biological interpretation:** DS aDNA from organisms with methylated CpGs (most
-eukaryotes) typically shows `cpg_ratio > 1`. Low values near 1 can indicate unmethylated
-CpGs (plants, some invertebrates), modern contamination, or very old samples where
-differential context signal is eroded.
-
----
-
-## Interior C→T clustering
-
-**Background:** Beyond terminal single-stranded overhangs, deamination can occur in
-short interior micro-domains where local melting or secondary structure exposes
-cytosines. When multiple cytosines in a stretch are co-deaminated in the same event,
-adjacent T's in the read are more common than expected from independent site-by-site
-deamination. This is distinct from the exponential-decay terminal signal and requires a
-pairwise co-occurrence test to detect.
-
-**What is measured:** Within the interior of each read (middle third, read length ≥ 30),
-non-CpG `{C,T}` sites are identified. For each pair of eligible sites at separation
-d = 1–10 bp, the observed fraction of pairs where both are T is compared to the expected
-fraction under site independence (binomial product using the within-read T fraction).
-An AG control track (A/(A+G) co-occurrence with the preceding base ≠ C) corrects for
-strand-composition and mapping biases.
-
-**Key outputs** (`interior_ct_cluster` in JSON):
-
-| Field | Description |
-|-------|-------------|
-| `short_z` | Normalised CT-vs-AG contrast statistic (d=1–5 summed) |
-| `short_asym_log2oe` | log₂(CT obs/exp) − log₂(AG obs/exp); AG-corrected effect size |
-| `short_log2oe` | log₂(CT obs/exp) without AG correction |
-| `sep_log2oe[10]` | log₂(obs/exp) for each separation d=1–10 |
-| `reads_used` | Reads that contributed ≥ 2 eligible non-CpG {C,T} sites |
-
-**Interpretation:** `short_z > 3` with positive `short_asym_log2oe` indicates excess
-CT co-occurrence not explained by strand composition. In practice this signal is weak for
-most aDNA samples; its primary value is as a supplementary diagnostic for samples with
-unusual interior damage patterns (e.g. very old permafrost material).
-
----
-
-## 8-oxoG 16-context panel
-
-**Background:** The overall `s_oxog` statistic summarises the G→T strand asymmetry at
-interior positions. However, 8-oxoG formation has known sequence-context preferences
-(GG-rich contexts are more susceptible). Splitting by flanking dinucleotide reveals
-whether oxidation follows the context pattern expected for genuine ancient damage or
-is context-uniform (suggesting modern contamination from H₂O₂ exposure, for instance).
-
-**What is measured:** For each interior read position where the base is G (or A on the
-complementary strand), the flanking trinucleotide context N**G**N is recorded and the
-G→T (or A→C on RC) count is accumulated in one of 16 bins (4 × 4 combinations of
-left and right flanking base).
-
-**Key output** (`complement_asymmetry.s_oxog_16ctx[16]` in JSON):
-
-A 16-element float array. Index `4*enc(left) + enc(right)` where `enc(A)=0, enc(C)=1,
-enc(G)=2, enc(T)=3`. Elements are `null` when coverage < 500 observations in that bin.
-
-**Interpretation:** Ancient 8-oxoG typically shows broad enrichment across contexts with
-slight bias towards GG contexts. A single-context spike suggests a context-specific
-artifact. Comparing the 16-context pattern across samples from the same site can
-distinguish genuine oxidative damage from prep-introduced oxidation.
+| Channel | Measures | Chemistry | JSON block |
+|---------|----------|-----------|-----------|
+| A (ct5/ga3/ga0/ct3) | C→T and G→A rate | Cytosine deamination | `deamination` |
+| B / B₃′ | Stop codon C→T / G→A | Deamination, triplet-context | `deamination.validated/artifact` |
+| C | G→T stop codon uniformity | 8-oxoG oxidation | `complement_asymmetry.channel_c_detected` |
+| D | G→T and C→A transversion rate | 8-oxoG oxidation | `complement_asymmetry` |
+| E | Purine enrichment at 5′ | Depurination / AP-site fragmentation | `depurination` |
+| CpG split | dmax per CpG/non-CpG context | Methylation-enhanced deamination | `deamination.cpg_like` |
+| Interior clustering | CT co-occurrence at d=1–10 | Clustered interior deamination | `interior_ct_cluster` |
+| 8-oxoG 16-ctx | G→T asymmetry per trinucleotide | 8-oxoG context specificity | `complement_asymmetry.s_oxog_16ctx` |
+| Library BIC | BIC per model class | Four-channel joint fit | `bic` |
 
 ---
 
 ## Library-type classification from Channel A sub-channels
 
 The four Channel A sub-channels (ct5, ga3, ga0, ct3) together determine which of six
-biological damage patterns best describes the library. Which sub-channels are active
-depends on how the library was prepared.
+biological damage patterns best describes the library.
 
 ### DS: double-stranded (symmetric deamination)
 
-**Library prep:** Blunt-end ligation (NEBNext, TruSeq). Both strands of each fragment are
-adapter-ligated.
-
-**Pattern:** ct5 ≈ ga3, both smooth exponential decay. The complementary strand read 5'→3'
-maps the same C→T deamination onto the 3' end as G→A. Symmetric and equal amplitude.
-
-**Active sub-channels:** ct5 (smooth) + ga3 (smooth).
-
----
+**Pattern:** ct5 ≈ ga3, both smooth exponential decay. **Active:** ct5 + ga3.
 
 ### DS + end-repair artifact
 
-**Library prep:** Same as DS. A prep-associated G→A spike appears at 3' position 0 from
-the ligation junction, superimposed on the genuine DS decay.
-
-**Pattern:** ct5 + ga3 (smooth) + ga0 spike at position 0 only.
-
-**Active sub-channels:** ct5 (smooth) + ga3 (smooth) + ga0 (spike).
-
----
+**Pattern:** ct5 + ga3 (smooth) + ga0 spike at position 0. **Active:** ct5 + ga3 + ga0.
 
 ### SS complement-orientation
 
-**Library prep:** Single-stranded protocols (Gansauge & Meyer 2013). In complement
-orientation, the 3' ligation junction carries a position-0 spike without a corresponding
-smooth decay. The DS mirror logic does not apply because only one strand is processed.
-
-**Pattern:** ga0 spike only; ct5 and ga3 flat.
-
-**Active sub-channels:** ga0 (spike only).
-
----
+**Pattern:** ga0 spike only; ct5 and ga3 flat. **Active:** ga0.
 
 ### SS original-orientation
 
-**Pattern:** Both the 5' end (ct5) and 3' end (ct3) show C→T excess, because the
-same strand is damaged at both termini. No ga3 smooth decay; no ga0 spike.
-
-**Active sub-channels:** ct5 (smooth) + ct3 (elevated).
-
----
+**Pattern:** Both 5′ (ct5) and 3′ (ct3) show C→T excess; no ga3/ga0.
+**Active:** ct5 + ct3.
 
 ### SS mixed orientations
 
-**Pattern:** Original-orientation reads contribute ct5; complement-orientation reads
-contribute ga0. Together: ct5 + ga0 without smooth ga3.
-
-**Active sub-channels:** ct5 (smooth) + ga0 (spike).
-
----
+**Pattern:** ct5 from original-orientation reads + ga0 from complement-orientation reads.
+**Active:** ct5 + ga0.
 
 ### UNKNOWN
 
-No Channel A sub-channel produces a signal above the null model. The library has no
-detectable deamination, either because it is modern, because damage has not accumulated,
-or because coverage is insufficient for any channel to reach significance.
+No Channel A sub-channel beats the null model. The library has no detectable deamination,
+or coverage is insufficient for any channel to reach significance. UNKNOWN is the correct
+call for zero-damage libraries — it is not an error.
 
 ---
 
 ## How fqdup uses damage channels
 
-fqdup deduplicates reads by hashing sequences. PCR copies of the same original molecule
-that happen to carry deamination at different positions will produce different sequences
-and different hashes, inflating the unique read count. Damage-aware hashing corrects this
-by masking the affected terminal positions before hashing.
+fqdup deduplicates reads by hashing sequences. Damage-aware hashing corrects for PCR
+copies of the same molecule that carry deamination at different positions, by masking
+affected terminal positions before hashing.
 
 ### Which channels drive masking
 
 Only **Channel A** drives position masking. Channels B–E are diagnostic: they validate
-that Channel A is genuine ancient damage, flag artifacts, and characterise the sample, but
-they do not directly change which positions are masked.
+that Channel A is genuine ancient damage, flag artefacts, and characterise the sample, but
+do not directly change which positions are masked.
 
 ### Revcomp-equivariant masking
 
-fqdup uses a canonical hash, `min(hash(seq), hash(rc(seq)))`, so that a molecule and
-its reverse complement always land in the same cluster. The mask must therefore satisfy:
+fqdup uses a canonical hash `min(hash(seq), hash(rc(seq)))`. The mask must satisfy:
 
 $$\text{mask}(\text{rc}(\text{seq})) = \text{rc}(\text{mask}(\text{seq}))$$
 
-fqdup enforces this by applying a symmetric rule: if position $p$ from the 5′ end is
-masked, position $p$ from the 3′ end is also masked. This guarantees the invariant
-regardless of which strand is sequenced.
+Enforced by symmetric rule: masking position $p$ from 5′ also masks position $p$ from 3′.
 
 ### Masking threshold
 
-A position is masked when the empirically observed background-corrected excess exceeds
-a threshold $\tau$ (default 5%):
+$$\text{mask position } p \iff \delta(p) - b > \tau \quad (\text{default } \tau = 5\%)$$
 
-$$\text{mask position } p \iff \delta(p) - b > \tau$$
+### Library type and masking
 
-The number of masked positions is an emergent property of the data. A slowly decaying
-library (low $\lambda$) will mask more positions than a rapidly decaying one.
-
-### Library type and which sub-channels are used
-
-| Library type | Positions masked | Notes |
-|---|---|---|
-| DS | 5′ pos $p$ and 3′ pos $p$ symmetrically from ct5/ga3 | Genuine bilateral deamination |
-| DS + artifact | Same as DS; ga0 spike falls within the masked terminal region | Artifact already covered |
-| SS complement | 3′ pos 0 (ga0) only | Single terminal position; paired under revcomp |
-| SS original | 5′ and 3′ symmetrically from ct5/ct3 | Both ends carry deamination |
-| SS mixed | 5′ from ct5 + 3′ pos 0 from ga0; paired under revcomp | Asymmetric channels, symmetric mask |
-| UNKNOWN | None | No trusted channel; standard hashing used |
+| Library type | Positions masked |
+|---|---|
+| DS | 5′ pos $p$ and 3′ pos $p$ symmetrically (ct5/ga3) |
+| DS + artifact | Same as DS; ga0 spike within masked region |
+| SS complement | 3′ pos 0 (ga0) only |
+| SS original | 5′ and 3′ symmetrically (ct5/ct3) |
+| SS mixed | 5′ from ct5 + 3′ pos 0 from ga0 |
+| UNKNOWN | None — standard hashing |
 
 ### Artifact detection
 
-If `damage_artifact = true` (Channel A fires but Channel B contradicts it), fqdup treats
-the damage as unvalidated and optionally suppresses masking, depending on user settings.
-This prevents modern contamination with GC-composition bias from being incorrectly
-masked and over-collapsed.
+`artifact: true` in the JSON means Channel A fired but Channel B contradicted it
+(likely GC-composition bias). fqdup treats damage as unvalidated and optionally suppresses
+masking, preventing modern contamination from being over-collapsed.
+
+---
+
+## Internal analyses
+
+The following analyses are computed during damage estimation and used internally (e.g. to
+determine `d_max_combined` or detect adapter artefacts) but are **not written to the JSON
+output**.
+
+- **Hexamer-based detection:** T/(T+C) averaged over positions 1–6; provides a
+  position-0-bias-resistant corroborating statistic for Channel A.
+- **Briggs biophysical model:** Re-fits Channel A data as δ_s (single-stranded overhang
+  rate) and δ_d (double-stranded background rate) with R² goodness of fit.
+- **Joint probabilistic model (BIC + Bayes factor):** Bayesian comparison of M₁ (damage
+  present) vs M₀ (no damage); produces `joint_delta_max`, `joint_p_damage`, and Bayes
+  factor. Used internally to set `damage_status` and as the source for `d_max_combined`
+  when other pathways are unavailable.
+- **GC-conditional damage bins:** Independent exponential fits across 10 GC-content bins;
+  used to detect composition artefacts and as a GC-adjusted `d_max` for `d_metamatch`.
+- **Mixture model (K-component EM over GC bins):** Separates ancient and modern components
+  by fitting K damage rates over GC-stratified reads. `mixture_d_reference` (E[δ | GC >
+  50%]) feeds into `d_max_combined` when the model converges.
+- **Codon-position-aware tracking:** C→T rate split by codon position (0/1/2 mod 3);
+  used as supplementary wobble-position diagnostic.
+- **Adapter offset detection:** Per-end fit window offset (1/2/3); used internally to
+  shift the exponential fit window and set `source` when artefacts are detected.
+  `d_max_combined` already incorporates any offset correction.
