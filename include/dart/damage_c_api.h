@@ -34,13 +34,18 @@ typedef struct dart_profile_t dart_profile_t;
 
 /* ── Pass 1: estimation ──────────────────────────────────────────────────── */
 
-/** Allocate a new profile accumulator.  Never returns NULL (aborts on OOM). */
+/** Allocate a new profile accumulator.  Returns NULL on OOM. */
 dart_profile_t *dart_profile_create(void);
 
 /** Release all memory owned by the handle. */
 void dart_profile_destroy(dart_profile_t *p);
 
-/** Feed one raw DNA read (no quality scores needed). Thread-safe per handle. */
+/**
+ * Feed one raw DNA read (no quality scores needed).
+ * Not thread-safe: use one handle per thread and merge with
+ * dart::FrameSelector::merge_sample_profiles() before finalizing.
+ * Calls after dart_profile_finalize() are silently ignored.
+ */
 void dart_profile_add_read(dart_profile_t *p, const char *seq, size_t len);
 
 /**
