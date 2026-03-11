@@ -1,0 +1,177 @@
+# Classifier Integration Guide
+
+libdart-damage ships a C-compatible API (`dart/damage_c_api.h`) that lets any
+classifier link the library regardless of its own C++ standard.  The
+implementation compiles at C++17; the header is plain C and can be included
+from C, C++14, or any later standard.
+
+---
+
+## CMake setup
+
+```cmake
+# In your top-level or src/ CMakeLists.txt
+add_subdirectory(path/to/libdart-damage)
+target_link_libraries(your_classifier PRIVATE dart-damage)
+```
+
+`dart-damage` sets its own `CXX_STANDARD 17` — it does not affect your
+target's standard.
+
+---
+
+## Two-pass workflow
+
+### Pass 1 — estimate sample damage
+
+Feed all reads through the accumulator before classification begins.
+
+```c
+#include "dart/damage_c_api.h"
+
+dart_profile_t *profile = dart_profile_create();
+if (!profile) { /* OOM */ }
+
+/* For each read in every input file: */
+dart_profile_add_read(profile, seq, len);
+
+dart_profile_finalize(profile);    /* fit the model — call exactly once */
+```
+
+Inspect the result:
+
+```c
+float dmax      = dart_profile_dmax(profile);      /* 0–1 */
+int   lib_type  = dart_profile_library_type(profile); /* 0=UNKNOWN 1=DS 2=SS */
+int   validated = dart_profile_damage_validated(profile);
+int   artifact  = dart_profile_damage_artifact(profile);
+int   reliable  = dart_profile_is_reliable(profile);
+```
+
+Only activate correction when the signal is genuine:
+
+```c
+if (dmax >= 0.05f && !artifact && reliable) {
+    /* enable Pass 2 */
+}
+```
+
+### Pass 2 — correct each read
+
+Call `dart_correct_read` on every read before k-mer extraction.
+The corrected sequence is written into a caller-allocated buffer.
+
+```c
+char corrected[MAX_READ_LEN + 1];
+size_t n_fixes = dart_correct_read(profile,
+                                   seq, len,
+                                   corrected,
+                                   0.30f);   /* confidence threshold */
+/* use corrected instead of seq */
+```
+
+`dart_correct_read` reverts:
+
+- **T → C** at positions from the 5′ end where the C→T damage probability ≥ threshold
+- **A → G** at positions from the 3′ end where the G→A damage probability ≥ threshold
+
+Probabilities use the empirical `damage_rate_5prime/3prime` arrays for the first
+15 positions and an exponential extrapolation (`d_max × e^{-λ × pos}`) beyond
+that.
+
+### Cleanup
+
+```c
+dart_profile_destroy(profile);
+```
+
+---
+
+## Threading
+
+`dart_profile_add_read` is **not thread-safe**.  For multi-threaded Pass 1,
+create one profile per thread and merge before finalizing:
+
+```cpp
+#include "dart/frame_selector_decl.hpp"
+
+std::vector<dart_profile_t *> per_thread(n_threads);
+for (auto &p : per_thread) p = dart_profile_create();
+
+/* ... fill per_thread[tid] from each thread's reads ... */
+
+/* Merge into thread 0's profile (single-threaded): */
+for (int i = 1; i < n_threads; ++i)
+    dart::FrameSelector::merge_sample_profiles(
+        per_thread[0]->profile, per_thread[i]->profile);
+
+dart_profile_finalize(per_thread[0]);
+/* use per_thread[0] for Pass 2 */
+```
+
+`dart_correct_read` is **thread-safe** — it only reads the finalized profile.
+
+---
+
+## API reference
+
+### `dart_profile_create`
+```c
+dart_profile_t *dart_profile_create(void);
+```
+Allocate a new profile accumulator.  Returns `NULL` on OOM.
+
+---
+
+### `dart_profile_destroy`
+```c
+void dart_profile_destroy(dart_profile_t *p);
+```
+Free all resources.  Safe to call with `NULL`.
+
+---
+
+### `dart_profile_add_read`
+```c
+void dart_profile_add_read(dart_profile_t *p, const char *seq, size_t len);
+```
+Accumulate one DNA read into the profile.  Silently ignored after
+`dart_profile_finalize`.  Not thread-safe (see Threading above).
+
+---
+
+### `dart_profile_finalize`
+```c
+void dart_profile_finalize(dart_profile_t *p);
+```
+Fit the exponential decay model.  Must be called exactly once before any
+getter or `dart_correct_read`.  Subsequent calls are no-ops.
+
+---
+
+### Getters (require finalized profile)
+
+| Function | Returns |
+|---|---|
+| `dart_profile_dmax(p)` | Combined D_max (0–1) |
+| `dart_profile_lambda5(p)` | 5′ decay constant λ |
+| `dart_profile_lambda3(p)` | 3′ decay constant λ |
+| `dart_profile_library_type(p)` | 0=UNKNOWN, 1=DS, 2=SS |
+| `dart_profile_damage_validated(p)` | 1 if both channels agree |
+| `dart_profile_damage_artifact(p)` | 1 if signal looks like adapter bias |
+| `dart_profile_is_reliable(p)` | 1 if estimate is statistically reliable |
+
+All return safe defaults (0 / 0.0) before finalization.
+
+---
+
+### `dart_correct_read`
+```c
+size_t dart_correct_read(const dart_profile_t *p,
+                          const char *seq, size_t len,
+                          char *out_buf,
+                          float confidence_threshold);
+```
+Correct one read in place.  `out_buf` must be at least `len + 1` bytes.
+Returns the number of bases corrected.  Returns 0 and does nothing if
+the profile is not finalized.
