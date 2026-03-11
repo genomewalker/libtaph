@@ -831,6 +831,76 @@ void FrameSelector::update_sample_profile(
         }
     }
 
+    // Interior clustered C→T: excess co-occurrence of T at non-CpG {C,T} sites
+    if (len >= 30) {
+        const int lo = static_cast<int>(len / 3);
+        const int hi = static_cast<int>(len - (len / 3));
+        const int wlen = hi - lo;
+        if (wlen >= 2) {
+            auto& acc = profile.interior_ct_cluster;
+            // Build eligible + indicator arrays for CT and AG tracks
+            uint8_t ct_elig[200] = {}, ct_pos[200] = {};
+            uint8_t ag_elig[200] = {}, ag_pos[200] = {};
+            int n_ct = 0, k_ct = 0, n_ag = 0, k_ag = 0;
+            for (int i = lo; i < hi; ++i) {
+                const int j = i - lo;
+                const char b = fast_upper(seq[i]);
+                const char nx = (i + 1 < static_cast<int>(len)) ? fast_upper(seq[i+1]) : 'N';
+                const char pv = (i > 0) ? fast_upper(seq[i-1]) : 'N';
+                if ((b == 'C' || b == 'T') && nx != 'G') {
+                    ct_elig[j] = 1; ++n_ct;
+                    if (b == 'T') { ct_pos[j] = 1; ++k_ct; }
+                }
+                if ((b == 'A' || b == 'G') && pv != 'C') {
+                    ag_elig[j] = 1; ++n_ag;
+                    if (b == 'A') { ag_pos[j] = 1; ++k_ag; }
+                }
+            }
+            if (n_ct >= 2) {
+                ++acc.reads_used_ct;
+                const double q_ct = (k_ct >= 2)
+                    ? (static_cast<double>(k_ct) * (k_ct - 1)) /
+                      (static_cast<double>(n_ct) * (n_ct - 1))
+                    : 0.0;
+                for (int d = 1; d <= 10; ++d) {
+                    uint64_t pairs = 0, obs = 0;
+                    for (int j = 0; j + d < wlen; ++j) {
+                        if (!ct_elig[j] || !ct_elig[j + d]) continue;
+                        ++pairs;
+                        obs += static_cast<uint64_t>(ct_pos[j] & ct_pos[j + d]);
+                    }
+                    acc.pairs_ct[d] += pairs;
+                    acc.obs_ct[d]   += obs;
+                    acc.exp_ct[d]   += static_cast<double>(pairs) * q_ct;
+                    acc.var_ct[d]   += static_cast<double>(pairs) * q_ct * (1.0 - q_ct);
+                }
+            }
+            if (n_ag >= 2) {
+                ++acc.reads_used_ag;
+                const double q_ag = (k_ag >= 2)
+                    ? (static_cast<double>(k_ag) * (k_ag - 1)) /
+                      (static_cast<double>(n_ag) * (n_ag - 1))
+                    : 0.0;
+                for (int d = 1; d <= 10; ++d) {
+                    uint64_t pairs = 0, obs = 0;
+                    for (int j = 0; j + d < wlen; ++j) {
+                        if (!ag_elig[j] || !ag_elig[j + d]) continue;
+                        ++pairs;
+                        obs += static_cast<uint64_t>(ag_pos[j] & ag_pos[j + d]);
+                    }
+                    acc.pairs_ag[d] += pairs;
+                    acc.obs_ag[d]   += obs;
+                    acc.exp_ag[d]   += static_cast<double>(pairs) * q_ag;
+                    acc.var_ag[d]   += static_cast<double>(pairs) * q_ag * (1.0 - q_ag);
+                }
+            }
+        } else {
+            ++profile.interior_ct_cluster.short_reads_skipped;
+        }
+    } else {
+        ++profile.interior_ct_cluster.short_reads_skipped;
+    }
+
     profile.n_reads++;
 }
 
@@ -1614,6 +1684,47 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 ? (t - a) / cov
                 : std::numeric_limits<float>::quiet_NaN();
         }
+    }
+
+    // Interior clustered C→T finalization
+    {
+        const auto& acc = profile.interior_ct_cluster;
+        auto safe_log2_oe = [](uint64_t obs, double exp) -> float {
+            return static_cast<float>(
+                std::log((static_cast<double>(obs) + 0.5) / (exp + 0.5)) / std::log(2.0));
+        };
+
+        uint64_t obs_ct_s = 0, pairs_ct_s = 0, obs_ag_s = 0;
+        double   exp_ct_s = 0.0, var_ct_s = 0.0;
+        double   exp_ag_s = 0.0, var_ag_s = 0.0;
+
+        for (int d = 1; d <= 10; ++d) {
+            profile.interior_ct_cluster_sep_log2oe[d - 1] =
+                safe_log2_oe(acc.obs_ct[d], acc.exp_ct[d]);
+            if (d <= 5) {
+                obs_ct_s  += acc.obs_ct[d];   pairs_ct_s += acc.pairs_ct[d];
+                exp_ct_s  += acc.exp_ct[d];   var_ct_s   += acc.var_ct[d];
+                obs_ag_s  += acc.obs_ag[d];
+                exp_ag_s  += acc.exp_ag[d];   var_ag_s   += acc.var_ag[d];
+            }
+        }
+
+        profile.interior_ct_cluster_short_obs          = obs_ct_s;
+        profile.interior_ct_cluster_short_pairs        = pairs_ct_s;
+        profile.interior_ct_cluster_short_exp          = exp_ct_s;
+        profile.interior_ct_cluster_reads_used         = acc.reads_used_ct;
+        profile.interior_ct_cluster_reads_used_control = acc.reads_used_ag;
+        profile.interior_ct_cluster_reads_skipped      = acc.short_reads_skipped;
+
+        profile.interior_ct_cluster_short_log2oe      = safe_log2_oe(obs_ct_s, exp_ct_s);
+        const float ag_log2oe                         = safe_log2_oe(obs_ag_s, exp_ag_s);
+        profile.interior_ct_cluster_short_asym_log2oe =
+            profile.interior_ct_cluster_short_log2oe - ag_log2oe;
+
+        const double denom = std::sqrt(var_ct_s + var_ag_s + 1e-12);
+        const double num   = (static_cast<double>(obs_ct_s) - exp_ct_s)
+                           - (static_cast<double>(obs_ag_s) - exp_ag_s);
+        profile.interior_ct_cluster_short_z = static_cast<float>(num / denom);
     }
 
     // Step 3: Per-position damage rates using fit baseline
