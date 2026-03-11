@@ -1,10 +1,12 @@
 # Damage types and channels
 
 Ancient DNA carries a record of post-mortem chemistry in its substitution patterns.
-libdart-damage tracks five independent biochemical damage channels, each measuring a
-distinct degradation process. The channels cross-validate each other, distinguish genuine
-ancient damage from modern library-prep artifacts, and together feed the library-type
-classifier used by fqdup for damage-aware deduplication.
+libdart-damage tracks five core biochemical damage channels (A–E) plus three supplementary
+analyses (CpG-context split, interior CT clustering, oxoG 16-context panel) and two
+compositional controls (codon-position-aware damage, GC-conditional damage bins). The
+channels cross-validate each other, distinguish genuine ancient damage from modern
+library-prep artifacts, and together feed the library-type classifier used by fqdup for
+damage-aware deduplication.
 
 ---
 
@@ -139,6 +141,64 @@ directly by fqdup for masking, but reported for sample characterisation.
 
 ---
 
+## Codon-position-aware damage
+
+**Background:** Not all positions within a codon are equally susceptible to creating a
+damaging amino acid change. Position 3 (wobble) changes are often synonymous; positions 1
+and 2 (non-wobble) changes are non-synonymous or stop-codon-generating. Tracking C→T
+damage by codon position reveals whether terminal deamination disproportionately affects
+functionally constrained positions.
+
+**What is measured:** Within the first 15 bases at the 5′ end (and the last 15 at the 3′
+end), each cytosine and observed thymine is classified by its position within a codon
+(offset modulo 3: position 0, 1, or 2). The T/(T+C) rate is computed per codon position.
+
+**Key outputs:**
+
+| Field | Description |
+|-------|-------------|
+| `codon_pos_t_rate_5prime[3]` | C→T rate at codon positions 0, 1, 2 at 5′ end |
+| `codon_pos_a_rate_3prime[3]` | G→A rate at codon positions 0, 1, 2 at 3′ end |
+
+**Interpretation:** In a strongly damaged ancient library, wobble positions typically show
+higher apparent T/(T+C) than non-wobble positions because stop-codon-creating deamination
+events at non-wobble positions are under negative selection in the source organism's
+evolutionary history. A flat rate across all three positions indicates either very recent
+damage or a library with low coding content.
+
+---
+
+## GC-conditional damage bins
+
+**Background:** Read GC content covaries with sequencing depth, mapping efficiency, and
+certain library-preparation artefacts. A high-GC composition can create a spurious
+T/(T+C) excess even in undamaged libraries, because cytosines are more abundant and
+any systematic C-calling error shows up more prominently. Binning reads by GC content
+and fitting damage rates separately per bin controls for this composition confound.
+
+**What is measured:** Each read is classified into one of 10 GC-content bins (0–9, where
+bin $b$ covers reads with GC fraction in $[b/10, (b+1)/10)$). Within each bin, the
+standard exponential decay model is fitted independently, yielding a bin-specific d_max
+and baseline.
+
+**Key outputs** (per bin in `gc_bins[10]`):
+
+| Field | Description |
+|-------|-------------|
+| `d_max` | Fitted D_max for this GC bin |
+| `baseline_tc` | Interior T/(T+C) baseline for this GC bin |
+| `p_damaged` | Posterior P(damaged) for reads in this bin |
+| `valid` | Whether the bin has sufficient coverage for a reliable estimate |
+
+The helper methods `get_gc_bin(seq)`, `get_gc_params(seq)`, and `get_effective_damage(seq,
+prob)` provide per-read access to the bin assignments and GC-corrected damage estimates.
+
+**Interpretation:** Consistent d_max across all populated GC bins is strong evidence that
+the damage signal is genuine and not a GC-composition artefact. A pattern where only
+high-GC or low-GC bins show elevated d_max suggests a composition confound.
+
+---
+
 ## Channel summary
 
 | Channel | Measures | Chemistry | Read position | Used for |
@@ -151,6 +211,8 @@ directly by fqdup for masking, but reported for sample characterisation.
 | CpG split | dmax per CpG/non-CpG context | Methylation-enhanced deamination | 5′ terminal + interior | Methylation signal; cpg_ratio diagnostic |
 | Interior clustering | CT co-occurrence at d=1–10 | Clustered deamination | Read interior | Interior damage detection; short_z statistic |
 | oxoG 16-ctx | G→T asymmetry per trinucleotide | 8-oxoG specificity | Interior | Context specificity of oxidation |
+| Codon-position | C→T rate at codon positions 0/1/2 | Deamination at coding positions | 5′ and 3′ terminal | Wobble vs non-wobble damage; selection bias |
+| GC bins | Per-GC-bin d_max and baseline | Composition control | All positions | GC-composition artefact rejection |
 
 ---
 
