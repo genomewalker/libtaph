@@ -1,8 +1,8 @@
 # Methods
 
-libdart-damage estimates ancient-DNA damage directly from raw reads, without alignment or a reference genome. Working directly on raw reads makes the method applicable early in a workflow, before any alignment step. The cost is that terminal base composition, library preparation, and genuine post-mortem damage can all produce superficially similar sequence patterns, making it difficult to attribute a terminal signal to any one cause. The implementation therefore uses multiple independent signals to reduce that ambiguity — each targeting a different biochemical process — and validates agreement between them before reporting a damage estimate. It accumulates several terminal and interior summaries during `update_sample_profile`, then converts those summaries into derived estimates during `finalize_sample_profile` in this order: joint damage validation, library-type classification, GC-stratified mixture modelling, and final `d_max` selection.
+libdart-damage estimates ancient-DNA damage directly from raw reads, without alignment or a reference genome. Working directly on raw reads makes the method applicable early in a workflow, before any alignment step. The cost is that terminal base composition, library preparation, and genuine post-mortem damage can all produce superficially similar sequence patterns, making it difficult to attribute a terminal signal to any one cause. The method therefore uses multiple independent signals to reduce that ambiguity — each targeting a different biochemical process — and validates agreement between them before reporting a damage estimate.
 
-The sections below follow that execution order. The emphasis is not only on what the code computes, but on why each stage is needed and what ambiguity it resolves.
+The processing pipeline has four stages: per-position accumulation, joint damage validation, library-type classification, GC-stratified mixture modelling, and final `d_max` selection. The sections below follow that order. The emphasis is not only on what is computed, but on why each stage is needed and what ambiguity it resolves.
 
 ## Per-position accumulation and baseline estimation
 
@@ -21,7 +21,7 @@ These per-position ratios are later summarized with a weighted least-squares (WL
 
 $$\hat{A} = \max\!\left(0,\; \frac{\sum_p n_p \cdot e^{-\hat\lambda p} \cdot (r_p - b)}{\sum_p n_p \cdot e^{-2\hat\lambda p}}\right)$$
 
-where $n_p$ is the coverage at terminal position $p$. Intuitively, this expression asks whether terminal positions that ought to carry the strongest damage signal are systematically elevated above the interior baseline, while giving more weight to positions with more observations. The WLS estimate is not the whole method; it is one summary of a richer terminal pattern that is cross-checked later against composition controls and codon-based evidence.
+where $n_p$ is the coverage at terminal position $p$. This expression asks whether terminal positions that should carry the strongest damage signal are systematically elevated above the interior baseline, weighted by how many reads cover each position. The WLS estimate is not the whole method; it is one summary of a richer terminal pattern that is cross-checked later against composition controls and codon-based evidence.
 
 ---
 
