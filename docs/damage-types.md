@@ -148,6 +148,106 @@ directly by fqdup for masking, but reported for sample characterisation.
 | C | G→T stop codon rate | 8-oxoG oxidation | Uniform across read | Uniformity test; oxidative damage detection |
 | D | G→T and C→A rate | 8-oxoG oxidation | Uniform across read | Oxidative damage quantification; artifact flag |
 | E | Purine enrichment at 5′ | Depurination / AP-site fragmentation | 5′ terminal | Ancient origin confirmation; sample characterisation |
+| CpG split | dmax per CpG/non-CpG context | Methylation-enhanced deamination | 5′ terminal + interior | Methylation signal; cpg_ratio diagnostic |
+| Interior clustering | CT co-occurrence at d=1–10 | Clustered deamination | Read interior | Interior damage detection; short_z statistic |
+| oxoG 16-ctx | G→T asymmetry per trinucleotide | 8-oxoG specificity | Interior | Context specificity of oxidation |
+
+---
+
+## CpG-like context split
+
+**Background:** Methylated cytosines (5mC) deaminate to thymine several-fold faster than
+unmethylated cytosines under the same temperature and pH conditions. In ancient organisms
+where CpG dinucleotides are methylated, this produces a distinct C→T excess at positions
+followed by G (CpG context) compared to positions where the next base is not G.
+
+**What is measured:** For each of the 15 5′ terminal positions, the T/(C+T) fraction is
+tallied separately for positions in a CpG context (next base = G) and non-CpG context
+(next base ≠ G). A reference-free interior baseline (middle third of each read) provides
+the background T fraction in each context. The 1D MLE then fits the amplitude `d` of an
+exponential decay model with the library's existing lambda:
+
+$$\mu(p) = b_{\rm ctx} + (1 - b_{\rm ctx}) \cdot d_{\rm ctx} \cdot e^{-\lambda p}$$
+
+where $b_{\rm ctx}$ is the interior T fraction in that context.
+
+**Key outputs** (`deamination.cpg_like` in JSON):
+
+| Field | Description |
+|-------|-------------|
+| `dmax_ct5_cpg` | 5′ C→T amplitude in CpG context (1D MLE) |
+| `dmax_ct5_noncpg` | 5′ C→T amplitude in non-CpG context (1D MLE) |
+| `cpg_ratio` | `dmax_cpg / dmax_noncpg`; >1 indicates methylation-enhanced deamination |
+| `log2_cpg_ratio` | log₂ of cpg_ratio; 0 = no context dependence |
+| `baseline_cpg` | Interior T/(C+T) at CpG positions (background) |
+| `baseline_noncpg` | Interior T/(C+T) at non-CpG positions |
+
+`dmax_ct5_cpg` and `dmax_ct5_noncpg` are reported as `null` when the sample has
+insufficient signal (d_max < threshold), or when the MLE converges to the boundary
+(flat likelihood), indicating the estimate is uninformative.
+
+**Biological interpretation:** DS aDNA from organisms with methylated CpGs (most
+eukaryotes) typically shows `cpg_ratio > 1`. Low values near 1 can indicate unmethylated
+CpGs (plants, some invertebrates), modern contamination, or very old samples where
+differential context signal is eroded.
+
+---
+
+## Interior C→T clustering
+
+**Background:** Beyond terminal single-stranded overhangs, deamination can occur in
+short interior micro-domains where local melting or secondary structure exposes
+cytosines. When multiple cytosines in a stretch are co-deaminated in the same event,
+adjacent T's in the read are more common than expected from independent site-by-site
+deamination. This is distinct from the exponential-decay terminal signal and requires a
+pairwise co-occurrence test to detect.
+
+**What is measured:** Within the interior of each read (middle third, read length ≥ 30),
+non-CpG `{C,T}` sites are identified. For each pair of eligible sites at separation
+d = 1–10 bp, the observed fraction of pairs where both are T is compared to the expected
+fraction under site independence (binomial product using the within-read T fraction).
+An AG control track (A/(A+G) co-occurrence with the preceding base ≠ C) corrects for
+strand-composition and mapping biases.
+
+**Key outputs** (`interior_ct_cluster` in JSON):
+
+| Field | Description |
+|-------|-------------|
+| `short_z` | Normalised CT-vs-AG contrast statistic (d=1–5 summed) |
+| `short_asym_log2oe` | log₂(CT obs/exp) − log₂(AG obs/exp); AG-corrected effect size |
+| `short_log2oe` | log₂(CT obs/exp) without AG correction |
+| `sep_log2oe[10]` | log₂(obs/exp) for each separation d=1–10 |
+| `reads_used` | Reads that contributed ≥ 2 eligible non-CpG {C,T} sites |
+
+**Interpretation:** `short_z > 3` with positive `short_asym_log2oe` indicates excess
+CT co-occurrence not explained by strand composition. In practice this signal is weak for
+most aDNA samples; its primary value is as a supplementary diagnostic for samples with
+unusual interior damage patterns (e.g. very old permafrost material).
+
+---
+
+## 8-oxoG 16-context panel
+
+**Background:** The overall `s_oxog` statistic summarises the G→T strand asymmetry at
+interior positions. However, 8-oxoG formation has known sequence-context preferences
+(GG-rich contexts are more susceptible). Splitting by flanking dinucleotide reveals
+whether oxidation follows the context pattern expected for genuine ancient damage or
+is context-uniform (suggesting modern contamination from H₂O₂ exposure, for instance).
+
+**What is measured:** For each interior read position where the base is G (or A on the
+complementary strand), the flanking trinucleotide context N**G**N is recorded and the
+G→T (or A→C on RC) count is accumulated in one of 16 bins (4 × 4 combinations of
+left and right flanking base).
+
+**Key output** (`complement_asymmetry.s_oxog_16ctx[16]` in JSON):
+
+A 16-element float array. Index `4*enc(left) + enc(right)` where `enc(A)=0, enc(C)=1,
+enc(G)=2, enc(T)=3`. Elements are `null` when coverage < 500 observations in that bin.
+
+**Interpretation:** Ancient 8-oxoG typically shows broad enrichment across contexts with
+slight bias towards GG contexts. A single-context spike suggests a context-specific
+artifact. Comparing the 16-context pattern across samples from the same site can
+distinguish genuine oxidative damage from prep-introduced oxidation.
 
 ---
 
