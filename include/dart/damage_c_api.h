@@ -1,21 +1,22 @@
 /**
  * damage_c_api.h — C-compatible API for libdart-damage
  *
- * Exposes two-pass aDNA damage estimation and read correction through
- * opaque handles with extern "C" linkage.  Any C or C++ project can
- * include this header regardless of the C++ standard it uses.
+ * Exposes two-pass aDNA damage estimation, read correction, and read
+ * masking through opaque handles with extern "C" linkage.  Any C or
+ * C++ project can include this header regardless of the C++ standard
+ * it uses.
  *
- * Usage:
- *   // Pass 1 – accumulate reads, estimate sample damage
+ * Usage (correction):
  *   dart_profile_t *p = dart_profile_create();
  *   while (read_fastq(&seq, &len))
  *       dart_profile_add_read(p, seq, len);
  *   dart_profile_finalize(p);
  *
- *   // Inspect results
  *   if (dart_profile_dmax(p) >= threshold && dart_profile_is_reliable(p)) {
- *       // Pass 2 – correct each read before k-mer extraction
+ *       // Back-convert damaged T→C and A→G before k-mer extraction:
  *       dart_correct_read(p, seq, len, buf, confidence);
+ *       // Or replace damaged positions with 'N' instead:
+ *       dart_mask_read(p, seq, len, buf, confidence, 'N');
  *   }
  *   dart_profile_destroy(p);
  */
@@ -107,6 +108,32 @@ size_t dart_correct_read(const dart_profile_t *p,
                          size_t                len,
                          char                 *out_buf,
                          float                 confidence_threshold);
+
+/**
+ * Mask damage in one DNA read using the finalized profile.
+ *
+ * Replaces T at 5' positions and A at 3' positions where the
+ * position-dependent damage probability exceeds confidence_threshold
+ * with mask_char (typically 'N').  k-mer extractors that skip k-mers
+ * containing the mask character will naturally avoid damage-affected
+ * positions without assuming the original base.
+ *
+ * @param p                   Finalized profile handle.
+ * @param seq                 Input sequence (ASCII, upper or lower case).
+ * @param len                 Sequence length in bytes.
+ * @param out_buf             Caller-allocated buffer of at least len+1 bytes.
+ *                            Receives the masked sequence (NUL-terminated).
+ * @param confidence_threshold  Minimum damage probability to trigger masking
+ *                              (0–1; typical values 0.2–0.5).
+ * @param mask_char           Character to write at masked positions (e.g. 'N').
+ * @return Number of bases masked.
+ */
+size_t dart_mask_read(const dart_profile_t *p,
+                      const char           *seq,
+                      size_t                len,
+                      char                 *out_buf,
+                      float                 confidence_threshold,
+                      char                  mask_char);
 
 #ifdef __cplusplus
 }

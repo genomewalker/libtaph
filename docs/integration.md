@@ -56,10 +56,13 @@ if (dmax >= 0.05f && !artifact && reliable) {
 }
 ```
 
-### Pass 2 — correct each read
+### Pass 2 — correct or mask each read
 
-Call `dart_correct_read` on every read before k-mer extraction.
-The corrected sequence is written into a caller-allocated buffer.
+Two functions are available. Both use the same per-position damage probabilities
+(empirical `damage_rate_5prime/3prime` arrays for the first 15 positions,
+exponential extrapolation `d_max × e^{-λ × pos}` beyond that).
+
+**`dart_correct_read`** — back-convert damaged bases to their inferred originals:
 
 ```c
 char corrected[MAX_READ_LEN + 1];
@@ -70,14 +73,28 @@ size_t n_fixes = dart_correct_read(profile,
 /* use corrected instead of seq */
 ```
 
-`dart_correct_read` reverts:
+Reverts **T → C** at 5′ positions and **A → G** at 3′ positions where the
+damage probability ≥ threshold.  Appropriate when you want to recover the
+likely original sequence before alignment or classification.
 
-- **T → C** at positions from the 5′ end where the C→T damage probability ≥ threshold
-- **A → G** at positions from the 3′ end where the G→A damage probability ≥ threshold
+**`dart_mask_read`** — replace damaged positions with a mask character:
 
-Probabilities use the empirical `damage_rate_5prime/3prime` arrays for the first
-15 positions and an exponential extrapolation (`d_max × e^{-λ × pos}`) beyond
-that.
+```c
+char masked[MAX_READ_LEN + 1];
+size_t n_masked = dart_mask_read(profile,
+                                 seq, len,
+                                 masked,
+                                 0.30f,   /* confidence threshold */
+                                 'N');    /* mask character */
+/* use masked instead of seq */
+```
+
+Writes `mask_char` (typically `'N'`) at any position where the C→T or G→A
+damage probability ≥ threshold, leaving all other bases unchanged.  Useful
+for k-mer classifiers (e.g. Metabuli) that skip k-mers containing `'N'`:
+damaged positions are excluded from k-mer extraction without assuming the
+original base.  Prefer masking over correction when the downstream tool
+handles ambiguous bases natively.
 
 ### Cleanup
 
@@ -145,7 +162,7 @@ Accumulate one DNA read into the profile.  Silently ignored after
 void dart_profile_finalize(dart_profile_t *p);
 ```
 Fit the exponential decay model.  Must be called exactly once before any
-getter or `dart_correct_read`.  Subsequent calls are no-ops.
+getter or `dart_correct_read` / `dart_mask_read`.  Subsequent calls are no-ops.
 
 ---
 
@@ -172,6 +189,22 @@ size_t dart_correct_read(const dart_profile_t *p,
                           char *out_buf,
                           float confidence_threshold);
 ```
-Correct one read in place.  `out_buf` must be at least `len + 1` bytes.
-Returns the number of bases corrected.  Returns 0 and does nothing if
-the profile is not finalized.
+Back-convert damaged bases (T→C at 5′, A→G at 3′) where the position-dependent
+damage probability ≥ `confidence_threshold`.  `out_buf` must be at least
+`len + 1` bytes.  Returns the number of bases corrected.  Returns 0 if the
+profile is not finalized.
+
+---
+
+### `dart_mask_read`
+```c
+size_t dart_mask_read(const dart_profile_t *p,
+                      const char *seq, size_t len,
+                      char *out_buf,
+                      float confidence_threshold,
+                      char mask_char);
+```
+Replace damaged positions with `mask_char` (e.g. `'N'`) where the
+position-dependent damage probability ≥ `confidence_threshold`.  `out_buf`
+must be at least `len + 1` bytes.  Returns the number of bases masked.
+Returns 0 if the profile is not finalized.
