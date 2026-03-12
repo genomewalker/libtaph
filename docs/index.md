@@ -8,7 +8,7 @@
 
 libdart-damage estimates ancient-DNA terminal damage directly from raw reads, without a reference genome or read alignment. It measures six damage and fragmentation channels, fits exponential terminal-decay models, cross-validates apparent C→T damage against composition-robust stop-codon evidence, and reports an asymmetry-aware `d_max_combined`.
 
-It also classifies each library as **double-stranded (DS)**, **single-stranded (SS)**, or **UNKNOWN** using a four-channel BIC classifier. `UNKNOWN` is the expected result when no damage model clearly beats the null — it is not an error.
+It also classifies each library as **double-stranded (DS)**, **single-stranded (SS)**, or **UNKNOWN** using a four-channel BIC classifier. `UNKNOWN` is the expected result when no damage model clearly beats the null.
 
 ---
 

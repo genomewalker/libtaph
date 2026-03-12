@@ -90,8 +90,8 @@ composition-independent cross-check on Channel A.
 
 | Field | Description |
 |-------|-------------|
-| `validated` | `true` — Channel B corroborates Channel A deamination |
-| `artifact` | `true` — Channel A fires but Channel B contradicts it; likely a GC-composition artefact rather than genuine damage |
+| `validated` | Channel B corroborates Channel A deamination |
+| `artifact` | Channel A signal present but Channel B contradicts it; likely GC-composition artefact rather than genuine damage |
 
 #### Per-position rates
 
@@ -112,8 +112,8 @@ less efficiently than the U:G mismatch from cytosine deamination is repaired by
 uracil-DNA glycosylase [[Wiebauer & Jiricny 1990](#references); [Neddermann & Jiricny
 1994](#references)]. In ancient DNA, this produces an
 enhanced C→T rate specifically at positions where the downstream base is G. A `cpg_ratio`
-above 1 indicates that deamination was methylation-dependent in the source organism — the
-expected pattern for vertebrates and most eukaryotes with CpG methylation. Values near 1
+above 1 indicates methylation-dependent deamination, the expected pattern for vertebrates
+and most eukaryotes with CpG methylation. Values near 1
 indicate either unmethylated CpGs (e.g., plants with low global methylation, many fungi),
 modern contamination, or signal too eroded to detect context dependence.
 
@@ -159,7 +159,7 @@ The classifier fits four sub-channel amplitudes simultaneously:
 - **ct3** — 3′ C→T decay (SS original-orientation only, where the same strand carries
   damage at both ends)
 
-These are evaluated under seven biological models — a null (all channels flat), two DS
+These are evaluated under seven biological models: a null (all channels flat), two DS
 models (symmetric and with end-repair spike), a DS end-repair-only model, and three SS
 models (complement, original, and mixed orientations). The model with the lowest BIC wins
 [[Schwarz 1978](#references)].
@@ -194,7 +194,7 @@ damage accumulates throughout the molecule with no strong positional preference.
 states that in a double-stranded molecule [G] = [C] and [A] = [T] across complementary
 strands [[Chargaff 1950](#references)]. As a consequence, if oxidation affects both
 strands symmetrically, the G→T rate in forward-strand reads exactly equals the C→A rate
-in reverse-strand reads, and they cancel in a pooled DS library — `s_gt` and `D` are
+in reverse-strand reads, and they cancel in a pooled DS library; `s_gt` and `D` are
 near zero even when oxidation is substantial. These statistics become informative when
 oxidation is strand-asymmetric (one strand preferentially oxidised during burial) or when
 only one strand is present (SS libraries, where no complementary strand exists to provide

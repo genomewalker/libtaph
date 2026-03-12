@@ -2,7 +2,7 @@
 
 Reference-free ancient DNA damage estimation and library-type classification from raw FASTQ reads.
 
-libdart-damage scans raw FASTQ reads for six independent damage and fragmentation channels, estimates terminal deamination, cross-validates C→T damage with composition-robust stop-codon signals, and classifies each library as double-stranded (DS), single-stranded (SS), or UNKNOWN — all without a reference genome or read alignment.
+libdart-damage scans raw FASTQ reads for six independent damage and fragmentation channels, estimates terminal deamination, cross-validates C→T damage with composition-robust stop-codon signals, and classifies each library as double-stranded (DS), single-stranded (SS), or UNKNOWN. No reference genome or read alignment required.
 
 ---
 
@@ -162,8 +162,7 @@ and selects the best-fitting description:
 | SS mixed orientations | ct5 + ga0 | 5' C→T decay plus 3' pos-0 G→A spike; weak residual ga3 may occur |
 | UNKNOWN | none | No channel clearly beats the null model |
 
-UNKNOWN is the correct call for zero-damage or near-zero-damage libraries where
-the library type cannot be inferred from sequence alone, it is not an error.
+UNKNOWN is the correct call when no library type can be inferred from the damage pattern alone.
 
 ---
 
