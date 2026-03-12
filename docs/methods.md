@@ -46,7 +46,7 @@ To report a quantity comparable to [mapDamage2.0 (Jónsson et al. 2013)](https:/
 
 $$D_{\max} = \frac{A}{1 - b}$$
 
-which estimates the fraction of terminal C sites that were converted to T after accounting for the fact that some T is already expected from background composition. In other words, $A$ measures absolute excess, whereas $D_{\max}$ rescales that excess into a biologically interpretable fraction of damage-susceptible sites.
+which estimates the fraction of terminal C sites that were converted to T, after accounting for the background T proportion. $A$ is the absolute excess above that background; $D_{\max}$ converts it to the fraction of damage-susceptible terminal cytosines that were actually damaged.
 
 ---
 
@@ -90,7 +90,7 @@ The trade-off is statistical rather than conceptual. Channel B is more specific 
 
 ### Joint damage model (`JointDamageModel`)
 
-Rather than interpreting Channel A, the control channel, and Channel B separately, libdart-damage fits them jointly with `JointDamageModel::fit()`. The motivation is straightforward: the observed 5' terminal profile can be a mixture of at least two effects.
+Rather than interpreting Channel A, the control channel, and Channel B separately, libdart-damage fits them jointly with `JointDamageModel::fit()`. The observed 5' terminal profile can be a mixture of at least two effects.
 
 1. **Real deamination**, which should elevate Channel A and Channel B but not the control channel.
 2. **Compositional artifact**, which can elevate Channel A and the control channel together, but has no reason to elevate Channel B.
