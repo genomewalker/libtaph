@@ -145,7 +145,7 @@ Double-stranded (DS) library protocols (e.g., NEBNext, TruSeq [[Meyer & Kircher
 2010](#references)]) ligate adapters to both strands. Reads from the original strand show
 C→T at the 5′ end; reads from the complementary strand map the same damaged cytosines as
 G→A at the 3′ end. Single-stranded (SS) protocols (e.g., Gansauge & Meyer [[2013](#references)];
-SRSLY [[Gansauge et al. 2017](#references)]) circularize and sequence only one strand per
+Santa Cruz [[Kapp et al. 2021](#references)]; SRSLY [[Gansauge et al. 2017](#references)]) circularize and sequence only one strand per
 molecule, producing library-type-specific patterns depending on which strand is captured
 (see [Library-type classification](#library-type-classification)).
 
@@ -443,6 +443,10 @@ Jónsson H, Ginolhac A, Schubert M, Johnson PLF, Orlando L (2013) mapDamage2.0: 
 approximate Bayesian estimates of ancient DNA damage parameters. *Bioinformatics*
 29:1682–1684.
 [DOI: 10.1093/bioinformatics/btt193](https://doi.org/10.1093/bioinformatics/btt193)
+
+Kapp JD, Green RE, Shapiro B (2021) A fast and efficient single-stranded genomic library
+preparation method optimized for ancient DNA. *J Hered* 112:241–249.
+[DOI: 10.1093/jhered/esab012](https://doi.org/10.1093/jhered/esab012)
 
 Michelsen C, Pedersen MW, Fernandez-Guerra A, et al. (2022) metaDMG: A fast and accurate
 ancient DNA damage toolkit for metagenomic data. *bioRxiv*.

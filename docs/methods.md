@@ -138,7 +138,7 @@ See [Damage types](damage-types.md) for the biological background of these categ
 | SS, original orientation | ct5 + ct3; no ga3 |
 | SS, mixed orientations | ct5 + ga0; weak residual ga3 may be present depending on protocol |
 
-Single-stranded library protocols include [Gansauge & Meyer (2013)](https://doi.org/10.1038/nprot.2013.038) and the SRSLY protocol (Claret Bioscience).
+Single-stranded library protocols include [Gansauge & Meyer (2013)](https://doi.org/10.1038/nprot.2013.038), the Santa Cruz method ([Kapp et al. 2021](#ref-kapp2021)), and SRSLY (Claret Bioscience; [Gansauge et al. 2017](#ref-gansauge2017)).
 
 The main difficulty is that these patterns are not perfectly separable by any single statistic. For example, a strong `ga0` spike can reflect either a DS end-repair artifact or a genuinely single-stranded complement-orientation library. Likewise, asymmetric mixtures of SS orientations can partially mimic a DS signal if one end dominates the evidence. The classifier therefore uses a model-comparison approach rather than a fixed decision tree.
 
@@ -293,7 +293,11 @@ This final combination stage is where several earlier diagnostics matter operati
 
 <a id="ref-gansauge2013"></a>**Gansauge M-T, Meyer M** (2013) Single-stranded DNA library preparation for the sequencing of ancient or damaged DNA. *Nat Protoc* **8**:737–748. [doi:10.1038/nprot.2013.038](https://doi.org/10.1038/nprot.2013.038)
 
+<a id="ref-gansauge2017"></a>**Gansauge M-T, Gerber T, Glocke I, Korlević P, Lippik L, Nagel S, Riehl LM, Schmidt A, Meyer M** (2017) Single-stranded DNA library preparation from highly degraded DNA using T4 DNA ligase. *Nucleic Acids Res* **45**:e79. [doi:10.1093/nar/gkx033](https://doi.org/10.1093/nar/gkx033)
+
 <a id="ref-jonsson2013"></a>**Jónsson H, Ginolhac A, Schubert M, Johnson PLF, Orlando L** (2013) mapDamage2.0: fast approximate Bayesian estimates of ancient DNA damage parameters. *Bioinformatics* **29**:1682–1684. [doi:10.1093/bioinformatics/btt193](https://doi.org/10.1093/bioinformatics/btt193)
+
+<a id="ref-kapp2021"></a>**Kapp JD, Green RE, Shapiro B** (2021) A fast and efficient single-stranded genomic library preparation method optimized for ancient DNA. *J Hered* **112**:241–249. [doi:10.1093/jhered/esab012](https://doi.org/10.1093/jhered/esab012)
 
 <a id="ref-kass1995"></a>**Kass RE, Raftery AE** (1995) Bayes factors. *J Am Stat Assoc* **90**:773–795. [doi:10.1080/01621459.1995.10476572](https://doi.org/10.1080/01621459.1995.10476572)
 
