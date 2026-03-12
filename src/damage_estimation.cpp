@@ -468,6 +468,7 @@ void FrameSelector::update_sample_profile(
     }
 
     // CpG-like context split — 5' terminal positions (all 15)
+    // Also accumulate upstream-context-aware bins (AC, CC, GC, TC)
     for (int p = 0; p < SampleDamageProfile::N_POS && (p + 1) < static_cast<int>(len); ++p) {
         const char x = fast_upper(seq[p]);
         const char y = fast_upper(seq[p + 1]);
@@ -475,6 +476,21 @@ void FrameSelector::update_sample_profile(
             const int ctx = (y == 'G') ? SampleDamageProfile::CPG_LIKE : SampleDamageProfile::NONCPG_LIKE;
             profile.ct_ctx_total_5prime[ctx][p] += 1.0f;
             if (x == 'T') profile.ct_ctx_t_5prime[ctx][p] += 1.0f;
+        }
+        // Upstream-context-aware: classify by preceding base (for p > 0)
+        if (p > 0 && (x == 'C' || x == 'T')) {
+            const char u = fast_upper(seq[p - 1]);  // upstream base
+            int uctx = -1;
+            switch (u) {
+                case 'A': uctx = SampleDamageProfile::CTX_AC; break;
+                case 'C': uctx = SampleDamageProfile::CTX_CC; break;
+                case 'G': uctx = SampleDamageProfile::CTX_GC; break;
+                case 'T': uctx = SampleDamageProfile::CTX_TC; break;
+            }
+            if (uctx >= 0) {
+                profile.ct5_total_by_upstream[uctx][p] += 1.0;
+                if (x == 'T') profile.ct5_t_by_upstream[uctx][p] += 1.0;
+            }
         }
     }
 
@@ -489,6 +505,21 @@ void FrameSelector::update_sample_profile(
                 const int ctx = (y == 'G') ? SampleDamageProfile::CPG_LIKE : SampleDamageProfile::NONCPG_LIKE;
                 profile.ct_ctx_total_interior[ctx] += 1.0f;
                 if (x == 'T') profile.ct_ctx_t_interior[ctx] += 1.0f;
+            }
+            // Upstream-context-aware interior baseline
+            if (q > 0 && (x == 'C' || x == 'T')) {
+                const char u = fast_upper(seq[q - 1]);
+                int uctx = -1;
+                switch (u) {
+                    case 'A': uctx = SampleDamageProfile::CTX_AC; break;
+                    case 'C': uctx = SampleDamageProfile::CTX_CC; break;
+                    case 'G': uctx = SampleDamageProfile::CTX_GC; break;
+                    case 'T': uctx = SampleDamageProfile::CTX_TC; break;
+                }
+                if (uctx >= 0) {
+                    profile.ct5_total_interior_by_upstream[uctx] += 1.0;
+                    if (x == 'T') profile.ct5_t_interior_by_upstream[uctx] += 1.0;
+                }
             }
         }
 
@@ -1687,6 +1718,70 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             profile.s_oxog_16ctx[i] = (cov >= 500.0f)
                 ? (t - a) / cov
                 : std::numeric_limits<float>::quiet_NaN();
+        }
+
+        // Upstream-context-aware C→T fitting (experimental: AC, CC, GC, TC)
+        // Fit each context independently, then compute contrasts
+        float dmax_sum = 0.0f;
+        int valid_ctx_count = 0;
+        for (int uctx = 0; uctx < SampleDamageProfile::N_UPSTREAM_CTX; ++uctx) {
+            auto fit = fit_ct5_ctx_amplitude(
+                profile.ct5_t_by_upstream[uctx],
+                profile.ct5_total_by_upstream[uctx],
+                profile.ct5_t_interior_by_upstream[uctx],
+                profile.ct5_total_interior_by_upstream[uctx],
+                profile.lambda_5prime);
+
+            profile.baseline_ct5_by_upstream[uctx] = fit.baseline;
+            profile.dmax_ct5_by_upstream[uctx] = fit.valid ? fit.dmax : std::numeric_limits<float>::quiet_NaN();
+            profile.cov_ct5_terminal_by_upstream[uctx] = fit.cov_terminal;
+            profile.cov_ct5_interior_by_upstream[uctx] = fit.cov_interior;
+
+            if (fit.valid && fit.dmax >= 0.0f) {
+                dmax_sum += fit.dmax;
+                ++valid_ctx_count;
+            }
+        }
+
+        // Compute contrasts if all 4 contexts are valid
+        if (valid_ctx_count == 4) {
+            const float d_ac = profile.dmax_ct5_by_upstream[SampleDamageProfile::CTX_AC];
+            const float d_cc = profile.dmax_ct5_by_upstream[SampleDamageProfile::CTX_CC];
+            const float d_gc = profile.dmax_ct5_by_upstream[SampleDamageProfile::CTX_GC];
+            const float d_tc = profile.dmax_ct5_by_upstream[SampleDamageProfile::CTX_TC];
+
+            // dipyr_contrast: mean(CC, TC) - mean(AC, GC)
+            // Positive = dipyrimidine excess (UV-like)
+            profile.dipyr_contrast = 0.5f * (d_cc + d_tc) - 0.5f * (d_ac + d_gc);
+
+            // cpg_contrast: GC - mean(AC, CC, TC)
+            // Positive = CpG excess (methylation-enhanced deamination)
+            profile.cpg_contrast = d_gc - (d_ac + d_cc + d_tc) / 3.0f;
+
+            // Chi-squared heterogeneity test: are contexts different from uniform?
+            const float mean_d = dmax_sum / 4.0f;
+            if (mean_d > 0.001f) {
+                float chi2 = 0.0f;
+                for (int uctx = 0; uctx < 4; ++uctx) {
+                    const float d = profile.dmax_ct5_by_upstream[uctx];
+                    const float cov = profile.cov_ct5_terminal_by_upstream[uctx];
+                    if (cov > 100.0f) {
+                        // Weight by coverage (pseudo chi-squared)
+                        chi2 += cov * (d - mean_d) * (d - mean_d) / (mean_d * (1.0f - mean_d) + 1e-6f);
+                    }
+                }
+                profile.context_heterogeneity_chi2 = chi2;
+                // Approximate p-value (chi2 with 3 df)
+                // Using simple threshold: chi2 > 7.81 → p < 0.05
+                profile.context_heterogeneity_detected = (chi2 > 7.81f);
+                // Store approximate p-value (very rough)
+                if (chi2 < 0.58f) profile.context_heterogeneity_p = 0.9f;
+                else if (chi2 < 2.37f) profile.context_heterogeneity_p = 0.5f;
+                else if (chi2 < 6.25f) profile.context_heterogeneity_p = 0.1f;
+                else if (chi2 < 7.81f) profile.context_heterogeneity_p = 0.05f;
+                else if (chi2 < 11.34f) profile.context_heterogeneity_p = 0.01f;
+                else profile.context_heterogeneity_p = 0.001f;
+            }
         }
     }
 
@@ -2916,6 +3011,15 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         dst.oxog16_t[i] += src.oxog16_t[i];
         dst.oxog16_a_rc[i] += src.oxog16_a_rc[i];
     }
+    // Merge upstream-context-aware accumulators
+    for (int uctx = 0; uctx < SampleDamageProfile::N_UPSTREAM_CTX; ++uctx) {
+        for (int p = 0; p < SampleDamageProfile::N_POS; ++p) {
+            dst.ct5_t_by_upstream[uctx][p] += src.ct5_t_by_upstream[uctx][p];
+            dst.ct5_total_by_upstream[uctx][p] += src.ct5_total_by_upstream[uctx][p];
+        }
+        dst.ct5_t_interior_by_upstream[uctx] += src.ct5_t_interior_by_upstream[uctx];
+        dst.ct5_total_interior_by_upstream[uctx] += src.ct5_total_interior_by_upstream[uctx];
+    }
 
     {
         auto& da = dst.interior_ct_cluster;
@@ -3127,6 +3231,23 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.dmax_ct5_noncpg_like = std::numeric_limits<float>::quiet_NaN();
     profile.cpg_ratio     = std::numeric_limits<float>::quiet_NaN();
     profile.log2_cpg_ratio = std::numeric_limits<float>::quiet_NaN();
+
+    // Reset upstream-context-aware accumulators
+    for (int uctx = 0; uctx < SampleDamageProfile::N_UPSTREAM_CTX; ++uctx) {
+        profile.ct5_t_by_upstream[uctx].fill(0.0);
+        profile.ct5_total_by_upstream[uctx].fill(0.0);
+        profile.ct5_t_interior_by_upstream[uctx] = 0.0;
+        profile.ct5_total_interior_by_upstream[uctx] = 0.0;
+        profile.dmax_ct5_by_upstream[uctx] = std::numeric_limits<float>::quiet_NaN();
+        profile.baseline_ct5_by_upstream[uctx] = std::numeric_limits<float>::quiet_NaN();
+        profile.cov_ct5_terminal_by_upstream[uctx] = 0.0f;
+        profile.cov_ct5_interior_by_upstream[uctx] = 0.0f;
+    }
+    profile.dipyr_contrast = std::numeric_limits<float>::quiet_NaN();
+    profile.cpg_contrast = std::numeric_limits<float>::quiet_NaN();
+    profile.context_heterogeneity_chi2 = 0.0f;
+    profile.context_heterogeneity_p = 1.0f;
+    profile.context_heterogeneity_detected = false;
     profile.effcov_ct5_cpg_like_terminal    = 0.0f;
     profile.effcov_ct5_noncpg_like_terminal = 0.0f;
     profile.effcov_ct5_cpg_like_interior    = 0.0f;

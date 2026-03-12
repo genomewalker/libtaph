@@ -20,8 +20,10 @@ struct SampleDamageProfile {
     static constexpr int N_POS = 15;
     static constexpr int N_CT_CTX = 2;
     static constexpr int N_OXOG16 = 16;
+    static constexpr int N_UPSTREAM_CTX = 4;  // AC, CC, GC, TC (upstream base before C)
 
     enum CtContext : int { CPG_LIKE = 0, NONCPG_LIKE = 1 };
+    enum UpstreamContext : int { CTX_AC = 0, CTX_CC = 1, CTX_GC = 2, CTX_TC = 3 };
 
     // Position-specific base counts at 5' end (positions 0-14)
     // Using double to avoid float precision loss at >16M reads
@@ -98,6 +100,39 @@ struct SampleDamageProfile {
     float cov_ct5_noncpg_like_interior    = 0.0f;
     int   fit_positions_ct5_cpg_like    = 0;
     int   fit_positions_ct5_noncpg_like = 0;
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Upstream-context-aware C→T tracking (experimental)
+    // 4 disjoint bins by upstream base: AC, CC, GC, TC
+    // Used to detect context-dependent deamination (CpG vs dipyrimidine patterns)
+    // ═══════════════════════════════════════════════════════════════════════════
+    std::array<std::array<double, N_POS>, N_UPSTREAM_CTX> ct5_t_by_upstream = {};
+    std::array<std::array<double, N_POS>, N_UPSTREAM_CTX> ct5_total_by_upstream = {};
+    std::array<double, N_UPSTREAM_CTX> ct5_t_interior_by_upstream = {};
+    std::array<double, N_UPSTREAM_CTX> ct5_total_interior_by_upstream = {};
+
+    // Fitted amplitudes per upstream context (shrinkage-estimated)
+    std::array<float, N_UPSTREAM_CTX> dmax_ct5_by_upstream = {
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN()
+    };
+    std::array<float, N_UPSTREAM_CTX> baseline_ct5_by_upstream = {
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN()
+    };
+    std::array<float, N_UPSTREAM_CTX> cov_ct5_terminal_by_upstream = {};
+    std::array<float, N_UPSTREAM_CTX> cov_ct5_interior_by_upstream = {};
+
+    // Derived contrasts
+    float dipyr_contrast = std::numeric_limits<float>::quiet_NaN();  // mean(CC,TC) - mean(AC,GC)
+    float cpg_contrast   = std::numeric_limits<float>::quiet_NaN();  // GC - mean(AC,CC,TC)
+    float context_heterogeneity_chi2 = 0.0f;  // chi-squared for context uniformity
+    float context_heterogeneity_p    = 1.0f;  // p-value
+    bool  context_heterogeneity_detected = false;  // true if p < 0.05
 
     // oxoG 16-context interior panel
     std::array<float, N_OXOG16> oxog16_t        = {};
