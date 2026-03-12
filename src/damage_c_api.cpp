@@ -101,6 +101,36 @@ static inline float ga_prob(const dart::SampleDamageProfile &sp,
     return sp.d_max_3prime * std::exp(-sp.lambda_3prime * d);
 }
 
+size_t dart_mask_read(const dart_profile_t *p,
+                      const char           *seq,
+                      size_t                len,
+                      char                 *out_buf,
+                      float                 confidence_threshold,
+                      char                  mask_char) {
+    if (!p || !p->finalized || !seq || !out_buf) { return 0; }
+    if (len == 0) { out_buf[0] = '\0'; return 0; }
+
+    std::memcpy(out_buf, seq, len);
+    out_buf[len] = '\0';
+
+    size_t masked = 0;
+    const dart::SampleDamageProfile &sp = p->profile;
+
+    for (size_t i = 0; i < len; ++i) {
+        char c = seq[i];
+        size_t dist3 = len - 1 - i;
+
+        bool is_ct = (c == 'T' || c == 't') && ct_prob(sp, i)    >= confidence_threshold;
+        bool is_ga = (c == 'A' || c == 'a') && ga_prob(sp, dist3) >= confidence_threshold;
+
+        if (is_ct || is_ga) {
+            out_buf[i] = mask_char;
+            ++masked;
+        }
+    }
+    return masked;
+}
+
 size_t dart_correct_read(const dart_profile_t *p,
                          const char           *seq,
                          size_t                len,
