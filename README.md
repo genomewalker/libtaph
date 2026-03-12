@@ -136,7 +136,7 @@ the complementary strand map the same deaminated cytosines onto the 3' end as
 G→A. Both ends show smooth exponential decay with similar amplitude, making
 the signal symmetric.
 
-**Single-stranded (SS) libraries** (Gansauge & Meyer 2013, SRSLY) circularize
+**Single-stranded (SS) libraries** (Gansauge & Meyer 2013, Santa Cruz, SRSLY) circularize
 and sequence only one strand per molecule. Which damage channels are active
 depends on which strand is sequenced:
 
