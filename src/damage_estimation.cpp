@@ -2949,8 +2949,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 // Both ends inverted: normally zero everything (no reliable Channel A signal).
                 // Exception: if adapter offset was detected on either end, the scan-for-peak
                 // already found the biological damage in pos 1-5. Preserve those values.
-                bool has_adapter_5 = profile.position_0_artifact_5prime || (profile.fit_offset_5prime > 1 && profile.position_0_artifact_5prime);
-                bool has_adapter_3 = profile.position_0_artifact_3prime || (profile.fit_offset_3prime > 1 && profile.position_0_artifact_3prime);
+                bool has_adapter_5 = profile.position_0_artifact_5prime;
+                bool has_adapter_3 = profile.position_0_artifact_3prime;
                 if (!has_adapter_5 && !has_adapter_3) {
                     profile.d_max_5prime = 0.0f;
                     profile.d_max_3prime = 0.0f;
@@ -3055,7 +3055,28 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 return exc_max - 1.96f * se_od;
             };
             float lb5 = lower95_for_end(profile.t_freq_5prime, profile.tc_total_5prime, baseline_tc);
-            float lb3 = lower95_for_end(profile.a_freq_3prime, profile.ag_total_3prime, baseline_ag);
+            // SS 3' damage is C→T (same channel as 5'); DS 3' damage is G→A.
+            // t_freq_3prime holds raw counts so compute rate explicitly for SS.
+            float lb3;
+            if (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED) {
+                float exc_max = 0.0f; float n_used = 1.0f;
+                for (int p = 1; p <= 4; ++p) {
+                    double n = profile.tc_total_3prime[p];
+                    if (n < 100.0) continue;
+                    float exc = static_cast<float>(
+                        (n > 0 ? profile.t_freq_3prime[p] / n : 0.0) - baseline_tc);
+                    if (exc > exc_max) { exc_max = exc; n_used = static_cast<float>(n); }
+                }
+                if (exc_max <= 0.0f) {
+                    lb3 = -1.0f;
+                } else {
+                    float p_hat = exc_max + static_cast<float>(baseline_tc);
+                    float se_od = std::sqrt(p_hat * (1.0f - p_hat) / n_used) * 2.0f;
+                    lb3 = exc_max - 1.96f * se_od;
+                }
+            } else {
+                lb3 = lower95_for_end(profile.a_freq_3prime, profile.ag_total_3prime, baseline_ag);
+            }
             float lower95 = std::max(lb5, lb3);
             profile.damage_status = (lower95 >= 0.01f)
                 ? SampleDamageProfile::DamageStatus::PRESENT
