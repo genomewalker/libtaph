@@ -10,6 +10,7 @@ add_library(taph
     src/damage_c_api.cpp
     src/length_stratified_profile.cpp
     src/log_length_gmm.cpp
+    src/library_interpretation.cpp
 )
 
 target_include_directories(taph PUBLIC
