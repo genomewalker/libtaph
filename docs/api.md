@@ -1,6 +1,6 @@
 # API Reference
 
-All public symbols live in the `dart` namespace. Include `<dart/frame_selector_decl.hpp>`.
+All public symbols live in the `taph` namespace. Include `<dart/frame_selector_decl.hpp>`.
 
 ---
 
@@ -222,3 +222,81 @@ profile.forced_library_type = taph::SampleDamageProfile::LibraryType::DOUBLE_STR
 ```
 
 When `forced_library_type != UNKNOWN`, downstream code should use the forced type; `library_type_auto_detected` will be `false`.
+
+---
+
+## Damage Interpretation (`taph/library_interpretation.hpp`)
+
+Higher-level functions that operate on a finalized `SampleDamageProfile` to produce scores, flags, and summaries suitable for reporting.
+
+### Hexamer utilities
+
+```cpp
+std::array<char,7> taph::decode_hex(int code);
+int taph::encode_hex_at(const std::string& s, int pos);
+```
+
+Encode/decode 12-bit 6-mer codes over the ACGT alphabet.
+
+### Adapter stub detection
+
+```cpp
+taph::AdapterStubs taph::detect_adapter_stubs(
+    const SampleDamageProfile& dp,
+    const uint32_t hex3_terminal[4096],
+    uint64_t n_hex3);
+```
+
+Detects 5' and 3' adapter remnants from hexamer enrichment.  Pass the 4096-element terminal hexamer histogram (`hex3_terminal`) from a pre-scan pass alongside `n_hex3` (total counts).  Returns `AdapterStubs` with `stubs5`/`stubs3` (up to 5 each), `adapter_clipped`, `adapter3_clipped`, and `flag_hex_artifact`.
+
+3' detection is gated on `adapter_clipped` (5' stubs must be present first).
+
+### Hexamer statistics
+
+```cpp
+taph::HexStats taph::compute_hex_stats(const SampleDamageProfile& dp);
+```
+
+Returns Shannon entropy of terminal/interior hexamer distributions, Jensen-Shannon divergence, and a multinomial G-test (statistic, z-score, p-value) comparing terminal vs interior composition.
+
+### Score functions
+
+| Function | Output | Meaning |
+|---|---|---|
+| `compute_cpg_score(dp)` | `CpgScore{z, p}` | log₂(CpG / non-CpG d_max) / SE |
+| `compute_oxog_interior_score(dp)` | `OxogInteriorScore{z, p}` | Chargaff-symmetric G→T excess over 16 trinucleotide contexts |
+| `compute_oxog_trinuc(dp)` | `OxogTrinucResult{cosine, n_ctx}` | Cosine similarity of per-context G→T residuals to empirical 8-oxoG reference |
+| `compute_depur_score(dp, is_ss)` | `DepurScore{z, p, z5, z3, shift5, shift3}` | Conjunction test on terminal A/(A+G) [5'] and T/(T+C) [3'] enrichment |
+
+### Damage mask
+
+```cpp
+taph::DamageMask taph::compute_damage_mask(
+    const SampleDamageProfile& dp, bool is_ss,
+    double threshold = 0.05, int min_cov = 100);
+```
+
+Marks the first `INTERP_N_POS` (15) positions where terminal damage exceeds `threshold` above background.  Returns `DamageMask` with `pos[15]`, `n_masked`, and `masked_str` (comma-separated indices).
+
+### Library QC flags
+
+```cpp
+taph::LibraryQcFlags taph::compute_library_qc_flags(
+    const SampleDamageProfile& dp, bool is_ss,
+    bool flag_hex_artifact, double jsd,
+    double h_term, double short_read_frac);
+```
+
+Nine boolean flags covering adapter remnants, hexamer biases, short-read spikes, depurination, absent 3' signal (DS), and inward-displaced G→A.
+
+### Preservation summary
+
+```cpp
+taph::PreservationSummary taph::compute_preservation_summary(
+    const SampleDamageProfile& dp, bool is_ss,
+    bool adapter_clipped, bool flag_hex_artifact,
+    double cpg_score_z, double oxog_score_z,
+    double oxog_trinuc_cosine, double hex_shift_p);
+```
+
+Combines evidence from all channels into a single preservation assessment.  Fields: `authenticity_eff`, `authenticity_evidence`, `d5_raw`, `d5_hexamer_corrected`, `d5_was_corrected`, `oxidation_eff`, `oxidation_evidence`, `qc_risk_eff`, `qc_evidence`, `label` (e.g. `"ancient"`, `"weak"`, `"modern-like"`).

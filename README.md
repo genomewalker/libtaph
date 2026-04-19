@@ -252,8 +252,8 @@ UNKNOWN: no model beats the null (zero-damage libraries where library type canno
 As a CMake dependency:
 
 ```cmake
-find_package(dart-damage REQUIRED)
-target_link_libraries(your_target PRIVATE dart-damage)
+find_package(taph REQUIRED)
+target_link_libraries(your_target PRIVATE taph)
 ```
 
 Or via FetchContent:
@@ -265,7 +265,7 @@ FetchContent_Declare(libtaph
     GIT_TAG        main
 )
 FetchContent_MakeAvailable(libtaph)
-target_link_libraries(your_target PRIVATE dart-damage)
+target_link_libraries(your_target PRIVATE taph)
 ```
 
 ---
