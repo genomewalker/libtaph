@@ -536,9 +536,17 @@ void FrameSelector::update_sample_profile(
 
     // Interior baseline + oxoG 16-context (only for reads >= 30 bp, already guarded above)
     {
-        const int q0 = static_cast<int>(len / 3), q1 = static_cast<int>((2 * len) / 3);
+        constexpr size_t INTERIOR_TERM_PAD_CTX = 15;
+        size_t q0s = len / 3;
+        size_t q1s = 2 * len / 3;
+        if (q0s < INTERIOR_TERM_PAD_CTX) q0s = INTERIOR_TERM_PAD_CTX;
+        if (len > INTERIOR_TERM_PAD_CTX && q1s + INTERIOR_TERM_PAD_CTX > len)
+            q1s = len - INTERIOR_TERM_PAD_CTX;
+        const bool interior_safe_ctx = (q0s < q1s);
+        const int q0 = static_cast<int>(q0s), q1 = static_cast<int>(q1s);
 
         // Context-split interior baseline
+        if (interior_safe_ctx)
         for (int q = q0; q < q1 && (q + 1) < static_cast<int>(len); ++q) {
             const char x = fast_upper(seq[q]), y = fast_upper(seq[q + 1]);
             if ((x == 'C' || x == 'T') && (y == 'A' || y == 'C' || y == 'G' || y == 'T')) {
@@ -564,6 +572,7 @@ void FrameSelector::update_sample_profile(
         }
 
         // oxoG 16-context interior panel
+        if (interior_safe_ctx)
         for (int q = q0; q < q1; ++q) {
             if (q <= 0 || q >= static_cast<int>(len) - 1) continue;
             const char l = fast_upper(seq[q-1]), b = fast_upper(seq[q]), r = fast_upper(seq[q+1]);
@@ -749,13 +758,19 @@ void FrameSelector::update_sample_profile(
     }
     // Interior baseline: T/(T+G) and A/(A+C) in middle third (undamaged reference).
     {
+        constexpr size_t INTERIOR_TERM_PAD_D = 15;
         size_t mid_s = len / 3, mid_e = 2 * len / 3;
-        for (size_t i = mid_s; i < mid_e; ++i) {
-            char base = fast_upper(seq[i]);
-            if      (base == 'G') profile.baseline_g_total++;
-            else if (base == 'T') profile.baseline_g_to_t_count++;
-            if      (base == 'C') profile.baseline_c_ox_total++;
-            else if (base == 'A') profile.baseline_c_to_a_count++;
+        if (mid_s < INTERIOR_TERM_PAD_D) mid_s = INTERIOR_TERM_PAD_D;
+        if (len > INTERIOR_TERM_PAD_D && mid_e + INTERIOR_TERM_PAD_D > len)
+            mid_e = len - INTERIOR_TERM_PAD_D;
+        if (mid_s < mid_e) {
+            for (size_t i = mid_s; i < mid_e; ++i) {
+                char base = fast_upper(seq[i]);
+                if      (base == 'G') profile.baseline_g_total++;
+                else if (base == 'T') profile.baseline_g_to_t_count++;
+                if      (base == 'C') profile.baseline_c_ox_total++;
+                else if (base == 'A') profile.baseline_c_to_a_count++;
+            }
         }
     }
 
@@ -800,14 +815,20 @@ void FrameSelector::update_sample_profile(
             }
 
             // Accumulate interior baselines for both the signal and control channels.
+            constexpr size_t INTERIOR_TERM_PAD_GC = 15;
             size_t mid_start = len / 3;
             size_t mid_end = 2 * len / 3;
-            for (size_t i = mid_start; i < mid_end; ++i) {
-                char base = fast_upper(seq[i]);
-                if (base == 'T') bin.t_interior++;
-                else if (base == 'C') bin.c_interior++;
-                else if (base == 'A') bin.a_interior++;
-                else if (base == 'G') bin.g_interior++;
+            if (mid_start < INTERIOR_TERM_PAD_GC) mid_start = INTERIOR_TERM_PAD_GC;
+            if (len > INTERIOR_TERM_PAD_GC && mid_end + INTERIOR_TERM_PAD_GC > len)
+                mid_end = len - INTERIOR_TERM_PAD_GC;
+            if (mid_start < mid_end) {
+                for (size_t i = mid_start; i < mid_end; ++i) {
+                    char base = fast_upper(seq[i]);
+                    if (base == 'T') bin.t_interior++;
+                    else if (base == 'C') bin.c_interior++;
+                    else if (base == 'A') bin.a_interior++;
+                    else if (base == 'G') bin.g_interior++;
+                }
             }
 
             // Accumulate Channel B counts (stop codons at terminal positions)
@@ -3615,6 +3636,17 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.convertible_tga_ox_5prime.fill(0.0);
     profile.c_count_ox_5prime.fill(0.0);
     profile.a_from_c_5prime.fill(0.0);
+
+    // Interior oxoG codon accumulators (merged in merge_sample_profiles)
+    profile.convertible_gag_interior = 0.0;
+    profile.convertible_gaa_interior = 0.0;
+    profile.convertible_gga_interior = 0.0;
+    profile.convertible_tag_ox_interior = 0.0;
+    profile.convertible_taa_ox_interior = 0.0;
+    profile.convertible_tga_ox_interior = 0.0;
+
+    profile.ox_is_artifact = false;
+    profile.ox_d_max = 0.0f;
 
     // Neutral default for oxidation uniformity ratio
     profile.ox_uniformity_ratio = 1.0f;
