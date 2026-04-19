@@ -4,7 +4,7 @@
 #include <cmath>
 #include <algorithm>
 
-namespace dart {
+namespace taph {
 
 struct JointDamageResult {
     // Fitted parameters
@@ -426,4 +426,4 @@ public:
     }
 };
 
-} // namespace dart
+} // namespace taph

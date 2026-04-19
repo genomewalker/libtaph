@@ -7,7 +7,7 @@
 
 #include <cstdint>
 
-namespace dart {
+namespace taph {
 
 // Note: Use encode_hexamer() from hexamer_tables.hpp
 
@@ -526,4 +526,4 @@ constexpr float PLANT_HEXAMER_FREQ[4096] = {
     2.432161e-05f, 1.895250e-04f, 2.964000e-04f, 2.713180e-04f, 2.285445e-04f, 3.602162e-04f, 4.304316e-04f, 3.356458e-04f
 };
 
-} // namespace dart
+} // namespace taph

@@ -182,10 +182,10 @@ Available after `finalize_sample_profile`. Requires at least one GC bin with suf
 
 ```cpp
 // Validation state: VALIDATED, CONTRADICTED, or UNVALIDATED
-dart::DamageValidationState state = dart::get_damage_validation_state(profile);
+taph::DamageValidationState state = taph::get_damage_validation_state(profile);
 
 // Suppression factor for downstream damage-aware deduplication
-float factor = dart::get_damage_suppression_factor(profile);
+float factor = taph::get_damage_suppression_factor(profile);
 // 1.0 = validated, 0.5 = unvalidated, 0.0 = artifact
 ```
 
@@ -196,29 +196,29 @@ float factor = dart::get_damage_suppression_factor(profile);
 ### Streaming with thread-parallel accumulation
 
 ```cpp
-#include <dart/frame_selector_decl.hpp>
+#include <taph/frame_selector_decl.hpp>
 #include <thread>
 
 // Per-thread profiles
-std::vector<dart::SampleDamageProfile> partial(n_threads);
-for (auto& p : partial) dart::FrameSelector::reset_sample_profile(p);
+std::vector<taph::SampleDamageProfile> partial(n_threads);
+for (auto& p : partial) taph::FrameSelector::reset_sample_profile(p);
 
 // Fill partial[i] in parallel...
 
 // Merge on main thread
-dart::SampleDamageProfile final_profile;
-dart::FrameSelector::reset_sample_profile(final_profile);
+taph::SampleDamageProfile final_profile;
+taph::FrameSelector::reset_sample_profile(final_profile);
 for (const auto& p : partial)
-    dart::FrameSelector::merge_sample_profiles(final_profile, p);
+    taph::FrameSelector::merge_sample_profiles(final_profile, p);
 
-dart::FrameSelector::finalize_sample_profile(final_profile);
+taph::FrameSelector::finalize_sample_profile(final_profile);
 ```
 
 ### Forcing library type
 
 ```cpp
-dart::SampleDamageProfile profile = /* ... */;
-profile.forced_library_type = dart::SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+taph::SampleDamageProfile profile = /* ... */;
+profile.forced_library_type = taph::SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
 ```
 
 When `forced_library_type != UNKNOWN`, downstream code should use the forced type; `library_type_auto_detected` will be `false`.

@@ -10,7 +10,7 @@
 #include <limits>
 #include <utility>
 
-namespace dart {
+namespace taph {
 
 // Forward declarations
 class DamageModel;
@@ -139,6 +139,22 @@ struct SampleDamageProfile {
     std::array<float, N_OXOG16> oxog16_a_rc     = {};
     std::array<float, N_OXOG16> s_oxog_16ctx    = {};
     std::array<float, N_OXOG16> cov_oxog_16ctx  = {};
+
+    // Reference-free trinucleotide spectrum (64 contexts, prev*16 + mid*4 + next;
+    // A=0,C=1,G=2,T=3). Counts observed trinucleotides at the 5' terminal zone
+    // (read positions 1..4) and the interior null-distribution zone (pos 10..14).
+    // Non-ACGT bases skip the sample. Mirror counters at 3' end use read-offset
+    // positions 1..4 and 10..14 from the 3' terminus (orientation as observed —
+    // downstream analysis reverse-complements contexts for strand collapsing).
+    // Downstream post-processing reduces to a 32-channel SBS-like spectrum:
+    //   d_ct_ctx[XCY] = T_rate_term(XCY ∪ XTY) - T_rate_int(XCY ∪ XTY)
+    //   d_gt_ctx[XGY] = T_rate_term(XGY ∪ XTY) - T_rate_int(XGY ∪ XTY)
+    // and compares to COSMIC SBS1/4/18/36 via cosine similarity.
+    static constexpr int N_TRINUC = 64;
+    std::array<uint64_t, N_TRINUC> tri_5prime_terminal = {};
+    std::array<uint64_t, N_TRINUC> tri_5prime_interior = {};
+    std::array<uint64_t, N_TRINUC> tri_3prime_terminal = {};
+    std::array<uint64_t, N_TRINUC> tri_3prime_interior = {};
 
     // Interior clustered C→T: excess short-range co-occurrence of T at non-CpG {C,T} sites
     struct InteriorCtClusterAccumulator {
@@ -456,12 +472,24 @@ struct SampleDamageProfile {
     static constexpr int N_GC_BINS = 10;  // 0-10%, 10-20%, ..., 90-100%
 
     struct GCBinStats {
-        // Channel A: T and C counts at terminal positions (0-14)
+        // Channel A: T and C counts at 5' terminal positions (0-14)
         std::array<uint64_t, 15> t_counts = {};
         std::array<uint64_t, 15> c_counts = {};
+        // Control channel: A and G counts at 5' terminal positions (0-14)
+        std::array<uint64_t, 15> a_counts = {};
+        std::array<uint64_t, 15> g_counts = {};
+        // 3' terminal counts (position 0 = last base, 1 = second-to-last, ...).
+        // For SS libraries damage shows as C→T on both ends; for DS it's G→A at 3'.
+        std::array<uint64_t, 15> t_counts_3prime = {};
+        std::array<uint64_t, 15> c_counts_3prime = {};
+        std::array<uint64_t, 15> a_counts_3prime = {};
+        std::array<uint64_t, 15> g_counts_3prime = {};
         // Channel A: interior baseline counts
         uint64_t t_interior = 0;
         uint64_t c_interior = 0;
+        // Control channel: interior baseline counts
+        uint64_t a_interior = 0;
+        uint64_t g_interior = 0;
 
         // Channel B: stop codon counts at terminal positions
         std::array<uint64_t, 15> stop_counts = {};  // TAA+TAG+TGA
@@ -521,12 +549,46 @@ struct SampleDamageProfile {
 
     // Mixture model results (K-component EM over GC-stratified bins)
     int mixture_K = 0;                 // Number of classes selected by BIC
+    int mixture_n_components = 0;      // Number of classes selected by BIC
     float mixture_d_population = 0.0f; // E[δ] over all C-sites
     float mixture_d_ancient = 0.0f;    // E[δ | δ > 5%] (ancient tail)
     float mixture_d_reference = 0.0f;  // E[δ | GC > 50%] (metaDMG proxy)
     float mixture_pi_ancient = 0.0f;   // Fraction of C-sites in high-damage classes
     float mixture_bic = 0.0f;          // BIC for model selection
     bool mixture_converged = false;    // Did EM converge?
+    bool mixture_identifiable = false; // Are non-trivial classes well-separated?
+
+    // Preservation index
+    enum class PreservationLabel {
+        INSUFFICIENT,       // too few reads for reliable estimate
+        ARTIFACT_SUSPECTED, // ox_is_artifact=true
+        MODERN_LIKE,        // score < 0.15
+        WEAK,               // 0.15–0.35
+        MODERATE,           // 0.35–0.60
+        STRONG,             // 0.60–0.80
+        EXCEPTIONAL         // ≥ 0.80
+    };
+    float preservation_f5          = 0.0f;  // 5' terminal damage factor
+    float preservation_f3          = 0.0f;  // 3' terminal damage factor
+    float preservation_f_coh       = 0.0f;  // mixture coherence factor
+    float preservation_f_cpg       = 0.0f;  // CpG age-bias factor
+    float preservation_evidence    = 0.0f;  // geometric mean of factors
+    float preservation_reliability = 0.0f;  // g_N * g_fit * g_ox
+    float preservation_score       = 0.0f;  // evidence * reliability [0,1]
+    PreservationLabel preservation_label = PreservationLabel::INSUFFICIENT;
+
+    const char* preservation_label_str() const {
+        switch (preservation_label) {
+            case PreservationLabel::INSUFFICIENT:       return "insufficient";
+            case PreservationLabel::ARTIFACT_SUSPECTED: return "artifact-suspected";
+            case PreservationLabel::MODERN_LIKE:        return "modern-like";
+            case PreservationLabel::WEAK:               return "weak";
+            case PreservationLabel::MODERATE:           return "moderate";
+            case PreservationLabel::STRONG:             return "strong";
+            case PreservationLabel::EXCEPTIONAL:        return "exceptional";
+            default:                                    return "unknown";
+        }
+    }
 
     // Alignability-weighted damage estimate (proxy for reference-based tools)
     float d_metamatch = 0.0f;              // Calibrated metaDMG-comparable estimate
@@ -659,4 +721,4 @@ inline float get_damage_suppression_factor(const SampleDamageProfile& profile) {
     return get_damage_suppression_factor(get_damage_validation_state(profile));
 }
 
-} // namespace dart
+} // namespace taph

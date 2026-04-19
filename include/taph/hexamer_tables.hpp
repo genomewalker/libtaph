@@ -3,7 +3,7 @@
 #include <string>
 #include <cstdint>
 
-namespace dart {
+namespace taph {
 
 // Encode hexamer to 12-bit code (0-4095)
 // Defined here BEFORE including domain headers to avoid redefinition
@@ -27,19 +27,19 @@ inline uint32_t encode_hexamer(const char* seq) {
     return code;
 }
 
-} // namespace dart
+} // namespace taph
 
 // Include all domain-specific hexamer tables
-#include "dart/gtdb_hexamer_table.hpp"
-#include "dart/fungi_hexamer_table.hpp"
-#include "dart/protozoa_hexamer_table.hpp"
-#include "dart/invertebrate_hexamer_table.hpp"
-#include "dart/plant_hexamer_table.hpp"
-#include "dart/vertebrate_mammalian_hexamer_table.hpp"
-#include "dart/vertebrate_other_hexamer_table.hpp"
-#include "dart/viral_hexamer_table.hpp"
+#include "taph/gtdb_hexamer_table.hpp"
+#include "taph/fungi_hexamer_table.hpp"
+#include "taph/protozoa_hexamer_table.hpp"
+#include "taph/invertebrate_hexamer_table.hpp"
+#include "taph/plant_hexamer_table.hpp"
+#include "taph/vertebrate_mammalian_hexamer_table.hpp"
+#include "taph/vertebrate_other_hexamer_table.hpp"
+#include "taph/viral_hexamer_table.hpp"
 
-namespace dart {
+namespace taph {
 
 // Domain enum for selection
 enum class Domain {
@@ -346,4 +346,4 @@ inline float calculate_dicodon_score_weighted(const std::string& seq, int frame,
     return std::max(0.0f, std::min(1.0f, score));
 }
 
-} // namespace dart
+} // namespace taph

@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace dart {
+namespace taph {
 
 /**
  * Fast inline character operations
@@ -81,4 +81,4 @@ inline const std::string& reverse_complement_cached(const std::string& seq) {
     return g_rc_buffer;
 }
 
-} // namespace dart
+} // namespace taph

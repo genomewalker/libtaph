@@ -1,14 +1,14 @@
-# libdart-damage
+# libtaph
 
 Reference-free ancient DNA damage estimation and library-type classification from raw FASTQ reads.
 
-libdart-damage scans raw FASTQ reads for six independent damage and fragmentation channels, estimates terminal deamination, cross-validates C→T damage with composition-robust stop-codon signals, and classifies each library as double-stranded (DS), single-stranded (SS), or UNKNOWN. No reference genome or read alignment required.
+libtaph scans raw FASTQ reads for six independent damage and fragmentation channels, estimates terminal deamination, cross-validates C→T damage with composition-robust stop-codon signals, and classifies each library as double-stranded (DS), single-stranded (SS), or UNKNOWN. No reference genome or read alignment required.
 
 ---
 
 ## Why reference-free?
 
-Reference-based damage estimation (mapDamage, metaDMG) requires a mapped BAM file. In aDNA workflows where damage information is needed before alignment (metagenomics, sediment cores, pre-screening), libdart-damage operates on raw sequences to guide deduplication parameters and sample triage.
+Reference-based damage estimation (mapDamage, metaDMG) requires a mapped BAM file. In aDNA workflows where damage information is needed before alignment (metagenomics, sediment cores, pre-screening), libtaph operates on raw sequences to guide deduplication parameters and sample triage.
 
 ---
 
@@ -91,7 +91,7 @@ characterisation but do not directly affect position masking.
 ### CpG-like context split
 
 The same cytosine deamination that drives Channel A acts faster at CpG
-dinucleotides when the cytosine was methylated (5mC → T). libdart-damage fits
+dinucleotides when the cytosine was methylated (5mC → T). libtaph fits
 the 5' C→T amplitude separately for positions where the next base is G
 (CpG-like context) and positions where it is not (non-CpG). A reference-free
 interior baseline (middle third of each read) is used to estimate the
@@ -105,7 +105,7 @@ Reported in the JSON block `deamination.cpg_like`.
 
 Beyond terminal overhangs, deamination can cluster in read interiors when
 closely spaced cytosines in single-stranded micro-domains are co-deaminated in
-the same hydrolytic event. libdart-damage measures excess co-occurrence of T at
+the same hydrolytic event. libtaph measures excess co-occurrence of T at
 adjacent non-CpG `{C,T}` sites within the read interior (middle third) at
 pair separations d = 1–10 bp, using the within-read T fraction as the null.
 An AG-track control (analogous G→A co-occurrence) corrects for strand-composition
@@ -168,7 +168,7 @@ UNKNOWN is the correct call when no library type can be inferred from the damage
 
 ## fqdup integration
 
-[fqdup](https://github.com/genomewalker/fqdup) uses libdart-damage for
+[fqdup](https://github.com/genomewalker/fqdup) uses libtaph for
 reference-free damage estimation before deduplication. The standalone
 `fqdup damage` subcommand runs the full profiler and prints a human-readable
 report:
@@ -212,18 +212,18 @@ auto-detection or supply parameters manually.
 ## Quick start
 
 ```cpp
-#include <dart/frame_selector_decl.hpp>
+#include <taph/frame_selector_decl.hpp>
 
 // One-shot
 std::vector<std::string> reads = { "ACGTCTAGCT...", ... };
-dart::SampleDamageProfile profile =
-    dart::FrameSelector::compute_sample_profile(reads);
+taph::SampleDamageProfile profile =
+    taph::FrameSelector::compute_sample_profile(reads);
 
 // Streaming
-dart::SampleDamageProfile profile{};
+taph::SampleDamageProfile profile{};
 for (const auto& seq : reads)
-    dart::FrameSelector::update_sample_profile(profile, seq);
-dart::FrameSelector::finalize_sample_profile(profile);
+    taph::FrameSelector::update_sample_profile(profile, seq);
+taph::FrameSelector::finalize_sample_profile(profile);
 
 // Results
 std::cout << "D_max (5'): " << profile.d_max_5prime << "\n";
@@ -260,11 +260,11 @@ Or via FetchContent:
 
 ```cmake
 include(FetchContent)
-FetchContent_Declare(libdart_damage
-    GIT_REPOSITORY https://github.com/genomewalker/libdart-damage.git
+FetchContent_Declare(libtaph
+    GIT_REPOSITORY https://github.com/genomewalker/libtaph.git
     GIT_TAG        main
 )
-FetchContent_MakeAvailable(libdart_damage)
+FetchContent_MakeAvailable(libtaph)
 target_link_libraries(your_target PRIVATE dart-damage)
 ```
 
@@ -272,8 +272,8 @@ target_link_libraries(your_target PRIVATE dart-damage)
 
 ## Documentation
 
-Full methods, API reference, and changelog: **https://genomewalker.github.io/libdart-damage**
+Full methods, API reference, and changelog: **https://genomewalker.github.io/libtaph**
 
-- [Methods](https://genomewalker.github.io/libdart-damage/methods/): damage model equations, BIC classifier design, rescue rules
-- [API Reference](https://genomewalker.github.io/libdart-damage/api/): FrameSelector methods, SampleDamageProfile fields
-- [Changelog](https://genomewalker.github.io/libdart-damage/changelog/): recent changes and milestones
+- [Methods](https://genomewalker.github.io/libtaph/methods/): damage model equations, BIC classifier design, rescue rules
+- [API Reference](https://genomewalker.github.io/libtaph/api/): FrameSelector methods, SampleDamageProfile fields
+- [Changelog](https://genomewalker.github.io/libtaph/changelog/): recent changes and milestones
