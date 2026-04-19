@@ -30,15 +30,15 @@ static float compute_decay_llr(
     const double MIN_COVERAGE = 100.0;
 
     // Best-fit amplitude without clamping: allows detecting inverted (negative) patterns
-    double sum_signal = 0.0, sum_weight = 0.0;
+    double num = 0.0, den = 0.0;
     for (int i = 1; i < 10; ++i) {
         if (total[i] < MIN_COVERAGE) continue;
-        double weight = std::exp(-lambda * i);
+        double x = std::exp(-lambda * i);
         double excess = freq[i] - baseline;
-        sum_signal += total[i] * excess / weight;
-        sum_weight += total[i];
+        num += total[i] * x * excess;
+        den += total[i] * x * x;
     }
-    double raw_amplitude = (sum_weight > 0) ? sum_signal / sum_weight : 0.0;
+    double raw_amplitude = (den > 0.0) ? (num / den) : 0.0;
 
     double ll_exp = 0.0;
     double ll_const = 0.0;
@@ -97,7 +97,7 @@ static std::array<float, 4> fit_exponential_decay(
     }
 
     int n_valid = 0;
-    for (int i = 0; i < 15; ++i) {
+    for (int i = 1; i < 10; ++i) {
         if (coverage[i] >= MIN_COVERAGE) n_valid++;
     }
 
@@ -418,14 +418,21 @@ void FrameSelector::update_sample_profile(
     }
 
     // Count bases in middle third (undamaged baseline)
+    constexpr size_t INTERIOR_TERM_PAD = 15;
     size_t mid_start = len / 3;
-    size_t mid_end = 2 * len / 3;
-    for (size_t i = mid_start; i < mid_end; ++i) {
-        char base = fast_upper(seq[i]);
-        if (base == 'T') profile.baseline_t_freq++;
-        else if (base == 'C') profile.baseline_c_freq++;
-        else if (base == 'A') profile.baseline_a_freq++;
-        else if (base == 'G') profile.baseline_g_freq++;
+    size_t mid_end   = 2 * len / 3;
+    if (mid_start < INTERIOR_TERM_PAD)     mid_start = INTERIOR_TERM_PAD;
+    if (len > INTERIOR_TERM_PAD && mid_end + INTERIOR_TERM_PAD > len)
+        mid_end = len - INTERIOR_TERM_PAD;
+    const bool interior_safe = (mid_start < mid_end);
+    if (interior_safe) {
+        for (size_t i = mid_start; i < mid_end; ++i) {
+            char base = fast_upper(seq[i]);
+            if (base == 'T') profile.baseline_t_freq++;
+            else if (base == 'C') profile.baseline_c_freq++;
+            else if (base == 'A') profile.baseline_a_freq++;
+            else if (base == 'G') profile.baseline_g_freq++;
+        }
     }
 
     // Codon-position-aware counting at 5' end (first 15 bases)
@@ -918,8 +925,10 @@ void FrameSelector::update_sample_profile(
         if (wlen >= 2) {
             auto& acc = profile.interior_ct_cluster;
             // Build eligible + indicator arrays for CT and AG tracks
-            uint8_t ct_elig[200] = {}, ct_pos[200] = {};
-            uint8_t ag_elig[200] = {}, ag_pos[200] = {};
+            std::vector<uint8_t> ct_elig(static_cast<size_t>(wlen), 0);
+            std::vector<uint8_t> ct_pos (static_cast<size_t>(wlen), 0);
+            std::vector<uint8_t> ag_elig(static_cast<size_t>(wlen), 0);
+            std::vector<uint8_t> ag_pos (static_cast<size_t>(wlen), 0);
             int n_ct = 0, k_ct = 0, n_ag = 0, k_ag = 0;
             for (int i = lo; i < hi; ++i) {
                 const int j = i - lo;
@@ -1536,6 +1545,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         double ox_total_terminal = ox_pre_terminal + ox_stop_terminal;
         double ox_total_mid = ox_pre_mid + ox_stop_mid;
 
+        profile.ox_uniformity_ratio = 1.0f;
         if (ox_total_terminal > 50 && ox_total_mid > 50) {
             profile.ox_stop_rate_terminal = static_cast<float>(ox_stop_terminal / ox_total_terminal);
             profile.ox_stop_rate_interior = static_cast<float>(ox_stop_mid / ox_total_mid);
@@ -1636,6 +1646,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         if (total_w >= 200.0f) {
             static constexpr float mu_grid[] = {0.05f, 0.1f, 0.2f, 0.3f, 0.5f, 0.7f, 1.0f, 1.5f, 2.0f, 3.0f};
             float best_sse = 1e30f, best_A = 0.0f, best_mu = 0.3f, best_B = 0.0f;
+            float best_A_raw = 0.0f;
 
             for (float mu : mu_grid) {
                 float sx2=0, sx=0, sxy=0, sy=0, sw=0;
@@ -1650,10 +1661,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 }
                 float det = sx2*sw - sx*sx;
                 if (std::abs(det) < 1e-12f) continue;
-                float A = (sxy*sw - sy*sx) / det;
-                float B = (sx2*sy - sx*sxy) / det;
-                A = std::max(0.0f, A);
-                B = std::max(0.0f, std::min(0.5f, B));
+                float A_raw = (sxy*sw - sy*sx) / det;
+                float B_raw = (sx2*sy - sx*sxy) / det;
+                float A = std::max(0.0f, A_raw);
+                float B = std::max(0.0f, std::min(0.5f, B_raw));
 
                 float sse = 0;
                 for (int p = 0; p < 15; ++p) {
@@ -1664,6 +1675,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 if (sse < best_sse) {
                     best_sse = sse;
                     best_A = A; best_mu = mu; best_B = B;
+                    best_A_raw = A_raw;
                 }
             }
 
@@ -1678,13 +1690,15 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // For DS: B elevated above ca_baseline indicates library-level oxidation.
             const bool is_ss_lib = (profile.library_type ==
                                     taph::SampleDamageProfile::LibraryType::SINGLE_STRANDED);
-            float signal    = profile.s_gt;
+            // SS: Chargaff contrast (s_gt = B - ca_baseline) is the valid signal.
+            // DS: B and ca_baseline rise together so s_gt cancels; use best_B directly.
+            float signal    = is_ss_lib ? profile.s_gt : best_B;
             float threshold = is_ss_lib ? 0.004f : 0.006f;
 
             // Require the terminal component to also be non-trivial (rules out flat noise)
             bool has_data   = total_w >= 500.0f;
             bool elevated   = signal > threshold;
-            bool not_inverted = best_A >= 0.0f;
+            bool not_inverted = best_A_raw >= 0.0f;
 
             profile.ox_damage_detected = has_data && elevated && not_inverted;
         }
@@ -2315,7 +2329,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                                            && (profile.d_max_from_channel_b > 0.10f);
             const bool spike_is_ss = (ga0.amplitude >= 0.10f) && !structural_bilateral;
             const double best_ds = std::min({bic_M_DS_symm,
-                                             spike_is_ss ? 1e300 : bic_M_DS_symm_art,
+                                             bic_M_DS_symm_art,
                                              spike_is_ss ? 1e300 : bic_M_DS_spike});
             // M_SS_full excluded: 4-param model unfairly defeats M_DS_symm_art for asymmetric DS.
             // M_SS_asym only enters the SS set when spike_is_ss, preventing competition with M_DS_spike
@@ -2460,7 +2474,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         if (profile.library_type == SampleDamageProfile::LibraryType::UNKNOWN) {
             const bool misspec = profile.composition_bias_5prime
                               || profile.position_0_artifact_5prime
-                              || profile.fit_offset_5prime > 1;
+                              || (profile.fit_offset_5prime > 1 && profile.position_0_artifact_5prime);
             if (misspec && profile.d_max_5prime >= 0.03f) {
                 // CT5 empirical excess: max T/(T+C) at pos 1-4 over baseline
                 float ct5_exc = 0.0f;
@@ -2702,6 +2716,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                         float ll_damaged = 0.0f;
                         float ll_undamaged = 0.0f;
                         float lambda = profile.lambda_5prime;
+                        const bool is_ss_bin_llr =
+                            (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED);
 
                         for (int p = 0; p < 15; ++p) {
                             float decay = std::exp(-lambda * p);
@@ -2714,6 +2730,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
                             double k = static_cast<double>(b.t_counts[p]);
                             double n = static_cast<double>(b.t_counts[p] + b.c_counts[p]);
+                            if (is_ss_bin_llr && p < static_cast<int>(b.t_counts_3prime.size())) {
+                                k += static_cast<double>(b.t_counts_3prime[p]);
+                                n += static_cast<double>(b.t_counts_3prime[p] + b.c_counts_3prime[p]);
+                            }
                             if (n > 0) {
                                 ll_damaged += static_cast<float>(k * std::log(pi_damaged) + (n - k) * std::log(1.0f - pi_damaged));
                                 ll_undamaged += static_cast<float>(k * std::log(pi_undamaged) + (n - k) * std::log(1.0f - pi_undamaged));
@@ -2929,8 +2949,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 // Both ends inverted: normally zero everything (no reliable Channel A signal).
                 // Exception: if adapter offset was detected on either end, the scan-for-peak
                 // already found the biological damage in pos 1-5. Preserve those values.
-                bool has_adapter_5 = profile.position_0_artifact_5prime || profile.fit_offset_5prime > 1;
-                bool has_adapter_3 = profile.position_0_artifact_3prime || profile.fit_offset_3prime > 1;
+                bool has_adapter_5 = profile.position_0_artifact_5prime || (profile.fit_offset_5prime > 1 && profile.position_0_artifact_5prime);
+                bool has_adapter_3 = profile.position_0_artifact_3prime || (profile.fit_offset_3prime > 1 && profile.position_0_artifact_3prime);
                 if (!has_adapter_5 && !has_adapter_3) {
                     profile.d_max_5prime = 0.0f;
                     profile.d_max_3prime = 0.0f;
@@ -3019,24 +3039,27 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     {
         float dmax = std::max(profile.d_max_5prime, profile.d_max_3prime);
         if (dmax >= 0.02f) {
-            float ct5_exc = 0.0f, n_ct5 = 1.0f;
-            for (int p = 1; p <= 4; ++p) {
-                double ntc = profile.tc_total_5prime[p];
-                if (ntc < 100.0) continue;
-                float exc = static_cast<float>(profile.t_freq_5prime[p])  // already a rate
-                          - static_cast<float>(baseline_tc);
-                if (exc > ct5_exc) { ct5_exc = exc; n_ct5 = static_cast<float>(ntc); }
-            }
-            if (ct5_exc > 0.0f && n_ct5 > 0.0f) {
-                float p_hat   = ct5_exc + static_cast<float>(baseline_tc);
-                float se_od   = std::sqrt(p_hat * (1.0f - p_hat) / n_ct5) * 2.0f;
-                float lower95 = ct5_exc - 1.96f * se_od;
-                profile.damage_status = (lower95 >= 0.01f)
-                    ? SampleDamageProfile::DamageStatus::PRESENT
-                    : SampleDamageProfile::DamageStatus::WEAK;
-            } else {
-                profile.damage_status = SampleDamageProfile::DamageStatus::WEAK;
-            }
+            auto lower95_for_end = [&](const std::array<double,15>& freq,
+                                       const std::array<double,15>& total,
+                                       double baseline) -> float {
+                float exc_max = 0.0f; float n_used = 1.0f;
+                for (int p = 1; p <= 4; ++p) {
+                    double n = total[p];
+                    if (n < 100.0) continue;
+                    float exc = static_cast<float>(freq[p] - baseline);
+                    if (exc > exc_max) { exc_max = exc; n_used = static_cast<float>(n); }
+                }
+                if (exc_max <= 0.0f) return -1.0f;
+                float p_hat = exc_max + static_cast<float>(baseline);
+                float se_od = std::sqrt(p_hat * (1.0f - p_hat) / n_used) * 2.0f;
+                return exc_max - 1.96f * se_od;
+            };
+            float lb5 = lower95_for_end(profile.t_freq_5prime, profile.tc_total_5prime, baseline_tc);
+            float lb3 = lower95_for_end(profile.a_freq_3prime, profile.ag_total_3prime, baseline_ag);
+            float lower95 = std::max(lb5, lb3);
+            profile.damage_status = (lower95 >= 0.01f)
+                ? SampleDamageProfile::DamageStatus::PRESENT
+                : SampleDamageProfile::DamageStatus::WEAK;
         } else {
             profile.damage_status = SampleDamageProfile::DamageStatus::ABSENT;
             // Conservative: absent damage means the BIC competition had no signal.
@@ -3335,14 +3358,21 @@ void FrameSelector::update_sample_profile_weighted(
         }
     }
 
+    constexpr size_t INTERIOR_TERM_PAD = 15;
     size_t mid_start = len / 3;
-    size_t mid_end = 2 * len / 3;
-    for (size_t i = mid_start; i < mid_end; ++i) {
-        char base = fast_upper(seq[i]);
-        if (base == 'T') profile.baseline_t_freq += weight;
-        else if (base == 'C') profile.baseline_c_freq += weight;
-        else if (base == 'A') profile.baseline_a_freq += weight;
-        else if (base == 'G') profile.baseline_g_freq += weight;
+    size_t mid_end   = 2 * len / 3;
+    if (mid_start < INTERIOR_TERM_PAD)     mid_start = INTERIOR_TERM_PAD;
+    if (len > INTERIOR_TERM_PAD && mid_end + INTERIOR_TERM_PAD > len)
+        mid_end = len - INTERIOR_TERM_PAD;
+    const bool interior_safe = (mid_start < mid_end);
+    if (interior_safe) {
+        for (size_t i = mid_start; i < mid_end; ++i) {
+            char base = fast_upper(seq[i]);
+            if (base == 'T') profile.baseline_t_freq += weight;
+            else if (base == 'C') profile.baseline_c_freq += weight;
+            else if (base == 'A') profile.baseline_a_freq += weight;
+            else if (base == 'G') profile.baseline_g_freq += weight;
+        }
     }
 
     size_t weight_count = std::max(size_t(1), static_cast<size_t>(weight * 10 + 0.5));
@@ -3546,6 +3576,28 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.fit_offset_5prime = 1;
     profile.fit_offset_3prime = 1;
 
+    profile.forced_library_type = SampleDamageProfile::LibraryType::UNKNOWN;
+    profile.library_type_rescued = false;
+
+    // oxoG / Channel-D accumulators
+    profile.g_count_5prime.fill(0.0);
+    profile.t_from_g_5prime.fill(0.0);
+    profile.baseline_g_to_t_count = 0.0;
+    profile.baseline_g_total = 0.0;
+    profile.baseline_c_to_a_count = 0.0;
+    profile.baseline_c_ox_total = 0.0;
+    profile.convertible_gag_5prime.fill(0.0);
+    profile.convertible_gaa_5prime.fill(0.0);
+    profile.convertible_gga_5prime.fill(0.0);
+    profile.convertible_tag_ox_5prime.fill(0.0);
+    profile.convertible_taa_ox_5prime.fill(0.0);
+    profile.convertible_tga_ox_5prime.fill(0.0);
+    profile.c_count_ox_5prime.fill(0.0);
+    profile.a_from_c_5prime.fill(0.0);
+
+    // Neutral default for oxidation uniformity ratio
+    profile.ox_uniformity_ratio = 1.0f;
+
     profile.n_reads = 0;
 }
 
@@ -3553,6 +3605,7 @@ SampleDamageProfile FrameSelector::compute_sample_profile(
     const std::vector<std::string>& sequences) {
 
     SampleDamageProfile profile;
+    reset_sample_profile(profile);
 
     for (const auto& seq : sequences) {
         update_sample_profile(profile, seq);
