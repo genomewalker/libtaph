@@ -67,8 +67,8 @@ UNKNOWN: no detectable signal above the null model (zero-damage libraries where 
 
 ```cmake
 # CMakeLists.txt
-find_package(dart-damage REQUIRED)
-target_link_libraries(your_target PRIVATE dart-damage)
+find_package(taph REQUIRED)
+target_link_libraries(your_target PRIVATE taph)
 ```
 
 Or as a CMake FetchContent dependency:
@@ -80,5 +80,5 @@ FetchContent_Declare(libtaph
     GIT_TAG        main
 )
 FetchContent_MakeAvailable(libtaph)
-target_link_libraries(your_target PRIVATE dart-damage)
+target_link_libraries(your_target PRIVATE taph)
 ```

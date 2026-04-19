@@ -1,4 +1,4 @@
-// damage_c_api.cpp — extern "C" wrapper for libdart-damage (C++17)
+// damage_c_api.cpp — extern "C" wrapper for libtaph (C++17)
 
 #include "taph/damage_c_api.h"
 #include "taph/frame_selector_decl.hpp"
@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------------------
 // Internal state bundled behind the opaque handle
 
-struct dart_profile_t {
+struct taph_profile_t {
     taph::SampleDamageProfile profile;
     bool finalized = false;
 };
@@ -20,22 +20,22 @@ struct dart_profile_t {
 // ---------------------------------------------------------------------------
 // Pass 1 – estimation
 
-dart_profile_t *dart_profile_create(void) {
-    return new (std::nothrow) dart_profile_t{};
+taph_profile_t *taph_profile_create(void) {
+    return new (std::nothrow) taph_profile_t{};
     // Caller must check for NULL (OOM).
 }
 
-void dart_profile_destroy(dart_profile_t *p) {
+void taph_profile_destroy(taph_profile_t *p) {
     delete p;
 }
 
-void dart_profile_add_read(dart_profile_t *p, const char *seq, size_t len) {
+void taph_profile_add_read(taph_profile_t *p, const char *seq, size_t len) {
     if (!p || p->finalized || !seq || len == 0) { return; }
     taph::FrameSelector::update_sample_profile(p->profile,
                                                std::string_view(seq, len));
 }
 
-void dart_profile_finalize(dart_profile_t *p) {
+void taph_profile_finalize(taph_profile_t *p) {
     if (!p || p->finalized) { return; }
     taph::FrameSelector::finalize_sample_profile(p->profile);
     p->finalized = true;
@@ -44,19 +44,19 @@ void dart_profile_finalize(dart_profile_t *p) {
 // ---------------------------------------------------------------------------
 // Accessors — all require a finalized profile; return safe defaults otherwise.
 
-float dart_profile_dmax(const dart_profile_t *p) {
+float taph_profile_dmax(const taph_profile_t *p) {
     return (p && p->finalized) ? p->profile.d_max_combined : 0.0f;
 }
 
-float dart_profile_lambda5(const dart_profile_t *p) {
+float taph_profile_lambda5(const taph_profile_t *p) {
     return (p && p->finalized) ? p->profile.lambda_5prime : 0.0f;
 }
 
-float dart_profile_lambda3(const dart_profile_t *p) {
+float taph_profile_lambda3(const taph_profile_t *p) {
     return (p && p->finalized) ? p->profile.lambda_3prime : 0.0f;
 }
 
-int dart_profile_library_type(const dart_profile_t *p) {
+int taph_profile_library_type(const taph_profile_t *p) {
     if (!p || !p->finalized) { return 0; }
     using LT = taph::SampleDamageProfile::LibraryType;
     switch (p->profile.library_type) {
@@ -66,15 +66,15 @@ int dart_profile_library_type(const dart_profile_t *p) {
     }
 }
 
-int dart_profile_damage_validated(const dart_profile_t *p) {
+int taph_profile_damage_validated(const taph_profile_t *p) {
     return (p && p->finalized && p->profile.damage_validated) ? 1 : 0;
 }
 
-int dart_profile_damage_artifact(const dart_profile_t *p) {
+int taph_profile_damage_artifact(const taph_profile_t *p) {
     return (p && p->finalized && p->profile.damage_artifact) ? 1 : 0;
 }
 
-int dart_profile_is_reliable(const dart_profile_t *p) {
+int taph_profile_is_reliable(const taph_profile_t *p) {
     return (p && p->finalized && !p->profile.is_detection_unreliable()) ? 1 : 0;
 }
 
@@ -101,7 +101,7 @@ static inline float ga_prob(const taph::SampleDamageProfile &sp,
     return sp.d_max_3prime * std::exp(-sp.lambda_3prime * d);
 }
 
-size_t dart_mask_read(const dart_profile_t *p,
+size_t taph_mask_read(const taph_profile_t *p,
                       const char           *seq,
                       size_t                len,
                       char                 *out_buf,
@@ -131,7 +131,7 @@ size_t dart_mask_read(const dart_profile_t *p,
     return masked;
 }
 
-size_t dart_correct_read(const dart_profile_t *p,
+size_t taph_correct_read(const taph_profile_t *p,
                          const char           *seq,
                          size_t                len,
                          char                 *out_buf,
