@@ -1,6 +1,6 @@
 # Classifier Integration Guide
 
-libdart-damage ships a C-compatible API (`dart/damage_c_api.h`) that lets any
+libtaph ships a C-compatible API (`dart/damage_c_api.h`) that lets any
 classifier link the library regardless of its own C++ standard.  The
 implementation compiles at C++17; the header is plain C and can be included
 from C, C++14, or any later standard.
@@ -11,7 +11,7 @@ from C, C++14, or any later standard.
 
 ```cmake
 # In your top-level or src/ CMakeLists.txt
-add_subdirectory(path/to/libdart-damage)
+add_subdirectory(path/to/libtaph)
 target_link_libraries(your_classifier PRIVATE dart-damage)
 ```
 
@@ -27,7 +27,7 @@ target's standard.
 Feed all reads through the accumulator before classification begins.
 
 ```c
-#include "dart/damage_c_api.h"
+#include <taph/damage_c_api.h"
 
 dart_profile_t *profile = dart_profile_create();
 if (!profile) { /* OOM */ }
@@ -110,7 +110,7 @@ dart_profile_destroy(profile);
 create one profile per thread and merge before finalizing:
 
 ```cpp
-#include "dart/frame_selector_decl.hpp"
+#include <taph/frame_selector_decl.hpp"
 
 std::vector<dart_profile_t *> per_thread(n_threads);
 for (auto &p : per_thread) p = dart_profile_create();
@@ -119,7 +119,7 @@ for (auto &p : per_thread) p = dart_profile_create();
 
 /* Merge into thread 0's profile (single-threaded): */
 for (int i = 1; i < n_threads; ++i)
-    dart::FrameSelector::merge_sample_profiles(
+    taph::FrameSelector::merge_sample_profiles(
         per_thread[0]->profile, per_thread[i]->profile);
 
 dart_profile_finalize(per_thread[0]);

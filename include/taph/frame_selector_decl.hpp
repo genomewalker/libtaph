@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-namespace dart {
+namespace taph {
 
 class FrameSelector {
 public:
@@ -32,4 +32,4 @@ public:
     }
 };
 
-} // namespace dart
+} // namespace taph

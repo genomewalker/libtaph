@@ -13,7 +13,7 @@
 #include <cmath>
 #include <cctype>
 
-namespace dart {
+namespace taph {
 
 // Basic sequence types
 using Sequence = std::string;
@@ -273,6 +273,6 @@ struct CodonTable {
     }
 };
 
-} // namespace dart
+} // namespace taph
 
 #endif // DART_TYPES_HPP_DEFINED

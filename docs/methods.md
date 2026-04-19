@@ -1,12 +1,12 @@
 # Methods
 
-libdart-damage estimates ancient-DNA damage directly from raw reads, without alignment or a reference genome. Working directly on raw reads makes the method applicable early in a workflow, before any alignment step. The cost is that terminal base composition, library preparation, and genuine post-mortem damage can all produce superficially similar sequence patterns, making it difficult to attribute a terminal signal to any one cause. The method therefore uses multiple independent signals to reduce that ambiguity — each targeting a different biochemical process — and validates agreement between them before reporting a damage estimate.
+libtaph estimates ancient-DNA damage directly from raw reads, without alignment or a reference genome. Working directly on raw reads makes the method applicable early in a workflow, before any alignment step. The cost is that terminal base composition, library preparation, and genuine post-mortem damage can all produce superficially similar sequence patterns, making it difficult to attribute a terminal signal to any one cause. The method therefore uses multiple independent signals to reduce that ambiguity — each targeting a different biochemical process — and validates agreement between them before reporting a damage estimate.
 
 The processing pipeline has four stages: per-position accumulation, joint damage validation, library-type classification, GC-stratified mixture modelling, and final `d_max` selection. The sections below follow that order. The emphasis is not only on what is computed, but on why each stage is needed and what ambiguity it resolves.
 
 ## Per-position accumulation and baseline estimation
 
-The raw material for all downstream inference is a set of terminal and interior counts accumulated directly from reads. For each read, libdart-damage inspects the first and last 15 positions and records the base combinations relevant to deamination and its controls. The goal at this stage is deliberately simple: count what is observed at the termini, count what is observed away from the termini, and postpone interpretation until enough evidence has accumulated.
+The raw material for all downstream inference is a set of terminal and interior counts accumulated directly from reads. For each read, libtaph inspects the first and last 15 positions and records the base combinations relevant to deamination and its controls. The goal at this stage is deliberately simple: count what is observed at the termini, count what is observed away from the termini, and postpone interpretation until enough evidence has accumulated.
 
 For each terminal position $p$:
 
@@ -15,7 +15,7 @@ For each terminal position $p$:
 - **5' control channel**: $A_p / (A_p + G_p)$ at the 5' end, which should remain flat if the 5' C→T signal is genuine deamination rather than composition bias
 - **3' control channel (ct3)**: $T_p / (T_p + C_p)$ at the 3' end, which acts as a negative control in DS libraries but becomes a biologically meaningful SS signal when the original strand is sequenced
 
-The interior of the read provides the undamaged reference state. libdart-damage uses the middle third of each read (positions 30 to $L-30$) to estimate the background rate $b$. This region is far enough from the termini to be largely insensitive to terminal overhang damage, but still reflects the sample's intrinsic sequence composition. In a reference-free setting this interior baseline is essential: the method does not ask whether a specific read differs from a reference genome, but whether terminal positions deviate from that sample's own interior composition.
+The interior of the read provides the undamaged reference state. libtaph uses the middle third of each read (positions 30 to $L-30$) to estimate the background rate $b$. This region is far enough from the termini to be largely insensitive to terminal overhang damage, but still reflects the sample's intrinsic sequence composition. In a reference-free setting this interior baseline is essential: the method does not ask whether a specific read differs from a reference genome, but whether terminal positions deviate from that sample's own interior composition.
 
 These per-position ratios are later summarized with a weighted least-squares (WLS) amplitude estimate using a fixed decay rate $\hat\lambda$:
 
@@ -27,7 +27,7 @@ where $n_p$ is the coverage at terminal position $p$. This expression asks wheth
 
 ## Damage model
 
-Once terminal and interior counts have been accumulated, libdart-damage models ancient-DNA deamination as a terminal process that decays inward from each end of the fragment. In double-stranded libraries this appears as C→T excess at the 5' end and G→A excess at the 3' end, because the complementary strand carries the same damaged cytosines as G→A when read in the opposite orientation. This characteristic pattern was first systematically described by [Briggs et al. (2007)](https://www.pnas.org/doi/10.1073/pnas.0704665104) and subsequently formalized as an exponential decay model by [Jónsson et al. (2013)](https://doi.org/10.1093/bioinformatics/btt193).
+Once terminal and interior counts have been accumulated, libtaph models ancient-DNA deamination as a terminal process that decays inward from each end of the fragment. In double-stranded libraries this appears as C→T excess at the 5' end and G→A excess at the 3' end, because the complementary strand carries the same damaged cytosines as G→A when read in the opposite orientation. This characteristic pattern was first systematically described by [Briggs et al. (2007)](https://www.pnas.org/doi/10.1073/pnas.0704665104) and subsequently formalized as an exponential decay model by [Jónsson et al. (2013)](https://doi.org/10.1093/bioinformatics/btt193).
 
 The terminal signal is modelled as
 
@@ -42,7 +42,7 @@ where:
 
 The role of this equation is not just descriptive. It encodes the central biological assumption of the method: genuine terminal damage should be strongest at the edge of the fragment and should decay smoothly inward, whereas many confounders either remain flat or fail to reproduce the same decay in independent channels.
 
-To report a quantity comparable to [mapDamage2.0 (Jónsson et al. 2013)](https://doi.org/10.1093/bioinformatics/btt193) and [metaDMG (Michelsen et al. 2022)](https://doi.org/10.1101/2022.12.06.519264), libdart-damage converts the fitted amplitude into a calibrated terminal damage rate,
+To report a quantity comparable to [mapDamage2.0 (Jónsson et al. 2013)](https://doi.org/10.1093/bioinformatics/btt193) and [metaDMG (Michelsen et al. 2022)](https://doi.org/10.1101/2022.12.06.519264), libtaph converts the fitted amplitude into a calibrated terminal damage rate,
 
 $$D_{\max} = \frac{A}{1 - b}$$
 
@@ -54,7 +54,7 @@ which estimates the fraction of terminal C sites that were converted to T, after
 
 The first major inference step in `finalize_sample_profile` asks a question that is specific to reference-free damage estimation: is terminal T enrichment actually ancient-DNA damage, or is it simply a compositional feature of the reads? A single nucleotide-frequency channel cannot answer that reliably, because elevated terminal T/(T+C) can arise from real C→T deamination or from a terminal sequence bias unrelated to damage.
 
-libdart-damage addresses this by evaluating several independent biochemical channels. Some channels are primary evidence for deamination, while others act as controls or orthogonal diagnostics.
+libtaph addresses this by evaluating several independent biochemical channels. Some channels are primary evidence for deamination, while others act as controls or orthogonal diagnostics.
 
 | Channel | Signal | Notes |
 |---------|--------|-------|
@@ -73,7 +73,7 @@ At a high level, `damage_validated` means the primary nucleotide signal is suppo
 
 Channel B is designed to answer exactly the question that Channel A cannot: if terminal C→T damage is real, do we also see the specific codon changes that such damage should create? The key convertible codons are CAA, CAG, and CGA, which become the stop codons TAA, TAG, and TGA after a single C→T event at the first position.
 
-Crucially, this test does **not** require reference alignment, ORF prediction, strand selection, or choosing a single reading frame. Instead, libdart-damage scans all three forward reading frames simultaneously at every position in every read:
+Crucially, this test does **not** require reference alignment, ORF prediction, strand selection, or choosing a single reading frame. Instead, libtaph scans all three forward reading frames simultaneously at every position in every read:
 
 - For each frame offset $f \in \{0, 1, 2\}$ and each codon starting at position $p$, classify the codon as:
   - **pre-image** (CAA, CAG, CGA): a codon that would become a stop after C→T damage
@@ -90,7 +90,7 @@ The trade-off is statistical rather than conceptual. Channel B is more specific 
 
 ### Joint damage model (`JointDamageModel`)
 
-Rather than interpreting Channel A, the control channel, and Channel B separately, libdart-damage fits them jointly with `JointDamageModel::fit()`. The observed 5' terminal profile can be a mixture of at least two effects.
+Rather than interpreting Channel A, the control channel, and Channel B separately, libtaph fits them jointly with `JointDamageModel::fit()`. The observed 5' terminal profile can be a mixture of at least two effects.
 
 1. **Real deamination**, which should elevate Channel A and Channel B but not the control channel.
 2. **Compositional artifact**, which can elevate Channel A and the control channel together, but has no reason to elevate Channel B.
@@ -122,7 +122,7 @@ The fitted model has three free parameters: $\delta_{\max}$, $\lambda$, and $a_{
 
 ## Library-type classifier
 
-After establishing whether terminal damage is genuine, libdart-damage asks a different question: **which library architecture produced the observed terminal asymmetry?** This is a separate inference problem. Damage validation is about distinguishing authentic deamination from artifact; library classification is about determining which ends and strands are expected to carry that damage signal.
+After establishing whether terminal damage is genuine, libtaph asks a different question: **which library architecture produced the observed terminal asymmetry?** This is a separate inference problem. Damage validation is about distinguishing authentic deamination from artifact; library classification is about determining which ends and strands are expected to carry that damage signal.
 
 This separation matters. A sample can have real damage but still show very different terminal patterns depending on whether the library is double-stranded, single-stranded in the original orientation, single-stranded in the complement orientation, or a mixture. The classifier therefore works with four observable channels rather than only the damage-validation trio.
 
@@ -233,7 +233,7 @@ If no model beats `M_bias` exactly, the library has no detectable damage in any 
 
 ## GC-stratified estimation
 
-After the global damage call and library-type classification are established, libdart-damage asks whether the sample is compositionally heterogeneous. This matters because environmental and metagenomic ancient-DNA datasets often contain mixtures of genuinely ancient molecules and lower-damage background DNA, and those components can differ systematically in GC content. A single global `d_max` is still useful, but it can blur together distinct populations.
+After the global damage call and library-type classification are established, libtaph asks whether the sample is compositionally heterogeneous. This matters because environmental and metagenomic ancient-DNA datasets often contain mixtures of genuinely ancient molecules and lower-damage background DNA, and those components can differ systematically in GC content. A single global `d_max` is still useful, but it can blur together distinct populations.
 
 To expose that heterogeneity, reads are binned by **interior** GC content into 10 bins spanning 0-100%. Interior GC is used rather than whole-read GC so that the binning itself is less sensitive to terminal damage. Within each bin, the method re-estimates damage using terminal and interior counts aggregated across reads in that bin.
 
@@ -263,7 +263,7 @@ The full GC-stratified model is therefore not just a refinement of the global ca
 
 The final step converts several end-specific and channel-specific estimates into a single reported `d_max_combined`. A naive strategy would simply average the 5' and 3' estimates, but that is not robust across library types. In DS libraries, averaging is sensible because both ends should reflect the same terminal damage process. In SS, mixed-orientation, or artifact-affected libraries, however, one end can be informative while the other is structurally absent, biased by adapter effects, or driven by a different biochemical process.
 
-libdart-damage therefore uses an asymmetry-aware combination rule rather than unconditional averaging. The selected strategy is recorded in `d_max_source`.
+libtaph therefore uses an asymmetry-aware combination rule rather than unconditional averaging. The selected strategy is recorded in `d_max_source`.
 
 | Condition | Strategy |
 |-----------|----------|

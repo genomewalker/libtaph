@@ -1,8 +1,8 @@
 // damage_c_api.cpp — extern "C" wrapper for libdart-damage (C++17)
 
-#include "dart/damage_c_api.h"
-#include "dart/frame_selector_decl.hpp"
-#include "dart/sample_damage_profile.hpp"
+#include "taph/damage_c_api.h"
+#include "taph/frame_selector_decl.hpp"
+#include "taph/sample_damage_profile.hpp"
 
 #include <cmath>
 #include <cstring>
@@ -13,7 +13,7 @@
 // Internal state bundled behind the opaque handle
 
 struct dart_profile_t {
-    dart::SampleDamageProfile profile;
+    taph::SampleDamageProfile profile;
     bool finalized = false;
 };
 
@@ -31,13 +31,13 @@ void dart_profile_destroy(dart_profile_t *p) {
 
 void dart_profile_add_read(dart_profile_t *p, const char *seq, size_t len) {
     if (!p || p->finalized || !seq || len == 0) { return; }
-    dart::FrameSelector::update_sample_profile(p->profile,
+    taph::FrameSelector::update_sample_profile(p->profile,
                                                std::string_view(seq, len));
 }
 
 void dart_profile_finalize(dart_profile_t *p) {
     if (!p || p->finalized) { return; }
-    dart::FrameSelector::finalize_sample_profile(p->profile);
+    taph::FrameSelector::finalize_sample_profile(p->profile);
     p->finalized = true;
 }
 
@@ -58,7 +58,7 @@ float dart_profile_lambda3(const dart_profile_t *p) {
 
 int dart_profile_library_type(const dart_profile_t *p) {
     if (!p || !p->finalized) { return 0; }
-    using LT = dart::SampleDamageProfile::LibraryType;
+    using LT = taph::SampleDamageProfile::LibraryType;
     switch (p->profile.library_type) {
         case LT::DOUBLE_STRANDED: return 1;
         case LT::SINGLE_STRANDED: return 2;
@@ -82,9 +82,9 @@ int dart_profile_is_reliable(const dart_profile_t *p) {
 // Pass 2 – per-read correction
 
 // Position-dependent C→T probability at dist bases from 5' end.
-static inline float ct_prob(const dart::SampleDamageProfile &sp,
+static inline float ct_prob(const taph::SampleDamageProfile &sp,
                              size_t dist_from_5prime) {
-    if (dist_from_5prime < static_cast<size_t>(dart::SampleDamageProfile::N_POS)) {
+    if (dist_from_5prime < static_cast<size_t>(taph::SampleDamageProfile::N_POS)) {
         return sp.damage_rate_5prime[dist_from_5prime];
     }
     float d = static_cast<float>(dist_from_5prime);
@@ -92,9 +92,9 @@ static inline float ct_prob(const dart::SampleDamageProfile &sp,
 }
 
 // Position-dependent G→A probability at dist bases from 3' end.
-static inline float ga_prob(const dart::SampleDamageProfile &sp,
+static inline float ga_prob(const taph::SampleDamageProfile &sp,
                              size_t dist_from_3prime) {
-    if (dist_from_3prime < static_cast<size_t>(dart::SampleDamageProfile::N_POS)) {
+    if (dist_from_3prime < static_cast<size_t>(taph::SampleDamageProfile::N_POS)) {
         return sp.damage_rate_3prime[dist_from_3prime];
     }
     float d = static_cast<float>(dist_from_3prime);
@@ -114,7 +114,7 @@ size_t dart_mask_read(const dart_profile_t *p,
     out_buf[len] = '\0';
 
     size_t masked = 0;
-    const dart::SampleDamageProfile &sp = p->profile;
+    const taph::SampleDamageProfile &sp = p->profile;
 
     for (size_t i = 0; i < len; ++i) {
         char c = seq[i];
@@ -143,7 +143,7 @@ size_t dart_correct_read(const dart_profile_t *p,
     out_buf[len] = '\0';
 
     size_t corrections = 0;
-    const dart::SampleDamageProfile &sp = p->profile;
+    const taph::SampleDamageProfile &sp = p->profile;
 
     for (size_t i = 0; i < len; ++i) {
         char c = seq[i];

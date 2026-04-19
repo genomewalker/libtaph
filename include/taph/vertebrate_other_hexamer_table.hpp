@@ -7,7 +7,7 @@
 
 #include <cstdint>
 
-namespace dart {
+namespace taph {
 
 // Note: Use encode_hexamer() from hexamer_tables.hpp
 
@@ -526,4 +526,4 @@ constexpr float VERTEBRATE_OTHER_HEXAMER_FREQ[4096] = {
     8.024107e-06f, 9.596577e-05f, 1.154345e-04f, 1.202805e-04f, 1.293116e-04f, 2.291632e-04f, 1.885282e-04f, 1.870575e-04f
 };
 
-} // namespace dart
+} // namespace taph

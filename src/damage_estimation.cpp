@@ -1,14 +1,14 @@
 // Sample-level damage profile management
 
-#include "dart/frame_selector_decl.hpp"
-#include "dart/codon_tables.hpp"
-#include "dart/hexamer_tables.hpp"
+#include "taph/frame_selector_decl.hpp"
+#include "taph/codon_tables.hpp"
+#include "taph/hexamer_tables.hpp"
 #include <algorithm>
 #include <cmath>
 #include <array>
 #include <limits>
 
-namespace dart {
+namespace taph {
 
 // Compute binomial log-likelihood for a single observation
 // k = successes (e.g., T count), n = total trials (e.g., T+C count), p = probability
@@ -467,6 +467,39 @@ void FrameSelector::update_sample_profile(
         }
     }
 
+    // Reference-free trinucleotide spectrum (64 contexts).
+    // Terminal zone = read positions 1..4 (both flanks available, inside damage zone).
+    // Interior zone = read positions 10..14 (null-distribution baseline).
+    // Mirror counters at 3' end use positions counted from the 3' terminus.
+    {
+        auto nuc_idx = [](char c) -> int {
+            switch (c) { case 'A': return 0; case 'C': return 1;
+                         case 'G': return 2; case 'T': return 3; }
+            return -1;
+        };
+        auto add_ctx = [&](int prev_pos, int mid_pos, int next_pos,
+                           std::array<uint64_t, SampleDamageProfile::N_TRINUC>& target) {
+            if (prev_pos < 0 || next_pos >= static_cast<int>(len)) return;
+            int i0 = nuc_idx(fast_upper(seq[prev_pos]));
+            int i1 = nuc_idx(fast_upper(seq[mid_pos]));
+            int i2 = nuc_idx(fast_upper(seq[next_pos]));
+            if (i0 < 0 || i1 < 0 || i2 < 0) return;
+            ++target[i0 * 16 + i1 * 4 + i2];
+        };
+        for (int p = 1; p <= 4 && p + 1 < static_cast<int>(len); ++p)
+            add_ctx(p - 1, p, p + 1, profile.tri_5prime_terminal);
+        for (int p = 10; p <= 14 && p + 1 < static_cast<int>(len); ++p)
+            add_ctx(p - 1, p, p + 1, profile.tri_5prime_interior);
+        for (int p = 1; p <= 4; ++p) {
+            int mid = static_cast<int>(len) - 1 - p;
+            add_ctx(mid - 1, mid, mid + 1, profile.tri_3prime_terminal);
+        }
+        for (int p = 10; p <= 14; ++p) {
+            int mid = static_cast<int>(len) - 1 - p;
+            add_ctx(mid - 1, mid, mid + 1, profile.tri_3prime_interior);
+        }
+    }
+
     // CpG-like context split — 5' terminal positions (all 15)
     // Also accumulate upstream-context-aware bins (AC, CC, GC, TC)
     for (int p = 0; p < SampleDamageProfile::N_POS && (p + 1) < static_cast<int>(len); ++p) {
@@ -744,15 +777,30 @@ void FrameSelector::update_sample_profile(
                 char base = fast_upper(seq[i]);
                 if (base == 'T') bin.t_counts[i]++;
                 else if (base == 'C') bin.c_counts[i]++;
+                else if (base == 'A') bin.a_counts[i]++;
+                else if (base == 'G') bin.g_counts[i]++;
             }
 
-            // Accumulate Channel A interior baseline (middle third)
+            // Mirror at 3' end: i=0 is last base, i=1 second-to-last, ...
+            // Used to recover C→T damage on 3' end for SS libraries and
+            // G→A damage on 3' end for DS libraries at joint-mixture time.
+            for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
+                char base = fast_upper(seq[len - 1 - i]);
+                if (base == 'T') bin.t_counts_3prime[i]++;
+                else if (base == 'C') bin.c_counts_3prime[i]++;
+                else if (base == 'A') bin.a_counts_3prime[i]++;
+                else if (base == 'G') bin.g_counts_3prime[i]++;
+            }
+
+            // Accumulate interior baselines for both the signal and control channels.
             size_t mid_start = len / 3;
             size_t mid_end = 2 * len / 3;
             for (size_t i = mid_start; i < mid_end; ++i) {
                 char base = fast_upper(seq[i]);
                 if (base == 'T') bin.t_interior++;
                 else if (base == 'C') bin.c_interior++;
+                else if (base == 'A') bin.a_interior++;
+                else if (base == 'G') bin.g_interior++;
             }
 
             // Accumulate Channel B counts (stop codons at terminal positions)
@@ -1503,7 +1551,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         // Use stricter threshold if deamination is present (correlated damage)
         // Deamination enriches ALL terminal damage, including G→T via adjacent effects
         float threshold = 0.02f;  // 2% excess required (was 0.5%)
-        if (profile.d_max_combined > 5.0f || profile.damage_validated) {
+        if (profile.d_max_combined > 0.05f || profile.damage_validated) {
             threshold = 0.05f;  // 5% excess if deamination present
         }
 
@@ -1629,7 +1677,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // For SS: s_gt > threshold (Chargaff contrast valid because no complementary strand).
             // For DS: B elevated above ca_baseline indicates library-level oxidation.
             const bool is_ss_lib = (profile.library_type ==
-                                    dart::SampleDamageProfile::LibraryType::SINGLE_STRANDED);
+                                    taph::SampleDamageProfile::LibraryType::SINGLE_STRANDED);
             float signal    = profile.s_gt;
             float threshold = is_ss_lib ? 0.004f : 0.006f;
 
@@ -2580,6 +2628,17 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 double t_terminal = static_cast<double>(b.t_counts[0]) /
                                    (b.t_counts[0] + b.c_counts[0] + 1);
 
+                // For SS libraries the damage signal also appears as C→T at the 3' end;
+                // take the max of the two terminal rates to avoid losing signal when the
+                // 3' end is dominant (as on typical ssDNA ancient libraries).
+                const bool is_ss_bin = (profile.forced_library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED) ||
+                                       (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED);
+                if (is_ss_bin) {
+                    double t_terminal_3 = static_cast<double>(b.t_counts_3prime[0]) /
+                                          (b.t_counts_3prime[0] + b.c_counts_3prime[0] + 1);
+                    t_terminal = std::max(t_terminal, t_terminal_3);
+                }
+
                 if (c_baseline > 0.1) {
                     b.d_max = std::clamp(static_cast<float>((t_terminal - t_baseline) / c_baseline),
                                          0.0f, 1.0f);
@@ -2702,23 +2761,35 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
                 }
 
-                double total_c_sites = static_cast<double>(weight_sum);
+                // For SS libraries, damage appears as C→T at both ends; feed the
+                // combined terminal counts into the GC mixture fit so that bins
+                // with 3'-dominant damage (the typical ssDNA case) contribute.
+                const bool is_ss_super = (profile.forced_library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED) ||
+                                         (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED);
                 std::array<SuperRead, N_GC_BINS> super_reads;
                 for (int bin = 0; bin < N_GC_BINS; ++bin) {
                     const auto& b = profile.gc_bins[bin];
                     super_reads[bin].gc_bin = bin;
                     super_reads[bin].c_sites = static_cast<double>(b.c_sites);
-
-                    for (int p = 0; p < N_POSITIONS; ++p) {
-                        super_reads[bin].k_tc[p] = static_cast<double>(b.t_counts[p]);
-                        super_reads[bin].n_tc[p] = static_cast<double>(b.t_counts[p] + b.c_counts[p]);
+                    if (is_ss_super) {
+                        super_reads[bin].c_sites +=
+                            static_cast<double>(b.c_counts_3prime[0] + b.c_counts_3prime[1] + b.c_counts_3prime[2]);
                     }
 
-                    // A/(A+G) not tracked per bin; approximate from global proportionally
-                    double bin_fraction = b.c_sites > 0 ? static_cast<double>(b.c_sites) / total_c_sites : 0.0;
                     for (int p = 0; p < N_POSITIONS; ++p) {
-                        super_reads[bin].k_ag[p] = profile.a_freq_5prime[p] * bin_fraction * base_ag_total;
-                        super_reads[bin].n_ag[p] = (profile.a_freq_5prime[p] + profile.g_freq_5prime[p]) * bin_fraction * base_ag_total;
+                        double k = static_cast<double>(b.t_counts[p]);
+                        double n = static_cast<double>(b.t_counts[p] + b.c_counts[p]);
+                        if (is_ss_super) {
+                            k += static_cast<double>(b.t_counts_3prime[p]);
+                            n += static_cast<double>(b.t_counts_3prime[p] + b.c_counts_3prime[p]);
+                        }
+                        super_reads[bin].k_tc[p] = k;
+                        super_reads[bin].n_tc[p] = n;
+                    }
+
+                    for (int p = 0; p < N_POSITIONS; ++p) {
+                        super_reads[bin].k_ag[p] = static_cast<double>(b.a_counts[p]);
+                        super_reads[bin].n_ag[p] = static_cast<double>(b.a_counts[p] + b.g_counts[p]);
                     }
 
                     for (int p = 0; p < N_POSITIONS; ++p) {
@@ -2731,18 +2802,20 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                     super_reads[bin].k_stop_int = static_cast<double>(b.stop_interior);
                     super_reads[bin].n_stop_int = static_cast<double>(b.stop_interior + b.pre_interior);
 
-                    super_reads[bin].k_ag_int = profile.baseline_a_freq * bin_fraction * base_ag_total;
-                    super_reads[bin].n_ag_int = (profile.baseline_a_freq + profile.baseline_g_freq) * bin_fraction * base_ag_total;
+                    super_reads[bin].k_ag_int = static_cast<double>(b.a_interior);
+                    super_reads[bin].n_ag_int = static_cast<double>(b.a_interior + b.g_interior);
                 }
 
                 auto mixture_result = MixtureDamageModel::fit(super_reads);
                 profile.mixture_K = mixture_result.K;
+                profile.mixture_n_components = mixture_result.n_components;
                 profile.mixture_d_population = mixture_result.d_population;
                 profile.mixture_d_ancient = mixture_result.d_ancient;
                 profile.mixture_d_reference = mixture_result.d_reference;
                 profile.mixture_pi_ancient = mixture_result.pi_ancient;
                 profile.mixture_bic = mixture_result.bic;
                 profile.mixture_converged = mixture_result.converged;
+                profile.mixture_identifiable = mixture_result.identifiable;
 
             }
         }
@@ -2801,12 +2874,21 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 profile.d_max_combined = std::max(raw_d_max_5prime, raw_d_max_3prime);
                 profile.d_max_source = SampleDamageProfile::DmaxSource::MAX_SS_ASYMMETRY;
             } else {
-                // ds libraries: do not fall back to Channel A; that reintroduces the
-                // compositional false positives the joint model suppresses.
-                profile.d_max_5prime = 0.0f;
-                profile.d_max_3prime = 0.0f;
-                profile.d_max_combined = 0.0f;
-                profile.d_max_source = SampleDamageProfile::DmaxSource::NONE;
+                // ds libraries: avoid Channel A's compositional false positives.
+                // If the GC-stratified mixture is identifiable and finds a real
+                // ancient subpopulation, prefer its estimate over zeroing.
+                if (profile.mixture_converged && profile.mixture_identifiable &&
+                    profile.mixture_d_ancient > 0.02f) {
+                    profile.d_max_5prime = raw_d_max_5prime;
+                    profile.d_max_3prime = raw_d_max_3prime;
+                    profile.d_max_combined = profile.mixture_d_population;
+                    profile.d_max_source = SampleDamageProfile::DmaxSource::AVERAGE;
+                } else {
+                    profile.d_max_5prime = 0.0f;
+                    profile.d_max_3prime = 0.0f;
+                    profile.d_max_combined = 0.0f;
+                    profile.d_max_source = SampleDamageProfile::DmaxSource::NONE;
+                }
             }
         } else if (profile.channel_b_quantifiable) {
             profile.d_max_5prime = raw_d_max_5prime;
@@ -2965,6 +3047,107 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             }
         }
     }
+
+    // --- Preservation index (evidence × reliability) ---
+    {
+        static constexpr float EPS = 1e-6f;
+        auto sig = [](float x) { return 1.0f / (1.0f + std::exp(-x)); };
+        bool is_ss = (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED);
+
+        // f5: 5' terminal C→T; half-point at 5% damage (Briggs 2007)
+        profile.preservation_f5 = sig((profile.d_max_5prime - 0.05f) / 0.04f);
+
+        // f3: 3' terminal signal; half-point at 5% damage.
+        // For ds libraries where d_max_3prime=0 despite real 5' damage, the terminal
+        // base is often clipped by the same trimmer artifact that shifts the 5' peak to
+        // pos1 — G→A is inward-displaced and absorbed into background. Impute f3 from
+        // the 5' signal: ds deamination is symmetric, so f5 is the calibrated estimate.
+        bool ds_3prime_censored = !is_ss
+            && profile.d_max_5prime > 0.05f
+            && profile.d_max_3prime < 0.03f;
+        profile.preservation_f3 = ds_3prime_censored
+            ? profile.preservation_f5
+            : sig((profile.d_max_3prime - 0.05f) / 0.04f);
+
+        // f_coh: mixture coherence — ancient subpop identifiable with real damage
+        {
+            float mix_signal = 0.0f;
+            float trust = (profile.mixture_identifiable && profile.mixture_converged) ? 1.0f
+                        : (profile.mixture_identifiable || profile.mixture_converged)  ? 0.5f
+                        : 0.1f;
+            mix_signal = trust * profile.mixture_pi_ancient
+                       * sig((profile.mixture_d_ancient - 0.05f) / 0.03f);
+            // ds: penalise end-asymmetry, but use d_max_combined as floor so that
+            // samples where bulk estimator zeroes d3 (noise/rescue limitation) are not
+            // wrongly collapsed to near-zero symmetry.
+            float d5_sym = std::max(profile.d_max_5prime, profile.d_max_combined);
+            // When 3' is censored (trimmer artifact), treat symmetry as perfect —
+            // the signal is present but displaced inward, not absent.
+            float d3_sym = ds_3prime_censored ? profile.d_max_5prime
+                         : std::max(profile.d_max_3prime, profile.d_max_combined);
+            float sym = (is_ss || ds_3prime_censored) ? 1.0f
+                : std::exp(-std::abs(std::log((d5_sym + EPS)
+                                             / (d3_sym + EPS))) / 0.7f);
+            profile.preservation_f_coh = std::sqrt(std::max(mix_signal, EPS) * std::max(sym, EPS));
+        }
+
+        // f_cpg: CpG age-bias; log2(CpG_dmax/nonCpG_dmax) > 1 = methyl-C deamination enriched.
+        // Near-saturation (d_max_combined > 0.20) both contexts saturate and the ratio collapses
+        // toward zero — signal is uninformative, fall back to neutral prior.
+        if (!std::isnan(profile.log2_cpg_ratio) && profile.dmax_ct5_noncpg_like > 0.01f
+                && profile.d_max_combined < 0.20f) {
+            // Floor at uninformative prior: absent/inverted CpG signal is not evidence
+            // against antiquity (ss libraries, saturated damage, CpG-depleted taxa).
+            profile.preservation_f_cpg = std::max(sig((profile.log2_cpg_ratio - 1.0f) / 0.6f), 0.3f);
+        } else {
+            profile.preservation_f_cpg = 0.3f;  // uninformative prior
+        }
+
+        // Weighted geometric mean of 4 factors
+        float w5, w3, w_coh, w_cpg;
+        if (is_ss) { w5 = 0.35f; w3 = 0.20f; w_coh = 0.28f; w_cpg = 0.17f; }
+        else        { w5 = 0.27f; w3 = 0.27f; w_coh = 0.28f; w_cpg = 0.18f; }
+
+        profile.preservation_evidence = std::exp(
+            w5   * std::log(std::max(profile.preservation_f5,    EPS)) +
+            w3   * std::log(std::max(profile.preservation_f3,    EPS)) +
+            w_coh* std::log(std::max(profile.preservation_f_coh, EPS)) +
+            w_cpg* std::log(std::max(profile.preservation_f_cpg, EPS)));
+
+        // Reliability gates (continuous — no hard cliffs)
+        float g_N   = sig((std::log10(static_cast<float>(profile.n_reads) + 1.0f) - 2.7f) / 0.35f);
+        // When pi_ancient > 0.90 and EM converged, the mixture is essentially pure-ancient:
+        // identifiability criterion doesn't apply (no modern class to separate from).
+        bool effectively_pure_ancient = profile.mixture_converged && profile.mixture_pi_ancient > 0.90f;
+        float g_fit = (effectively_pure_ancient ||
+                       (profile.mixture_identifiable && profile.mixture_converged)) ? 1.0f
+                    : (profile.mixture_identifiable || profile.mixture_converged)    ? 0.5f
+                    : 0.15f;
+        float g_ox  = 1.0f;
+        if (profile.ox_is_artifact)
+            g_ox = (profile.ox_d_max >= profile.d_max_combined) ? 0.1f : 0.5f;
+
+        profile.preservation_reliability = g_N * g_fit * g_ox;
+        profile.preservation_score = std::clamp(
+            profile.preservation_evidence * profile.preservation_reliability, 0.0f, 1.0f);
+
+        // Categorical label
+        using PL = SampleDamageProfile::PreservationLabel;
+        if (g_N < 0.3f)
+            profile.preservation_label = PL::INSUFFICIENT;
+        else if (profile.ox_is_artifact)
+            profile.preservation_label = PL::ARTIFACT_SUSPECTED;
+        else if (profile.preservation_score < 0.15f)
+            profile.preservation_label = PL::MODERN_LIKE;
+        else if (profile.preservation_score < 0.35f)
+            profile.preservation_label = PL::WEAK;
+        else if (profile.preservation_score < 0.60f)
+            profile.preservation_label = PL::MODERATE;
+        else if (profile.preservation_score < 0.80f)
+            profile.preservation_label = PL::STRONG;
+        else
+            profile.preservation_label = PL::EXCEPTIONAL;
+    }
 }
 
 void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const SampleDamageProfile& src) {
@@ -3010,6 +3193,12 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
     for (int i = 0; i < SampleDamageProfile::N_OXOG16; ++i) {
         dst.oxog16_t[i] += src.oxog16_t[i];
         dst.oxog16_a_rc[i] += src.oxog16_a_rc[i];
+    }
+    for (int i = 0; i < SampleDamageProfile::N_TRINUC; ++i) {
+        dst.tri_5prime_terminal[i] += src.tri_5prime_terminal[i];
+        dst.tri_5prime_interior[i] += src.tri_5prime_interior[i];
+        dst.tri_3prime_terminal[i] += src.tri_3prime_terminal[i];
+        dst.tri_3prime_interior[i] += src.tri_3prime_interior[i];
     }
     // Merge upstream-context-aware accumulators
     for (int uctx = 0; uctx < SampleDamageProfile::N_UPSTREAM_CTX; ++uctx) {
@@ -3093,11 +3282,19 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         for (int p = 0; p < 15; ++p) {
             db.t_counts[p] += sb.t_counts[p];
             db.c_counts[p] += sb.c_counts[p];
+            db.a_counts[p] += sb.a_counts[p];
+            db.g_counts[p] += sb.g_counts[p];
+            db.t_counts_3prime[p] += sb.t_counts_3prime[p];
+            db.c_counts_3prime[p] += sb.c_counts_3prime[p];
+            db.a_counts_3prime[p] += sb.a_counts_3prime[p];
+            db.g_counts_3prime[p] += sb.g_counts_3prime[p];
             db.stop_counts[p] += sb.stop_counts[p];
             db.pre_counts[p] += sb.pre_counts[p];
         }
         db.t_interior += sb.t_interior;
         db.c_interior += sb.c_interior;
+        db.a_interior += sb.a_interior;
+        db.g_interior += sb.g_interior;
         db.stop_interior += sb.stop_interior;
         db.pre_interior += sb.pre_interior;
         db.n_reads += sb.n_reads;
@@ -3190,8 +3387,12 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     for (int i = 0; i < 15; ++i) {
         profile.t_freq_5prime[i] = 0.0;
         profile.c_freq_5prime[i] = 0.0;
+        profile.a_freq_5prime[i] = 0.0;
+        profile.g_freq_5prime[i] = 0.0;
         profile.a_freq_3prime[i] = 0.0;
         profile.g_freq_3prime[i] = 0.0;
+        profile.t_freq_3prime[i] = 0.0;
+        profile.c_freq_3prime[i] = 0.0;
         profile.damage_rate_5prime[i] = 0.0f;
         profile.damage_rate_3prime[i] = 0.0f;
         profile.tc_total_5prime[i] = 0.0;
@@ -3262,6 +3463,10 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.oxog16_a_rc.fill(0.0f);
     profile.s_oxog_16ctx.fill(0.0f);
     profile.cov_oxog_16ctx.fill(0.0f);
+    profile.tri_5prime_terminal.fill(0);
+    profile.tri_5prime_interior.fill(0);
+    profile.tri_3prime_terminal.fill(0);
+    profile.tri_3prime_interior.fill(0);
 
     profile.max_damage_5prime = 0.0f;
     profile.max_damage_3prime = 0.0f;
@@ -3315,12 +3520,28 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.joint_model_valid = false;
 
     profile.mixture_K = 0;
+    profile.mixture_n_components = 0;
     profile.mixture_d_population = 0.0f;
     profile.mixture_d_ancient = 0.0f;
     profile.mixture_d_reference = 0.0f;
     profile.mixture_pi_ancient = 0.0f;
     profile.mixture_bic = 0.0f;
     profile.mixture_converged = false;
+    profile.mixture_identifiable = false;
+    profile.gc_histogram.fill(0);
+    profile.adaptive_gc_threshold = 0.0f;
+    profile.gc_threshold_computed = false;
+    profile.gc_bins = {};
+    profile.gc_stratified_d_max_weighted = 0.0f;
+    profile.gc_stratified_d_max_peak = 0.0f;
+    profile.gc_peak_bin = -1;
+    profile.gc_stratified_valid = false;
+    profile.pi_damaged = 0.0f;
+    profile.d_ancient = 0.0f;
+    profile.d_population = 0.0f;
+    profile.n_damaged_bins = 0;
+    profile.n_reads_gc_filtered = 0;
+    profile.n_reads_sampled = 0;
 
     profile.fit_offset_5prime = 1;
     profile.fit_offset_3prime = 1;
@@ -3341,4 +3562,4 @@ SampleDamageProfile FrameSelector::compute_sample_profile(
     return profile;
 }
 
-} // namespace dart
+} // namespace taph

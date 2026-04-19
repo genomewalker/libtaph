@@ -1,8 +1,8 @@
-site_name: libdart-damage
+site_name: libtaph
 site_description: Reference-free ancient DNA damage estimation and library-type classification
-site_url: https://genomewalker.github.io/libdart-damage
-repo_url: https://github.com/genomewalker/libdart-damage
-repo_name: genomewalker/libdart-damage
+site_url: https://genomewalker.github.io/libtaph
+repo_url: https://github.com/genomewalker/libtaph
+repo_name: genomewalker/libtaph
 
 theme:
   name: material

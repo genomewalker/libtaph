@@ -44,7 +44,7 @@ void dart_profile_destroy(dart_profile_t *p);
 /**
  * Feed one raw DNA read (no quality scores needed).
  * Not thread-safe: use one handle per thread and merge with
- * dart::FrameSelector::merge_sample_profiles() before finalizing.
+ * taph::FrameSelector::merge_sample_profiles() before finalizing.
  * Calls after dart_profile_finalize() are silently ignored.
  */
 void dart_profile_add_read(dart_profile_t *p, const char *seq, size_t len);

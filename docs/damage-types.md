@@ -1,6 +1,6 @@
 # Damage types and channels
 
-libdart-damage scans raw FASTQ reads for six biochemical damage channels and writes a
+libtaph scans raw FASTQ reads for six biochemical damage channels and writes a
 structured JSON report. Damage values are fractions in [0, 1]; multiply by 100 for
 percentages.
 

@@ -7,7 +7,7 @@
 
 #include <cstdint>
 
-namespace dart {
+namespace taph {
 
 // Note: Use encode_hexamer() from hexamer_tables.hpp
 
@@ -526,4 +526,4 @@ constexpr float PROTOZOA_HEXAMER_FREQ[4096] = {
     2.133018e-05f, 1.844891e-04f, 2.009050e-04f, 2.628697e-04f, 6.663879e-04f, 3.841954e-04f, 4.343632e-04f, 6.243497e-04f
 };
 
-} // namespace dart
+} // namespace taph

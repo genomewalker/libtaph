@@ -6,7 +6,7 @@
 #include <vector>
 #include <limits>
 
-namespace dart {
+namespace taph {
 
 static constexpr int N_GC_BINS = 10;
 static constexpr int MAX_K = 4;
@@ -14,6 +14,7 @@ static constexpr int N_POSITIONS = 15;
 
 struct MixtureDamageResult {
     int K = 0;                              // Number of classes
+    int n_components = 0;                   // Number of classes selected by BIC
     std::array<float, MAX_K> pi = {};       // Mixing proportions (by C-sites)
     std::array<float, MAX_K> delta_max = {};// Damage rates per class
     std::array<float, MAX_K> mu_gc = {};    // Mean GC per class (for interpretation)
@@ -32,6 +33,7 @@ struct MixtureDamageResult {
     float bic = 0.0f;
     int n_iterations = 0;
     bool converged = false;
+    bool identifiable = false;
 };
 
 struct SuperRead {
@@ -66,6 +68,8 @@ public:
     static constexpr int N_RESTARTS = 5;
     static constexpr double PI_MIN = 1e-6;
     static constexpr float BASELINE_SHRINKAGE_ALPHA = 1000.0f;
+    static constexpr float IDENTIFIABLE_MIN_PI = 0.05f;
+    static constexpr float IDENTIFIABLE_MIN_DELTA_SEPARATION = 0.05f;
 
     static MixtureDamageResult fit(const std::array<SuperRead, N_GC_BINS>& super_reads);
 
@@ -145,6 +149,7 @@ inline MixtureDamageResult MixtureDamageModel::fit_k(
 {
     MixtureDamageResult result;
     result.K = K;
+    result.n_components = K;
 
     // Compute total C-sites and global baselines
     double total_c_sites = 0.0;
@@ -403,6 +408,12 @@ inline MixtureDamageResult MixtureDamageModel::fit_k(
     }
     result.d_reference = ref_den > 0.01f ? ref_num / ref_den : 0.0f;
 
+    // Standard errors are not tracked here, so identifiability falls back to a
+    // bounded mixing-fraction check after EM convergence.
+    result.identifiable = result.converged &&
+                          result.pi_ancient > 0.02f &&
+                          result.pi_ancient < 0.98f;
+
     // Compute BIC
     // Parameters: (K-1) mixing + K delta_max + K*9 GC categorical + 2 shared = 11K + 1
     int n_params = 11 * K + 1;
@@ -445,4 +456,4 @@ inline MixtureDamageResult MixtureDamageModel::fit(
     return best_result;
 }
 
-} // namespace dart
+} // namespace taph
