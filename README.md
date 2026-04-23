@@ -124,6 +124,34 @@ ancient 8-oxoG shows broad context enrichment, while modern oxidation from
 sample preparation tends to be context-biased. Reported in the JSON block
 `complement_asymmetry.s_oxog_16ctx`.
 
+### Context-aware 5' C→T (upstream base)
+
+The 5' C→T channel is accumulated separately for each of the four upstream
+bases (AC, CC, GC, TC), and a fixed-lambda binomial likelihood is optimised
+per context by golden-section search with explicit coverage gates (interior
+`>= 500`, effective interior `>= 100`, per-position `>= 50`, at least three
+usable positions). Fits that saturate (`d >= 0.98`) are reported as invalid. Two contrasts summarise the pattern: `dipyr_contrast`
+(`½(d_CC + d_TC) − ½(d_AC + d_GC)`) is positive for dipyrimidine-biased
+UV-like damage; `cpg_contrast` (`d_GC − ⅓(d_AC + d_CC + d_TC)`) is positive
+for methylation-driven CpG-dominant deamination. A chi-squared test over the
+four fitted amplitudes (df = 3) sets `context_heterogeneity_detected` when
+`chi2 > 7.81` (p < 0.05). Fields live on `SampleDamageProfile`
+(`dmax_ct5_by_upstream`, `dipyr_contrast`, `cpg_contrast`,
+`context_heterogeneity_chi2`, `context_heterogeneity_p`).
+
+### Length-stratified profile
+
+`taph::LengthBinStats` holds up to four independent `SampleDamageProfile`
+instances routed by read length, with the same accumulate / merge / finalize
+contract as the unstratified profile. Bin edges can be supplied explicitly or
+derived from the data: `detect_log_length_gmm_edges` fits a 1D Gaussian
+mixture on the log-length histogram and selects the number of components by
+BIC, with `detect_quantile_length_edges` as a deterministic fallback. On the
+finalized `LengthBinStats`, `fit_length_gc_joint_mixture` runs a shared
+2-Gaussian mixture over the length × GC cell grid and returns a single
+`d_ancient` plus per-cell posterior ancient weights, giving a per-length-bin
+ancient fraction inside each GC column rather than a single global number.
+
 ## What it classifies
 
 The library preparation protocol determines which damage channels are active,

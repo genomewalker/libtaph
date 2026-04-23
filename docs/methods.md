@@ -283,6 +283,99 @@ This final combination stage is where several earlier diagnostics matter operati
 
 ---
 
+## Hexamer signals and domain classifier
+
+Ancient-DNA libraries rarely fail in a uniform way. Adapter stubs, ligation artifacts, and residual protocol sequence all manifest as over-represented 6-mers at the read terminus, often with upstream bases that damage alone would not explain. libtaph accumulates a full 4096-bin hexamer histogram at both the 5' terminus (`hexamer_count_5prime[4096]`, hexamers at read positions 0-5) and the interior (`hexamer_count_interior[4096]`, middle third of the read), plus running totals `n_hexamers_5prime` and `n_hexamers_interior`. These counts drive three independent analyses.
+
+**Terminal-vs-interior enrichment.** `compute_hex_enriched_5prime` reports every hexamer whose terminal frequency exceeds its interior frequency by `log2fc > 1.5` (3x enrichment) with a minimum of 20 observations on each side. The function also flags whether the hexamer starts with T, which is the expected leading base for a C-to-T deamination product. An enriched terminal hexamer whose first base is not T is suspicious because genuine deamination cannot produce arbitrary 5' base changes.
+
+**Adapter stub detection.** `detect_adapter_stubs` keeps up to five enriched 5' stubs (`log2fc > 3.0`, first base != T) and up to five enriched 3' stubs (`log2fc > 3.0`, last base != A, computed from the pre-scan 3' terminal hexamer histogram passed in as `hex3_terminal[4096]` with total `n_hex3`). 3' detection is gated on 5' stubs being present first, reflecting the biology: if the 5' end is clean, a smaller 3' enrichment is unlikely to be a real adapter. The boolean `flag_hex_artifact` fires when the single top-enriched 5' hexamer has `log2fc > 1.5` and a first base other than T. Genuine deamination cannot lead with any base except T, so a non-T top hexamer above that threshold is evidence of a composition or protocol artifact rather than damage.
+
+**Hexamer distribution statistics.** `compute_hex_stats` summarises the terminal vs interior 6-mer distributions with Shannon entropy of each, Jensen-Shannon divergence (`jsd`), and a multinomial G-test on the two empirical distributions. The statistic is reported alongside a z-score against a chi-squared null and a p-value (`shift_p`). Large `jsd` values mean the terminal composition is not merely noisy: it is drawn from a different distribution than the interior, which is the expected fingerprint of a protocol-driven terminal bias.
+
+**Hexamer-corrected 5' d_max.** In DS libraries where an adapter artifact suppresses the position-0 C-to-T rate, the WLS exponential fit is shifted inward: `fit_offset_5prime >= 1` indicates the fit started at position 1 or later. When `position_0_artifact_5prime && flag_hex_artifact && !adapter_clipped && lambda_5prime > 0`, the preservation summary extrapolates the decay back to position 0 via `d5_corr = d5_raw * exp(lambda_5prime * fit_offset_5prime)`, capped at 0.50 so a fit on a small offset cannot blow up. The correction is recorded in `d5_hexamer_corrected` and `d5_was_corrected` for auditability; the raw value is never overwritten.
+
+**Domain-aware hexamer scoring.** libtaph ships eight pre-computed 4096-bin hexamer frequency tables covering GTDB (bacteria + archaea), fungi, protozoa, invertebrate, plant, vertebrate mammalian, vertebrate other, and viral sequences. `score_all_domains(seq, frame)` sums `log2(freq[h] * 4096 + epsilon)` across every in-frame hexamer in a read for each domain, then normalises to a posterior with temperature-scaled softmax (`exp(0.1 * (score - max))`). The result is an eight-element `MultiDomainResult` with per-domain probabilities, a `best_domain`, and a `best_score`. Two mechanisms consume that posterior:
+
+- `set_active_domain(d)` sets a global selected domain (read via `get_active_domain()`). It controls which table `get_hexamer_freq(code)` and `get_hexamer_score(seq)` fall through to when the caller does not specify a domain. The active domain is not thread-local: set it once for the pass.
+- `set_ensemble_mode(true)` and `set_domain_probs(probs)` switch hexamer lookups through `get_ensemble_hexamer_freq(code)`, which returns the posterior-weighted average of the eight tables rather than committing to one. Ensemble state and the posterior (`current_domain_probs`) are thread-local, so per-thread pipelines can carry their own blend.
+
+The domain classifier is not a taxonomic identifier in the metagenomic sense. It provides a calibrated hexamer background for Channel B codon scanning and library-composition diagnostics that is better than a single universal model when samples are known to be non-bacterial.
+
+---
+
+## Handling sparse and noisy data
+
+Every stage of the pipeline makes explicit decisions about what to do when evidence is thin, because collapsing sparse counts into a point estimate silently fabricates structure.
+
+**Coverage thresholds.** Per-position baseline and shift estimators (`src/damage_estimation.cpp`) require `total[pos] >= MIN_COVERAGE = 100` before using a position. Positions below the threshold are skipped, not imputed. `compute_damage_mask` uses the same threshold (`min_cov = 100`) by default: positions that do not clear `min_cov` are never flagged as masked regardless of apparent rate. At the sample level, `is_valid()` returns `true` only when `n_reads >= 1000`; consumers that want a conservative gate check `is_detection_unreliable()` which also folds in the inversion and composition-bias flags.
+
+**Shrinkage baselines.** In the GC-stratified fits, per-bin baselines are shrunk toward the global baseline before any likelihood is evaluated. Low-count bins therefore pull toward the overall sample rather than producing a noise-driven `d_max`, while high-count bins dominate their own posterior. The GC categorical component of `MixtureDamageModel` applies Dirichlet smoothing with `alpha = 1` (`p_gc[k][b] = w[b][k] * c_sites + 1`), which prevents a single unrepresented GC bin from zeroing out a class's likelihood.
+
+**Per-cell invalidity markers.** `fit_length_gc_joint_mixture` marks cells with insufficient C-sites (`c_sites < 1`) or that were never valid after `finalize_all` with `cell_w_ancient[b][g] = -1.0`. Downstream code distinguishes "low ancient fraction" (value near 0) from "no evidence" (value -1), so consumers do not silently treat missing cells as uncontaminated.
+
+**Uninformative priors as floors.** Several late-stage signals fall back to explicit priors rather than aggressive extrapolation. Preservation-layer `preservation_f_cpg` defaults to `0.3` (uninformative) when the CpG signal is absent or inverted, which prevents a dropped signal from being interpreted as evidence of no CpG methylation. The sample-level `preservation_f_cpg` fallback fires for `total < 1000`, returning `0.40`. Joint damage model priors follow the same philosophy: when the posterior collapses to the no-damage model, `p_damage = BF / (1 + BF)` under a `0.5` prior, so the classifier reports "not detected" rather than "no damage" when the data are uninformative.
+
+**Validation flags and rescue rules.** The cascade in `finalize_sample_profile` is explicitly layered to avoid false positives from composition or artifacts while still rescuing partially valid signals:
+
+- `composition_bias_5prime` / `composition_bias_3prime` fire when the control channel rises in lockstep with the damage channel, meaning the apparent excess is compositional. These flags feed `is_detection_unreliable()`.
+- `position_0_artifact_5prime` / `position_0_artifact_3prime` flag a depleted position 0 with downstream enrichment, which is the signature of an adapter / ligation artifact rather than a terminal decay. When this fires together with `flag_hex_artifact` in a DS library, the hexamer-corrected `d5` is computed as described above.
+- `inverted_pattern_5prime` / `inverted_pattern_3prime` flag terminal rates below the interior; the inversion fallback in the library classifier is suppressed when Channel B has validated damage, because the stop-codon signal is treated as ground truth when available.
+- `damage_artifact = true` forces `d_max_combined = 0.0` so downstream consumers never apply an artifact-driven mask.
+
+**Numerical guards.** Inputs near the probability boundary are clamped before use (`std::clamp(d, 1e-3, 1.0 - 1e-3)` in the per-cell posterior for the length x GC fit; `std::max(S_FLOOR, sigma_binom)` with `S_FLOOR = 0.02` for per-cell variances; `std::max(p, 1e-300)` before `-log10(p)`). Log-sum-exp is computed with the standard max-subtract trick so posterior weights remain finite when either component has very low likelihood.
+
+The combined effect is that under-powered samples do not produce confident-looking point estimates: they produce flagged estimates, quantized p-values, or explicit fallbacks. Every path that ends with a number records why that number is believed, and the preservation summary distinguishes evidence strength (`_evidence`) from the estimate itself (`_eff`).
+
+---
+
+## Length-stratified estimation
+
+Aggregating every read into one profile treats short, damage-rich molecules and longer, less-damaged molecules as a single population. Ancient samples are usually mixtures along the length axis, so libtaph can stratify the profile by read length.
+
+`taph::LengthBinStats` holds up to four independent `SampleDamageProfile` instances plus an `edges` vector that defines the length bins. A read of length `L` is routed to the bin whose half-open interval contains `L`. The same accumulate / merge / finalize contract as the unstratified profile applies per bin:
+
+```cpp
+taph::LengthBinStats stats;
+stats.configure({35, 60, 90});          // bins: [min,35), [35,60), [60,90), [90,max]
+for (auto& read : reads)
+    stats.update(read.seq, read.length);
+stats.finalize_all();                    // finalizes every bin's SampleDamageProfile
+```
+
+Bin edges can be supplied explicitly or derived from the empirical length distribution. `taph::detect_log_length_gmm_edges` fits a 1D Gaussian mixture on a log-length histogram, selects the number of components by BIC up to `max_components`, and returns the density valleys between adjacent component means as split points. Separation filters are applied before the valleys are computed: the histogram must contain at least 256 counts, components with weight below `3%` are dropped, and adjacent means within `0.25` in log space (roughly 30% length change) are merged. If fewer than two components survive, `n_components` is reported as 1 and no edges are returned. `taph::detect_quantile_length_edges` is a separate helper that splits the histogram into equal-count quantile bins; libtaph does not fall through to it automatically, the caller chooses when to use it.
+
+On top of a finalized `LengthBinStats`, `fit_length_gc_joint_mixture` runs a shared-component 2-Gaussian mixture over the flat length × GC cell grid. The damaged component has a single `d_ancient` shared across all cells; the undamaged component is fixed at `μ=0`. Each cell contributes its `d_max` and `c_sites`. The fit returns:
+
+- `d_ancient`, `pi_ancient`: shared mean and mixing weight of the ancient component.
+- `d_population`: `c_sites`-weighted mean `d_max` across all cells.
+- `cell_w_ancient[b][g]`: posterior `P(damaged | cell)` for each (length bin, GC bin). Cells with insufficient C-sites are marked `-1.0`.
+- `converged`, `separated`: numerical state of the EM fit.
+
+The design reuses `DamageMixtureModel`'s fixed priors (undamaged width `τ₀ = 0.01`, damaged width `τ₁ = 0.10`, minimum per-cell sigma `0.02`) so length × GC cells live in the same calibration as the GC-only fit. Per-cell posteriors give downstream code a per-length-bin ancient fraction rather than a single global number, which matters when the short end of the distribution is almost entirely ancient and the long end is dominated by a modern contaminant.
+
+---
+
+## Context-aware terminal damage
+
+C→T rates at the 5' terminus average over four upstream bases (A, C, G, T). Different biological processes imprint different context distributions, and a single `d_max` erases that structure. libtaph accumulates the 5' C→T channel separately for each upstream base and exposes fitted amplitudes per context.
+
+The counts live on `SampleDamageProfile`:
+
+- `ct5_t_by_upstream[ctx][pos]`, `ct5_total_by_upstream[ctx][pos]` for `ctx ∈ {CTX_AC, CTX_CC, CTX_GC, CTX_TC}` and `pos ∈ [0, N_POS)`.
+- `ct5_t_interior_by_upstream[ctx]`, `ct5_total_interior_by_upstream[ctx]` as per-context interior baselines.
+
+Finalization fits a fixed-lambda binomial likelihood per context via golden-section search on `d` (`fit_ct5_ctx_amplitude`), using the interior T/(T+C) as the baseline and clamping `mu` to `[1e-6, 1-1e-6]`. Coverage gates are explicit: the interior must have `total >= 500` with effective coverage `>= 100`, each fit position must have `>= 50` observations, at least three positions must clear that gate, and the cumulative terminal effective coverage must be `>= 50`. A fit that lands at `d >= 0.98` is reported as invalid (the optimizer hit the upper wall and the signal is indistinguishable from saturation). Results are stored as `dmax_ct5_by_upstream[ctx]`, `baseline_ct5_by_upstream[ctx]`, and the terminal / interior coverage arrays. Two derived contrasts summarize the pattern:
+
+- `dipyr_contrast = ½(d_CC + d_TC) − ½(d_AC + d_GC)`: positive when dipyrimidine contexts (CC, TC) carry more damage than non-dipyrimidine, as expected for UV-driven 6-4 photoproduct / CPD-linked deamination.
+- `cpg_contrast = d_GC − ⅓(d_AC + d_CC + d_TC)`: positive when 5-methylcytosine at CpG sites dominates, as expected for methylation-driven hydrolytic deamination.
+
+A coverage-weighted pseudo-chi-squared statistic on the four fitted `dmax` values tests the null that the context amplitudes are equal. With three degrees of freedom, `context_heterogeneity_chi2 > 7.81` sets `context_heterogeneity_detected = true`. The p-value is read off a coarse critical-value ladder (`0.001, 0.01, 0.05, 0.1, 0.5, 0.9`) rather than a full chi-squared CDF, since the statistic is a pseudo-chi-squared and a precise p-value would imply more calibration than the construction warrants.
+
+In practice the contrast pair separates three regimes we observe in real samples: ancient DNA with a flat spectrum across contexts (cytosine hydrolysis everywhere), methylation-driven deamination with a CpG-dominant signal (`cpg_contrast > 0`, other contexts near baseline), and UV-damaged material where dipyrimidine contexts lead (`dipyr_contrast > 0`).
+
+---
+
 ## References
 
 <a id="ref-briggs2007"></a>**Briggs AW, Stenzel U, Johnson PLF, Green RE, Kelso J, Prüfer K, Meyer M, Krause J, Ronan MT, Lachmann M, Pääbo S** (2007) Patterns of damage in genomic DNA sequences from a Neandertal. *Proc Natl Acad Sci USA* **104**:14616–14621. [doi:10.1073/pnas.0704665104](https://doi.org/10.1073/pnas.0704665104)

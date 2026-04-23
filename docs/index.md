@@ -46,6 +46,8 @@ std::cout << "Library:    " << profile.library_type_str() << "\n";
 | Library-type detection | BIC classifier: DS / SS / UNKNOWN |
 | Multi-channel validation | 6 damage channels (A, B, B₃′, C, D, E) cross-validate signal |
 | GC-stratified estimation | Separates ancient from modern DNA in mixed samples |
+| Length-stratified estimation | Up to four length bins with BIC-selected edges; shared-component length × GC joint mixture |
+| Context-aware C→T | Per-upstream-base amplitudes with dipyrimidine / CpG contrasts and chi-squared heterogeneity test |
 | Streaming API | Incremental updates for memory-efficient processing |
 
 ---
