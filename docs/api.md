@@ -1,6 +1,6 @@
 # API Reference
 
-All public symbols live in the `taph` namespace. Include `<dart/frame_selector_decl.hpp>`.
+All public symbols live in the `taph` namespace. Include `<taph/frame_selector_decl.hpp>`.
 
 ---
 
@@ -165,6 +165,23 @@ Available after `finalize_sample_profile`. Requires at least one GC bin with suf
 | `mixture_converged` | `bool` | Whether the EM algorithm converged |
 | `gc_stratified_valid` | `bool` | At least one GC bin has a valid estimate |
 
+### Context-aware 5' C→T (upstream base)
+
+Per-context accumulators and shrinkage-fitted amplitudes, indexed by `CTX_AC = 0`, `CTX_CC = 1`, `CTX_GC = 2`, `CTX_TC = 3` (constants under `SampleDamageProfile::UpstreamContext`, with `N_UPSTREAM_CTX = 4`).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ct5_t_by_upstream[ctx][pos]` / `ct5_total_by_upstream[ctx][pos]` | `double[4][N_POS]` | T and T+C counts at 5' position `pos` split by upstream base. Raw before `finalize_sample_profile`. |
+| `ct5_t_interior_by_upstream[ctx]` / `ct5_total_interior_by_upstream[ctx]` | `double[4]` | Interior counts per upstream context, used as per-context baseline. |
+| `dmax_ct5_by_upstream[ctx]` | `float[4]` | Fitted exponential amplitude per context. `NaN` if insufficient coverage. |
+| `baseline_ct5_by_upstream[ctx]` | `float[4]` | Interior baseline rate per context. |
+| `cov_ct5_terminal_by_upstream[ctx]` / `cov_ct5_interior_by_upstream[ctx]` | `float[4]` | Coverage used in the per-context fit. |
+| `dipyr_contrast` | `float` | `½(d_CC + d_TC) − ½(d_AC + d_GC)`. Positive for dipyrimidine-biased (UV-like) damage. |
+| `cpg_contrast` | `float` | `d_GC − ⅓(d_AC + d_CC + d_TC)`. Positive for CpG-dominant (methylation-driven) damage. |
+| `context_heterogeneity_chi2` | `float` | Chi-squared statistic (df = 3) for uniformity across the four contexts. |
+| `context_heterogeneity_p` | `float` | Ladder-quantized p-value (`0.9, 0.5, 0.1, 0.05, 0.01, 0.001`). |
+| `context_heterogeneity_detected` | `bool` | `chi2 > 7.81` (p < 0.05). |
+
 ### Validation and reliability flags
 
 | Field | Type | Description |
@@ -300,3 +317,162 @@ taph::PreservationSummary taph::compute_preservation_summary(
 ```
 
 Combines evidence from all channels into a single preservation assessment.  Fields: `authenticity_eff`, `authenticity_evidence`, `d5_raw`, `d5_hexamer_corrected`, `d5_was_corrected`, `oxidation_eff`, `oxidation_evidence`, `qc_risk_eff`, `qc_evidence`, `label` (e.g. `"ancient"`, `"weak"`, `"modern-like"`).
+
+---
+
+## Length-stratified profile (`taph/length_stratified_profile.hpp`)
+
+Up to four per-length `SampleDamageProfile` instances with shared accumulate / merge / finalize semantics.
+
+```cpp
+struct taph::LengthBinStats {
+    static constexpr std::size_t MAX_BINS = 4;
+    std::array<SampleDamageProfile, MAX_BINS> profiles;
+    std::vector<int> edges;
+    std::size_t n_bins = 1;
+    SampleDamageProfile::LibraryType forced_library_type;
+
+    void configure(const std::vector<int>& new_edges);
+    void update(std::string_view seq, int length);
+    void merge(const LengthBinStats& other);
+    void finalize_all();
+    std::size_t bin_index(int length) const;
+};
+```
+
+`configure(edges)` validates that edges are strictly increasing and at most three splits (four bins) and sets up the per-bin profiles. `update` routes a read by `bin_index(length)` and accumulates into that bin's profile. `merge` requires matching edges. `finalize_all` runs `FrameSelector::finalize_sample_profile` on every populated bin; `forced_library_type` propagates to each bin if set.
+
+## Automatic length-bin edges (`taph/log_length_gmm.hpp`)
+
+```cpp
+taph::LogLengthGmmResult taph::detect_log_length_gmm_edges(
+    const std::vector<uint64_t>& histogram,
+    double log_min, double log_max,
+    int min_length, int max_length,
+    int max_components = 4);
+
+std::vector<int> taph::detect_quantile_length_edges(
+    const std::vector<uint64_t>& histogram,
+    double log_min, double log_max,
+    int min_length, int max_length,
+    int n_bins);
+```
+
+`detect_log_length_gmm_edges` fits a 1D Gaussian mixture on a log-length histogram, selects `n_components ∈ [1, max_components]` by BIC, and returns split points between adjacent component means. `LogLengthGmmResult` holds `edges`, `n_components`, `bic`, and `converged`. `detect_quantile_length_edges` is the deterministic fallback when the GMM fails to separate modes; it splits the histogram into equal-count quantile bins.
+
+Typical wiring:
+
+```cpp
+auto hist = /* log-length histogram from a pre-scan */;
+auto gmm = taph::detect_log_length_gmm_edges(hist, log_min, log_max, lmin, lmax);
+std::vector<int> edges = gmm.converged && gmm.n_components > 1
+    ? gmm.edges
+    : taph::detect_quantile_length_edges(hist, log_min, log_max, lmin, lmax, 3);
+
+taph::LengthBinStats stats;
+stats.configure(edges);
+for (auto& r : reads) stats.update(r.seq, r.length);
+stats.finalize_all();
+```
+
+## Length × GC joint mixture (`taph/length_gc_joint_mixture.hpp`)
+
+```cpp
+taph::LengthGcJointMixtureResult
+taph::fit_length_gc_joint_mixture(const LengthBinStats& stats);
+```
+
+Shared-component 2-Gaussian mixture over the flat length × GC cell grid of a finalized `LengthBinStats`. Each cell contributes its `d_max` and `c_sites`. Returns:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `d_ancient` | `double` | Damaged-component mean, shared across all cells. |
+| `pi_ancient` | `double` | Damaged-component mixing weight. |
+| `d_population` | `double` | `c_sites`-weighted mean `d_max` across all cells. |
+| `converged` | `bool` | EM convergence state. |
+| `separated` | `bool` | `true` if the fit produced a distinct damaged component. |
+| `cell_w_ancient[b][g]` | `vector<array<double, N_GC_BINS>>` | Posterior `P(damaged | cell)` per (length bin, GC bin). `-1.0` for cells with insufficient C-sites. Empty when `!separated`. |
+
+Fixed priors match `DamageMixtureModel`: `μ₀ = 0`, `τ₀ = 0.01`, `τ₁ = 0.10`, per-cell sigma floor `0.02`. Use `d_ancient` as a single shared amplitude and `cell_w_ancient[b][g]` to recover per-length-bin ancient fractions inside each GC column.
+
+---
+
+## Hexamer tables and domain classifier (`taph/hexamer_tables.hpp`)
+
+Eight pre-computed 4096-bin hexamer frequency tables plus a softmax domain classifier that scores a read against all of them.
+
+```cpp
+enum class taph::Domain {
+    META, GTDB, FUNGI, PROTOZOA, INVERTEBRATE,
+    PLANT, VERTEBRATE_MAMMALIAN, VERTEBRATE_OTHER, VIRAL
+};
+```
+
+`Domain::GTDB` covers bacteria + archaea. `Domain::META` is the default for ancient metagenomes and selects the ensemble-of-all-domains path. `parse_domain(name)` accepts `"meta" | "metagenome" | "all"` (all three map to `Domain::META`), `"gtdb" | "bacteria" | "archaea"`, `"fungi"`, `"protozoa"`, `"invertebrate"`, `"plant"`, `"mammal" | "vertebrate_mammalian"`, `"vertebrate" | "vertebrate_other"`, `"viral"`, and falls back to `Domain::META` on anything unrecognised. `domain_name(d)` gives the canonical string.
+
+### Encoding and table lookup
+
+```cpp
+uint32_t taph::encode_hexamer(const char* seq);                         // 12-bit code, UINT32_MAX on N
+float    taph::get_hexamer_freq(uint32_t code);                         // active domain
+float    taph::get_hexamer_freq(uint32_t code, Domain d);
+float    taph::get_hexamer_freq(const char* seq);                       // active domain
+float    taph::get_hexamer_freq(const char* seq, Domain d);
+float    taph::get_hexamer_score(const char* seq);                      // log2(freq / uniform)
+float    taph::get_hexamer_score(const char* seq, Domain d);
+```
+
+`get_hexamer_score` takes a sequence pointer (there is no `uint32_t` overload), returns `log2(freq / (1/4096))`, and floors at `-10.0` for unseen hexamers.
+
+### Active domain and ensemble mode
+
+```cpp
+void          taph::set_active_domain(Domain d);
+taph::Domain& taph::active_domain();             // reference to the global
+taph::Domain  taph::get_active_domain();         // value accessor
+void          taph::set_ensemble_mode(bool enabled);
+bool          taph::get_ensemble_mode();
+void          taph::set_domain_probs(const MultiDomainResult& r);
+taph::MultiDomainResult& taph::get_domain_probs();
+float         taph::get_ensemble_hexamer_freq(uint32_t code);
+```
+
+`set_active_domain` writes a global `Domain` (not thread-local) that gates the default-table overloads; read it via `get_active_domain()`. The ensemble flag (`ensemble_mode_enabled()`) and the posterior buffer (`current_domain_probs()`) are thread-local, so per-thread pipelines can carry their own blend. With ensemble mode off, `get_ensemble_hexamer_freq` falls through to the active-domain table. With ensemble mode on, it returns the posterior-weighted average of the eight tables using the probabilities written by `set_domain_probs`.
+
+### Domain classifier
+
+```cpp
+struct taph::MultiDomainResult {
+    float gtdb_prob, fungi_prob, protozoa_prob, invertebrate_prob;
+    float plant_prob, vertebrate_mammalian_prob, vertebrate_other_prob, viral_prob;
+    Domain best_domain;
+    float  best_score;
+};
+
+taph::MultiDomainResult taph::score_all_domains(const std::string& seq, int frame);
+```
+
+Sums `log2(freq[h] * 4096 + 1e-10)` across every in-frame hexamer for each of the eight domains, then normalises with temperature-scaled softmax (`exp(0.1 * (score - max))`). `best_domain` is the argmax and `best_score` is the pre-softmax log-sum for that domain.
+
+Typical ensemble flow for mixed-community samples:
+
+```cpp
+auto probs = taph::score_all_domains(read, /*frame=*/0);
+taph::set_domain_probs(probs);
+taph::set_ensemble_mode(true);
+// Subsequent get_ensemble_hexamer_freq(code) returns the posterior-weighted
+// background rather than committing to one domain table.
+```
+
+### Hexamer fields on `SampleDamageProfile`
+
+Raw 4096-bin terminal and interior histograms populated during accumulation and consumed by the interpretation functions in `taph/library_interpretation.hpp`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `hexamer_count_5prime[4096]` | `double[4096]` | Hexamer counts at 5' positions 0-5. |
+| `hexamer_count_interior[4096]` | `double[4096]` | Hexamer counts at the interior (middle third). |
+| `n_hexamers_5prime` | `size_t` | Total counted terminal hexamers. |
+| `n_hexamers_interior` | `size_t` | Total counted interior hexamers. |
+
+Paired with the 3' terminal hexamer histogram produced by the pre-scan (passed to `detect_adapter_stubs` as `hex3_terminal[4096]` with `n_hex3`). The 3' histogram is kept out of `SampleDamageProfile` so it does not bloat per-thread state in accumulators that do not need it.
