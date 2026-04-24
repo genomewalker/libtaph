@@ -389,21 +389,21 @@ Six scores are emitted in `[0, 1]`, with `NaN` when the underlying signal is not
 | `dipyrimidine_context_score` | `clamp(dp.dipyr_contrast / 0.05, 0, 1)` where `dipyr_contrast = 0.5·(d_CC + d_TC) − 0.5·(d_AC + d_GC)` | `dipyr_contrast`, `dmax_ct5_by_upstream[AC,CC,GC,TC]` |
 | `oxidative_context_score` | `clamp(max(|ox_gt_asymmetry|, mean(s_oxog_16ctx)) / 0.05, 0, 1)` | `ox_gt_asymmetry`, `s_oxog_16ctx` |
 | `fragmentation_context_score` | `clamp(purine_enrichment_5prime / 0.15, 0, 1)` | `purine_enrichment_5prime` |
-| `library_artifact_score` | `max(indicator(flag_hex_artifact ∨ adapter_clipped ∨ adapter3_clipped ∨ pos0 artifact), sigmoid(hex_shift_z − 4))` | `flag_hex_artifact`, `adapter_clipped`, `hex_shift_z`, `position_0_artifact_*` |
+| `library_artifact_score` | `max(indicator(flag_hex_artifact ∨ adapter_clipped ∨ adapter3_clipped ∨ pos0 artifact ∨ fit_offset_{5,3}prime > 1), sigmoid(hex_shift_z − 4))` | `flag_hex_artifact`, `adapter_clipped`, `hex_shift_z`, `position_0_artifact_*`, `fit_offset_{5,3}prime` |
 
 A single `dominant_process` label is assigned by a deterministic rule over the six scores. The rule is evaluated top-to-bottom and stops at the first match:
 
 1. `n_reads < 1000` → `none` (insufficient coverage). The six scores are populated where the underlying signals are evaluable; fields whose source signal is `NaN` remain `NaN` in the output.
 2. Terminal deamination score `NaN` (neither end has a finite `d_max`) → `none`.
-3. A boolean artifact flag is set (`flag_hex_artifact`, `adapter_clipped`, `adapter3_clipped`, or a position-0 artifact on either end) **and** `library_artifact_score > 0.7` → `library_artifact_likely`. A high `hex_shift_z` alone is reported in the score but does not trigger the categorical label on its own, because clean libraries can reach z ≈ 10–20 purely from compositional variance.
+3. A boolean artifact flag is set (`flag_hex_artifact`, `adapter_clipped`, `adapter3_clipped`, a position-0 artifact on either end, or `fit_offset_{5,3}prime > 1`) **and** `terminal_deamination_score < 0.5` → `library_artifact_likely`. The categorical label fires only when adapter/hexamer evidence is present *and* genuine deamination is not dominating; strong terminal damage alongside adapter contamination keeps a damage label (the artifact booleans remain visible in `evidence`). A high `hex_shift_z` alone is reported in the score but cannot trigger the label on its own, because clean libraries can reach z ≈ 10–20 purely from compositional variance.
 4. `fragmentation_context_score > 0.5` and `terminal_deamination_score < 0.3` → `fragmentation_bias`.
 5. `terminal_deamination_score < 0.10` → `low_damage`.
-6. `cpg_context_score > 0.7` and `terminal_deamination_score > 0.3` → `cpg_enriched_deamination`.
+6. `cpg_context_score > 0.7`, `terminal_deamination_score > 0.3`, and `log2_cpg_ratio > 0.15` → `cpg_enriched_deamination`. The effect-size floor on `log2_cpg_ratio` prevents large-sample z-scores from assigning the label on negligible CpG vs non-CpG differences.
 7. `oxidative_context_score > 0.5` and `terminal_deamination_score < 0.5` → `oxidative_like`.
 8. `dipyrimidine_context_score > 0.4` → `dipyrimidine_biased`.
 9. Otherwise → `cytosine_deamination`.
 
-Threshold comparisons require a finite score; `NaN` scores never fire a branch, so unevaluable channels cannot silently collapse to `low_damage` or `cytosine_deamination`.
+Threshold comparisons require a finite score; `NaN` scores never satisfy a `>` / `<` branch. Only a `NaN` `terminal_deamination_score` forces `none`; if terminal deamination is finite and all other scores are `NaN`, the rule falls through to `cytosine_deamination` as the catch-all.
 
 The `evidence` block in the JSON output mirrors the raw underlying numbers (d_max, λ, log2 CpG ratio, dipyr contrast, `ox_gt_asymmetry`, `s_oxog_{mean,max}`, purine enrichment, `hex_shift_z`, adapter and position-0 flags, `n_reads`). Downstream tools can therefore re-normalize scores or replace the rule without rescanning.
 
