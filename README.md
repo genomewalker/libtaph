@@ -192,6 +192,10 @@ and selects the best-fitting description:
 
 UNKNOWN is the correct call when no library type can be inferred from the damage pattern alone.
 
+### Damage-context profile
+
+Alongside the library-type call, libtaph emits a training-free damage-context profile that summarises the per-process signals it has already computed (`d_max`, `log2_cpg_ratio`, upstream-context C→T contrasts, 8-oxoG 16-context panel, purine enrichment at fragment starts, hexamer composition shift, adapter-stub and position-0 flags). Six scores in `[0, 1]` — terminal deamination, CpG context, dipyrimidine context, oxidative context, fragmentation context, library artifact — and one `dominant_process` label (`cytosine_deamination`, `cpg_enriched_deamination`, `dipyrimidine_biased`, `oxidative_like`, `fragmentation_bias`, `library_artifact_likely`, `low_damage`, or `none`) are assigned by a deterministic rule. No trained model, no reference panel, no alignment. The raw underlying numbers are mirrored into an `evidence` block so downstream tools can re-normalise or replace the rule without rescanning. See [`docs/methods.md`](docs/methods.md#damage-context-profile).
+
 ---
 
 ## fqdup integration

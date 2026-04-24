@@ -48,6 +48,7 @@ std::cout << "Library:    " << profile.library_type_str() << "\n";
 | GC-stratified estimation | Separates ancient from modern DNA in mixed samples |
 | Length-stratified estimation | Up to four length bins with BIC-selected edges; shared-component length × GC joint mixture |
 | Context-aware C→T | Per-upstream-base amplitudes with dipyrimidine / CpG contrasts and chi-squared heterogeneity test |
+| Damage-context profile | Training-free six-score summary (deamination, CpG, dipyrimidine, oxidative, fragmentation, artifact) with a deterministic dominant-process label |
 | Streaming API | Incremental updates for memory-efficient processing |
 
 ---
