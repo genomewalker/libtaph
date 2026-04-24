@@ -621,7 +621,12 @@ DamageContextProfile compute_damage_context_profile(
     } else if (std::isnan(td)) {
         r.dominant_process = D::None;
         r.interpretation   = "terminal deamination signal not evaluable";
-    } else if (gt(art, 0.7f)) {
+    } else if (any_art_flag && gt(art, 0.7f)) {
+        // Rule fires only when a boolean flag (hex-artifact detector, adapter
+        // stub, or position-0 artifact) corroborates the score. hex_shift_z
+        // alone is informative — it feeds library_artifact_score — but cannot
+        // assign the categorical label on its own, since clean libraries can
+        // reach z ~ 10-20 from compositional variance without being artifacts.
         r.dominant_process = D::LibraryArtifactLikely;
         r.interpretation = "composition or adapter-stub evidence dominates over damage signal";
     } else if (gt(fr, 0.5f) && lt(td, 0.3f)) {
