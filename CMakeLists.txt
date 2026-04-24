@@ -60,3 +60,13 @@ install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/taph-config-version.cmake"
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/taph"
 )
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+option(TAPH_BUILD_TESTS "Build libtaph unit tests" OFF)
+if(TAPH_BUILD_TESTS)
+    enable_testing()
+    add_executable(test_damage_context_profile tests/test_damage_context_profile.cpp)
+    target_link_libraries(test_damage_context_profile PRIVATE taph)
+    target_compile_options(test_damage_context_profile PRIVATE -O2 -Wall -Wextra)
+    add_test(NAME damage_context_profile COMMAND test_damage_context_profile)
+endif()
