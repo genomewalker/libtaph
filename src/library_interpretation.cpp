@@ -524,6 +524,8 @@ DamageContextProfile compute_damage_context_profile(
     r.evidence.flag_hex_artifact          = flag_hex_artifact;
     r.evidence.position_0_artifact_5prime = dp.position_0_artifact_5prime;
     r.evidence.position_0_artifact_3prime = dp.position_0_artifact_3prime;
+    r.evidence.fit_offset_5prime          = dp.fit_offset_5prime;
+    r.evidence.fit_offset_3prime          = dp.fit_offset_3prime;
     r.evidence.n_reads                    = dp.n_reads;
 
     // 8-oxoG 16-context panel summary (mean/max of the per-context signal).
