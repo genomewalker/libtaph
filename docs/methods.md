@@ -405,7 +405,7 @@ A single `dominant_process` label is assigned by a deterministic rule over the s
 
 Threshold comparisons require a finite score; `NaN` scores never satisfy a `>` / `<` branch. Only a `NaN` `terminal_deamination_score` forces `none`; if terminal deamination is finite and all other scores are `NaN`, the rule falls through to `cytosine_deamination` as the catch-all.
 
-The `evidence` block in the JSON output mirrors the raw underlying numbers (d_max, λ, log2 CpG ratio, dipyr contrast, `ox_gt_asymmetry`, `s_oxog_{mean,max}`, purine enrichment, `hex_shift_z`, adapter and position-0 flags, `n_reads`). Downstream tools can therefore re-normalize scores or replace the rule without rescanning.
+The `evidence` block in the JSON output mirrors the raw underlying numbers (d_max, λ, log2 CpG ratio, dipyr contrast, `ox_gt_asymmetry`, `s_oxog_{mean,max}`, purine enrichment, `hex_shift_z`, adapter and position-0 flags, `fit_offset_{5,3}prime`, `n_reads`). Downstream tools can therefore re-normalize scores or replace the rule without rescanning.
 
 **Design notes.** The six scores only summarise mechanisms that are independently measurable in the existing `SampleDamageProfile`. The profile deliberately avoids latent-process decomposition (for example `NMF` over a trinucleotide matrix against a reference panel), since ancient-DNA damage mechanisms are small in number, well characterised, and already directly observable here. The rule is intentionally legible so a human can check which signals drove each label.
 
