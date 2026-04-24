@@ -318,6 +318,44 @@ taph::PreservationSummary taph::compute_preservation_summary(
 
 Combines evidence from all channels into a single preservation assessment.  Fields: `authenticity_eff`, `authenticity_evidence`, `d5_raw`, `d5_hexamer_corrected`, `d5_was_corrected`, `oxidation_eff`, `oxidation_evidence`, `qc_risk_eff`, `qc_evidence`, `label` (e.g. `"ancient"`, `"weak"`, `"modern-like"`).
 
+### DamageContextProfile
+
+```cpp
+struct taph::DamageContextProfile {
+    enum class DominantProcess {
+        None, LowDamage, CytosineDeamination, CpgEnrichedDeamination,
+        DipyrimidineBiased, OxidativeLike,
+        FragmentationBias, LibraryArtifactLikely
+    };
+    static constexpr const char* method = "training_free";
+    bool reference_required = false;
+    bool alignment_required = false;
+
+    float terminal_deamination_score, cpg_context_score;
+    float dipyrimidine_context_score, oxidative_context_score;
+    float fragmentation_context_score, library_artifact_score;
+
+    DominantProcess dominant_process;
+    std::string     dominant_process_str;
+    std::string     interpretation;
+
+    struct Evidence { /* d_max_{5,3}, lambda_{5,3}, log2_cpg_ratio, cpg_z,
+                         dipyr_contrast, ox_gt_asymmetry, s_oxog_{mean,max},
+                         purine_enrichment_5prime, hex_shift_z,
+                         adapter_clipped, adapter3_clipped, flag_hex_artifact,
+                         position_0_artifact_{5,3}prime, n_reads */ } evidence;
+};
+
+const char* taph::to_string(DamageContextProfile::DominantProcess p);
+
+taph::DamageContextProfile taph::compute_damage_context_profile(
+    const SampleDamageProfile& dp,
+    double cpg_z, double hex_shift_z,
+    bool adapter_clipped, bool adapter3_clipped, bool flag_hex_artifact);
+```
+
+Training-free, reference-free summary aggregator. Six scores are in `[0, 1]` (or `NaN` when not evaluable); `dominant_process` is a deterministic rule over the scores. Underlying raw numbers are mirrored into `evidence` for auditing and re-normalisation by downstream tools. See [methods.md](methods.md#damage-context-profile) for score formulas and the rule.
+
 ---
 
 ## Length-stratified profile (`taph/length_stratified_profile.hpp`)

@@ -376,6 +376,38 @@ In practice the contrast pair separates three regimes we observe in real samples
 
 ---
 
+## Damage-context profile
+
+The damage-context profile is a training-free, reference-free, alignment-free summary of the per-process signals already present in `SampleDamageProfile`. It is a pure function of the finalized profile plus the already-computed `cpg_z` and `hex_shift_z`; it introduces no new scan pass, no fitted model, and no external reference panel.
+
+Six scores are emitted in `[0, 1]`, with `NaN` when the underlying signal is not evaluable. The normalization constants are tunable and live as named `constexpr` values at the top of `library_interpretation.cpp`.
+
+| Score | Definition | Underlying fields |
+|---|---|---|
+| `terminal_deamination_score` | `1 − exp(−max(d_max_5, d_max_3) / 0.10)` | `d_max_5prime`, `d_max_3prime` |
+| `cpg_context_score` | `sigmoid(cpg_z)` from `compute_cpg_score` | `log2_cpg_ratio`, `effcov_ct5_cpg_like_*` |
+| `dipyrimidine_context_score` | `clamp((d_CC + d_TC) − (d_AC + d_GC) / 0.10, 0, 1)` | `dmax_ct5_by_upstream[AC,CC,GC,TC]` |
+| `oxidative_context_score` | `clamp(max(|ox_gt_asymmetry|, mean(s_oxog_16ctx)) / 0.05, 0, 1)` | `ox_gt_asymmetry`, `s_oxog_16ctx` |
+| `fragmentation_context_score` | `clamp(purine_enrichment_5prime / 0.15, 0, 1)` | `purine_enrichment_5prime` |
+| `library_artifact_score` | `max(indicator(flag_hex_artifact ∨ adapter_clipped ∨ adapter3_clipped ∨ pos0 artifact), sigmoid(hex_shift_z − 4))` | `flag_hex_artifact`, `adapter_clipped`, `hex_shift_z`, `position_0_artifact_*` |
+
+A single `dominant_process` label is assigned by a deterministic rule over the six scores. The rule is evaluated top-to-bottom and stops at the first match:
+
+1. `n_reads < 1000` → `none` (insufficient coverage; scores still populated where evaluable).
+2. `library_artifact_score > 0.7` → `library_artifact_likely` (composition or adapter-stub evidence).
+3. `terminal_deamination_score < 0.10` → `low_damage`.
+4. `cpg_context_score > 0.7` and `terminal_deamination_score > 0.3` → `cpg_enriched_deamination`.
+5. `oxidative_context_score > 0.5` and `terminal_deamination_score < 0.5` → `oxidative_like`.
+6. `dipyrimidine_context_score > 0.4` → `dipyrimidine_biased`.
+7. `fragmentation_context_score > 0.5` and `terminal_deamination_score < 0.3` → `fragmentation_bias`.
+8. Otherwise → `cytosine_deamination`.
+
+The `evidence` block in the JSON output mirrors the raw underlying numbers (d_max, λ, log2 CpG ratio, dipyr contrast, `ox_gt_asymmetry`, `s_oxog_{mean,max}`, purine enrichment, `hex_shift_z`, adapter and position-0 flags, `n_reads`). Downstream tools can therefore re-normalize scores or replace the rule without rescanning.
+
+**Design notes.** The six scores only summarise mechanisms that are independently measurable in the existing `SampleDamageProfile`. The profile deliberately avoids latent-process decomposition (for example `NMF` over a trinucleotide matrix against a reference panel), since ancient-DNA damage mechanisms are small in number, well characterised, and already directly observable here. The rule is intentionally legible so a human can check which signals drove each label.
+
+---
+
 ## References
 
 <a id="ref-briggs2007"></a>**Briggs AW, Stenzel U, Johnson PLF, Green RE, Kelso J, Prüfer K, Meyer M, Krause J, Ronan MT, Lachmann M, Pääbo S** (2007) Patterns of damage in genomic DNA sequences from a Neandertal. *Proc Natl Acad Sci USA* **104**:14616–14621. [doi:10.1073/pnas.0704665104](https://doi.org/10.1073/pnas.0704665104)

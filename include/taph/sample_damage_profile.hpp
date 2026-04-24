@@ -146,10 +146,10 @@ struct SampleDamageProfile {
     // Non-ACGT bases skip the sample. Mirror counters at 3' end use read-offset
     // positions 1..4 and 10..14 from the 3' terminus (orientation as observed —
     // downstream analysis reverse-complements contexts for strand collapsing).
-    // Downstream post-processing reduces to a 32-channel SBS-like spectrum:
+    // Downstream post-processing contrasts terminal vs interior context rates:
     //   d_ct_ctx[XCY] = T_rate_term(XCY ∪ XTY) - T_rate_int(XCY ∪ XTY)
     //   d_gt_ctx[XGY] = T_rate_term(XGY ∪ XTY) - T_rate_int(XGY ∪ XTY)
-    // and compares to COSMIC SBS1/4/18/36 via cosine similarity.
+    // These feed into the damage-context scores in library_interpretation.
     static constexpr int N_TRINUC = 64;
     std::array<uint64_t, N_TRINUC> tri_5prime_terminal = {};
     std::array<uint64_t, N_TRINUC> tri_5prime_interior = {};

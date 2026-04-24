@@ -465,4 +465,163 @@ PreservationSummary compute_preservation_summary(
     return r;
 }
 
+// ── Damage-context profile ────────────────────────────────────────────────────
+
+namespace {
+
+constexpr float kDeamNorm      = 0.10f;  // d_max at which deamination score ≈ 0.63
+constexpr float kDipyrNorm     = 0.10f;  // dipyr contrast at which score saturates
+constexpr float kOxidativeNorm = 0.05f;  // oxidative signal at which score saturates
+constexpr float kFragNorm      = 0.15f;  // purine enrichment at which score saturates
+constexpr uint64_t kMinReads   = 1000;   // SampleDamageProfile::is_valid() threshold
+
+inline float clamp01f(float x) {
+    if (std::isnan(x)) return x;
+    return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x);
+}
+inline float sigmoidf(float x) { return 1.0f / (1.0f + std::exp(-x)); }
+
+} // namespace
+
+const char* to_string(DamageContextProfile::DominantProcess p) {
+    using D = DamageContextProfile::DominantProcess;
+    switch (p) {
+        case D::None:                   return "none";
+        case D::LowDamage:              return "low_damage";
+        case D::CytosineDeamination:    return "cytosine_deamination";
+        case D::CpgEnrichedDeamination: return "cpg_enriched_deamination";
+        case D::DipyrimidineBiased:     return "dipyrimidine_biased";
+        case D::OxidativeLike:          return "oxidative_like";
+        case D::FragmentationBias:      return "fragmentation_bias";
+        case D::LibraryArtifactLikely:  return "library_artifact_likely";
+    }
+    return "none";
+}
+
+DamageContextProfile compute_damage_context_profile(
+        const SampleDamageProfile& dp,
+        double cpg_z,
+        double hex_shift_z,
+        bool   adapter_clipped,
+        bool   adapter3_clipped,
+        bool   flag_hex_artifact) {
+
+    DamageContextProfile r;
+
+    // Evidence block: raw underlying numbers for downstream auditing.
+    r.evidence.d_max_5                    = dp.d_max_5prime;
+    r.evidence.d_max_3                    = dp.d_max_3prime;
+    r.evidence.lambda_5                   = dp.lambda_5prime;
+    r.evidence.lambda_3                   = dp.lambda_3prime;
+    r.evidence.log2_cpg_ratio             = dp.log2_cpg_ratio;
+    r.evidence.cpg_z                      = static_cast<float>(cpg_z);
+    r.evidence.ox_gt_asymmetry            = dp.ox_gt_asymmetry;
+    r.evidence.purine_enrichment_5prime   = dp.purine_enrichment_5prime;
+    r.evidence.hex_shift_z                = static_cast<float>(hex_shift_z);
+    r.evidence.adapter_clipped            = adapter_clipped;
+    r.evidence.adapter3_clipped           = adapter3_clipped;
+    r.evidence.flag_hex_artifact          = flag_hex_artifact;
+    r.evidence.position_0_artifact_5prime = dp.position_0_artifact_5prime;
+    r.evidence.position_0_artifact_3prime = dp.position_0_artifact_3prime;
+    r.evidence.n_reads                    = dp.n_reads;
+
+    // 8-oxoG 16-context panel summary (mean/max of the per-context signal).
+    double s_sum = 0.0; float s_max = 0.0f; int n_ctx = 0;
+    for (int i = 0; i < SampleDamageProfile::N_OXOG16; ++i) {
+        float v = dp.s_oxog_16ctx[i];
+        if (std::isnan(v)) continue;
+        s_sum += v;
+        if (v > s_max) s_max = v;
+        ++n_ctx;
+    }
+    r.evidence.s_oxog_mean = n_ctx > 0 ? static_cast<float>(s_sum / n_ctx) : 0.0f;
+    r.evidence.s_oxog_max  = s_max;
+
+    // Upstream context contrast: (CC + TC) - (AC + GC). Upstream index order is
+    // A=0, C=1, G=2, T=3 (sample_damage_profile.hpp::N_UPSTREAM_CTX comment).
+    float d_ac = dp.dmax_ct5_by_upstream[0];
+    float d_cc = dp.dmax_ct5_by_upstream[1];
+    float d_gc = dp.dmax_ct5_by_upstream[2];
+    float d_tc = dp.dmax_ct5_by_upstream[3];
+    auto valid_f = [](float v){ return !std::isnan(v); };
+    if (valid_f(d_ac) && valid_f(d_cc) && valid_f(d_gc) && valid_f(d_tc)) {
+        r.evidence.dipyr_contrast = (d_cc + d_tc) - (d_ac + d_gc);
+    } else {
+        r.evidence.dipyr_contrast = std::numeric_limits<float>::quiet_NaN();
+    }
+
+    if (dp.n_reads < kMinReads) {
+        r.dominant_process     = DamageContextProfile::DominantProcess::None;
+        r.dominant_process_str = to_string(r.dominant_process);
+        r.interpretation       = "insufficient coverage for damage-context scoring";
+        return r;
+    }
+
+    // Six scores.
+    // terminal deamination: 1 - exp(-max(d5, d3) / kDeamNorm).
+    float dmax_term = std::max(dp.d_max_5prime, dp.d_max_3prime);
+    r.terminal_deamination_score = clamp01f(1.0f - std::exp(-dmax_term / kDeamNorm));
+
+    // CpG context: sigmoid on the CpG/non-CpG z-score from compute_cpg_score.
+    r.cpg_context_score = std::isnan(dp.log2_cpg_ratio)
+        ? std::numeric_limits<float>::quiet_NaN()
+        : sigmoidf(static_cast<float>(cpg_z));
+
+    // Dipyrimidine context: normalized CC/TC upstream excess over AC/GC.
+    r.dipyrimidine_context_score = std::isnan(r.evidence.dipyr_contrast)
+        ? std::numeric_limits<float>::quiet_NaN()
+        : clamp01f(r.evidence.dipyr_contrast / kDipyrNorm);
+
+    // Oxidative context: max of strand-asymmetric G->T signal and mean NGN panel.
+    float ox_sig = std::max(std::fabs(dp.ox_gt_asymmetry), r.evidence.s_oxog_mean);
+    r.oxidative_context_score = clamp01f(ox_sig / kOxidativeNorm);
+
+    // Fragmentation context: purine enrichment at read starts vs interior.
+    r.fragmentation_context_score =
+        clamp01f(dp.purine_enrichment_5prime / kFragNorm);
+
+    // Library artifact: max of flags and a sigmoid on the composition shift z.
+    float art_flag = (flag_hex_artifact || adapter_clipped || adapter3_clipped ||
+                      dp.position_0_artifact_5prime ||
+                      dp.position_0_artifact_3prime) ? 1.0f : 0.0f;
+    float art_sig = sigmoidf(static_cast<float>(hex_shift_z) - 4.0f);
+    r.library_artifact_score = clamp01f(std::max(art_flag, art_sig));
+
+    // Deterministic dominant-process rule.
+    using D = DamageContextProfile::DominantProcess;
+    float td  = r.terminal_deamination_score;
+    float cpg = r.cpg_context_score;
+    float dip = r.dipyrimidine_context_score;
+    float ox  = r.oxidative_context_score;
+    float fr  = r.fragmentation_context_score;
+    float art = r.library_artifact_score;
+    auto v = [](float x){ return std::isnan(x) ? 0.0f : x; };
+
+    if (v(art) > 0.7f) {
+        r.dominant_process = D::LibraryArtifactLikely;
+        r.interpretation = "composition or adapter-stub evidence dominates over damage signal";
+    } else if (v(td) < 0.10f) {
+        r.dominant_process = D::LowDamage;
+        r.interpretation = "terminal deamination signal below detection threshold";
+    } else if (v(cpg) > 0.7f && v(td) > 0.3f) {
+        r.dominant_process = D::CpgEnrichedDeamination;
+        r.interpretation = "terminal deamination with elevated CpG-context contribution "
+                           "consistent with methylated-cytosine deamination";
+    } else if (v(ox) > 0.5f && v(td) < 0.5f) {
+        r.dominant_process = D::OxidativeLike;
+        r.interpretation = "strand-asymmetric G->T / C->A excess consistent with oxidative damage";
+    } else if (v(dip) > 0.4f) {
+        r.dominant_process = D::DipyrimidineBiased;
+        r.interpretation = "dipyrimidine upstream-context excess in terminal C->T rates";
+    } else if (v(fr) > 0.5f && v(td) < 0.3f) {
+        r.dominant_process = D::FragmentationBias;
+        r.interpretation = "purine enrichment at fragment starts without matching terminal deamination";
+    } else {
+        r.dominant_process = D::CytosineDeamination;
+        r.interpretation = "terminal C->T / G->A enrichment consistent with post-mortem cytosine deamination";
+    }
+    r.dominant_process_str = to_string(r.dominant_process);
+    return r;
+}
+
 } // namespace taph

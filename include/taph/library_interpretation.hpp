@@ -156,4 +156,74 @@ PreservationSummary compute_preservation_summary(
     double oxog_trinuc_cosine,
     double hex_shift_p);
 
+// ── Damage-context profile (training-free, reference-free summary) ────────────
+//
+// Aggregates the per-process signals already present in SampleDamageProfile
+// into six interpretable scores in [0, 1] and a single dominant-process label.
+// Pure function; no FASTQ I/O; no fitted model; no external reference panel.
+
+struct DamageContextProfile {
+    enum class DominantProcess {
+        None,                        // insufficient coverage
+        LowDamage,                   // all scores low
+        CytosineDeamination,         // canonical terminal C->T / G->A
+        CpgEnrichedDeamination,      // methylated-C contribution
+        DipyrimidineBiased,          // CC/TC upstream excess
+        OxidativeLike,               // G->T / C->A strand-asymmetric excess
+        FragmentationBias,           // purine enrichment at fragment starts
+        LibraryArtifactLikely        // composition / adapter-stub evidence
+    };
+
+    // Provenance (constants, serialised into JSON for downstream auditing).
+    static constexpr const char* method = "training_free";
+    bool reference_required = false;
+    bool alignment_required = false;
+
+    // Six normalized scores in [0, 1]. NaN when the underlying signal is not
+    // evaluable (e.g. missing coverage). Consumers should treat NaN as "unknown".
+    float terminal_deamination_score = std::numeric_limits<float>::quiet_NaN();
+    float cpg_context_score          = std::numeric_limits<float>::quiet_NaN();
+    float dipyrimidine_context_score = std::numeric_limits<float>::quiet_NaN();
+    float oxidative_context_score    = std::numeric_limits<float>::quiet_NaN();
+    float fragmentation_context_score= std::numeric_limits<float>::quiet_NaN();
+    float library_artifact_score     = std::numeric_limits<float>::quiet_NaN();
+
+    DominantProcess dominant_process = DominantProcess::None;
+    std::string     dominant_process_str;   // machine-readable tag
+    std::string     interpretation;         // one-sentence summary
+
+    // Evidence: raw underlying numbers that drove the scores. Keeps the JSON
+    // auditable and lets downstream tools re-normalize without rescanning.
+    struct Evidence {
+        float d_max_5 = 0.0f, d_max_3 = 0.0f;
+        float lambda_5 = 0.0f, lambda_3 = 0.0f;
+        float log2_cpg_ratio = std::numeric_limits<float>::quiet_NaN();
+        float cpg_z = 0.0f;
+        float dipyr_contrast = 0.0f;          // (CC+TC) - (AC+GC)
+        float ox_gt_asymmetry = 0.0f;
+        float s_oxog_mean = 0.0f, s_oxog_max = 0.0f;
+        float purine_enrichment_5prime = 0.0f;
+        float hex_shift_z = 0.0f;
+        bool  adapter_clipped = false;
+        bool  adapter3_clipped = false;
+        bool  flag_hex_artifact = false;
+        bool  position_0_artifact_5prime = false;
+        bool  position_0_artifact_3prime = false;
+        uint64_t n_reads = 0;
+    } evidence;
+};
+
+const char* to_string(DamageContextProfile::DominantProcess p);
+
+// Compute the damage-context profile from a finalized SampleDamageProfile plus
+// already-computed score results. cpg_z / hex_shift_z should be the values
+// returned by compute_cpg_score / compute_hex_stats on the same dp.
+DamageContextProfile compute_damage_context_profile(
+    const SampleDamageProfile& dp,
+    double cpg_z,
+    double hex_shift_z,
+    bool   adapter_clipped,
+    bool   adapter3_clipped,
+    bool   flag_hex_artifact);
+
 } // namespace taph
