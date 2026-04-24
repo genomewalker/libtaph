@@ -395,7 +395,7 @@ A single `dominant_process` label is assigned by a deterministic rule over the s
 
 1. `n_reads < 1000` → `none` (insufficient coverage). The six scores are populated where the underlying signals are evaluable; fields whose source signal is `NaN` remain `NaN` in the output.
 2. Terminal deamination score `NaN` (neither end has a finite `d_max`) → `none`.
-3. `library_artifact_score > 0.7` → `library_artifact_likely` (composition or adapter-stub evidence).
+3. A boolean artifact flag is set (`flag_hex_artifact`, `adapter_clipped`, `adapter3_clipped`, or a position-0 artifact on either end) **and** `library_artifact_score > 0.7` → `library_artifact_likely`. A high `hex_shift_z` alone is reported in the score but does not trigger the categorical label on its own, because clean libraries can reach z ≈ 10–20 purely from compositional variance.
 4. `fragmentation_context_score > 0.5` and `terminal_deamination_score < 0.3` → `fragmentation_bias`.
 5. `terminal_deamination_score < 0.10` → `low_damage`.
 6. `cpg_context_score > 0.7` and `terminal_deamination_score > 0.3` → `cpg_enriched_deamination`.
