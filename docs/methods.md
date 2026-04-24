@@ -386,7 +386,7 @@ Six scores are emitted in `[0, 1]`, with `NaN` when the underlying signal is not
 |---|---|---|
 | `terminal_deamination_score` | `1 − exp(−max(d_max_5, d_max_3) / 0.10)` | `d_max_5prime`, `d_max_3prime` |
 | `cpg_context_score` | `sigmoid(cpg_z)` from `compute_cpg_score` | `log2_cpg_ratio`, `effcov_ct5_cpg_like_*` |
-| `dipyrimidine_context_score` | `clamp((d_CC + d_TC) − (d_AC + d_GC) / 0.10, 0, 1)` | `dmax_ct5_by_upstream[AC,CC,GC,TC]` |
+| `dipyrimidine_context_score` | `clamp(dp.dipyr_contrast / 0.05, 0, 1)` where `dipyr_contrast = 0.5·(d_CC + d_TC) − 0.5·(d_AC + d_GC)` | `dipyr_contrast`, `dmax_ct5_by_upstream[AC,CC,GC,TC]` |
 | `oxidative_context_score` | `clamp(max(|ox_gt_asymmetry|, mean(s_oxog_16ctx)) / 0.05, 0, 1)` | `ox_gt_asymmetry`, `s_oxog_16ctx` |
 | `fragmentation_context_score` | `clamp(purine_enrichment_5prime / 0.15, 0, 1)` | `purine_enrichment_5prime` |
 | `library_artifact_score` | `max(indicator(flag_hex_artifact ∨ adapter_clipped ∨ adapter3_clipped ∨ pos0 artifact), sigmoid(hex_shift_z − 4))` | `flag_hex_artifact`, `adapter_clipped`, `hex_shift_z`, `position_0_artifact_*` |
@@ -395,11 +395,11 @@ A single `dominant_process` label is assigned by a deterministic rule over the s
 
 1. `n_reads < 1000` → `none` (insufficient coverage; scores still populated where evaluable).
 2. `library_artifact_score > 0.7` → `library_artifact_likely` (composition or adapter-stub evidence).
-3. `terminal_deamination_score < 0.10` → `low_damage`.
-4. `cpg_context_score > 0.7` and `terminal_deamination_score > 0.3` → `cpg_enriched_deamination`.
-5. `oxidative_context_score > 0.5` and `terminal_deamination_score < 0.5` → `oxidative_like`.
-6. `dipyrimidine_context_score > 0.4` → `dipyrimidine_biased`.
-7. `fragmentation_context_score > 0.5` and `terminal_deamination_score < 0.3` → `fragmentation_bias`.
+3. `fragmentation_context_score > 0.5` and `terminal_deamination_score < 0.3` → `fragmentation_bias`.
+4. `terminal_deamination_score < 0.10` → `low_damage`.
+5. `cpg_context_score > 0.7` and `terminal_deamination_score > 0.3` → `cpg_enriched_deamination`.
+6. `oxidative_context_score > 0.5` and `terminal_deamination_score < 0.5` → `oxidative_like`.
+7. `dipyrimidine_context_score > 0.4` → `dipyrimidine_biased`.
 8. Otherwise → `cytosine_deamination`.
 
 The `evidence` block in the JSON output mirrors the raw underlying numbers (d_max, λ, log2 CpG ratio, dipyr contrast, `ox_gt_asymmetry`, `s_oxog_{mean,max}`, purine enrichment, `hex_shift_z`, adapter and position-0 flags, `n_reads`). Downstream tools can therefore re-normalize scores or replace the rule without rescanning.

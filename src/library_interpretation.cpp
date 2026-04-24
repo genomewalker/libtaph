@@ -470,7 +470,8 @@ PreservationSummary compute_preservation_summary(
 namespace {
 
 constexpr float kDeamNorm      = 0.10f;  // d_max at which deamination score ≈ 0.63
-constexpr float kDipyrNorm     = 0.10f;  // dipyr contrast at which score saturates
+constexpr float kDipyrNorm     = 0.05f;  // dipyr contrast at which score saturates
+                                          // (dp.dipyr_contrast uses 0.5 factors)
 constexpr float kOxidativeNorm = 0.05f;  // oxidative signal at which score saturates
 constexpr float kFragNorm      = 0.15f;  // purine enrichment at which score saturates
 constexpr uint64_t kMinReads   = 1000;   // SampleDamageProfile::is_valid() threshold
@@ -537,18 +538,9 @@ DamageContextProfile compute_damage_context_profile(
     r.evidence.s_oxog_mean = n_ctx > 0 ? static_cast<float>(s_sum / n_ctx) : 0.0f;
     r.evidence.s_oxog_max  = s_max;
 
-    // Upstream context contrast: (CC + TC) - (AC + GC). Upstream index order is
-    // A=0, C=1, G=2, T=3 (sample_damage_profile.hpp::N_UPSTREAM_CTX comment).
-    float d_ac = dp.dmax_ct5_by_upstream[0];
-    float d_cc = dp.dmax_ct5_by_upstream[1];
-    float d_gc = dp.dmax_ct5_by_upstream[2];
-    float d_tc = dp.dmax_ct5_by_upstream[3];
-    auto valid_f = [](float v){ return !std::isnan(v); };
-    if (valid_f(d_ac) && valid_f(d_cc) && valid_f(d_gc) && valid_f(d_tc)) {
-        r.evidence.dipyr_contrast = (d_cc + d_tc) - (d_ac + d_gc);
-    } else {
-        r.evidence.dipyr_contrast = std::numeric_limits<float>::quiet_NaN();
-    }
+    // Use the already-finalized contrast from SampleDamageProfile:
+    //   dipyr_contrast = 0.5*(CC + TC) - 0.5*(AC + GC).
+    r.evidence.dipyr_contrast = dp.dipyr_contrast;
 
     if (dp.n_reads < kMinReads) {
         r.dominant_process     = DamageContextProfile::DominantProcess::None;
@@ -600,6 +592,9 @@ DamageContextProfile compute_damage_context_profile(
     if (v(art) > 0.7f) {
         r.dominant_process = D::LibraryArtifactLikely;
         r.interpretation = "composition or adapter-stub evidence dominates over damage signal";
+    } else if (v(fr) > 0.5f && v(td) < 0.3f) {
+        r.dominant_process = D::FragmentationBias;
+        r.interpretation = "purine enrichment at fragment starts without matching terminal deamination";
     } else if (v(td) < 0.10f) {
         r.dominant_process = D::LowDamage;
         r.interpretation = "terminal deamination signal below detection threshold";
@@ -613,9 +608,6 @@ DamageContextProfile compute_damage_context_profile(
     } else if (v(dip) > 0.4f) {
         r.dominant_process = D::DipyrimidineBiased;
         r.interpretation = "dipyrimidine upstream-context excess in terminal C->T rates";
-    } else if (v(fr) > 0.5f && v(td) < 0.3f) {
-        r.dominant_process = D::FragmentationBias;
-        r.interpretation = "purine enrichment at fragment starts without matching terminal deamination";
     } else {
         r.dominant_process = D::CytosineDeamination;
         r.interpretation = "terminal C->T / G->A enrichment consistent with post-mortem cytosine deamination";
