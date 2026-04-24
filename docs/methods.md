@@ -393,14 +393,17 @@ Six scores are emitted in `[0, 1]`, with `NaN` when the underlying signal is not
 
 A single `dominant_process` label is assigned by a deterministic rule over the six scores. The rule is evaluated top-to-bottom and stops at the first match:
 
-1. `n_reads < 1000` → `none` (insufficient coverage; scores still populated where evaluable).
-2. `library_artifact_score > 0.7` → `library_artifact_likely` (composition or adapter-stub evidence).
-3. `fragmentation_context_score > 0.5` and `terminal_deamination_score < 0.3` → `fragmentation_bias`.
-4. `terminal_deamination_score < 0.10` → `low_damage`.
-5. `cpg_context_score > 0.7` and `terminal_deamination_score > 0.3` → `cpg_enriched_deamination`.
-6. `oxidative_context_score > 0.5` and `terminal_deamination_score < 0.5` → `oxidative_like`.
-7. `dipyrimidine_context_score > 0.4` → `dipyrimidine_biased`.
-8. Otherwise → `cytosine_deamination`.
+1. `n_reads < 1000` → `none` (insufficient coverage). The six scores are populated where the underlying signals are evaluable; fields whose source signal is `NaN` remain `NaN` in the output.
+2. Terminal deamination score `NaN` (neither end has a finite `d_max`) → `none`.
+3. `library_artifact_score > 0.7` → `library_artifact_likely` (composition or adapter-stub evidence).
+4. `fragmentation_context_score > 0.5` and `terminal_deamination_score < 0.3` → `fragmentation_bias`.
+5. `terminal_deamination_score < 0.10` → `low_damage`.
+6. `cpg_context_score > 0.7` and `terminal_deamination_score > 0.3` → `cpg_enriched_deamination`.
+7. `oxidative_context_score > 0.5` and `terminal_deamination_score < 0.5` → `oxidative_like`.
+8. `dipyrimidine_context_score > 0.4` → `dipyrimidine_biased`.
+9. Otherwise → `cytosine_deamination`.
+
+Threshold comparisons require a finite score; `NaN` scores never fire a branch, so unevaluable channels cannot silently collapse to `low_damage` or `cytosine_deamination`.
 
 The `evidence` block in the JSON output mirrors the raw underlying numbers (d_max, λ, log2 CpG ratio, dipyr contrast, `ox_gt_asymmetry`, `s_oxog_{mean,max}`, purine enrichment, `hex_shift_z`, adapter and position-0 flags, `n_reads`). Downstream tools can therefore re-normalize scores or replace the rule without rescanning.
 
