@@ -530,7 +530,7 @@ DamageContextProfile compute_damage_context_profile(
     double s_sum = 0.0; float s_max = 0.0f; int n_ctx = 0;
     for (int i = 0; i < SampleDamageProfile::N_OXOG16; ++i) {
         float v = dp.s_oxog_16ctx[i];
-        if (std::isnan(v)) continue;
+        if (!std::isfinite(v)) continue;
         s_sum += v;
         if (v > s_max) s_max = v;
         ++n_ctx;
@@ -545,7 +545,9 @@ DamageContextProfile compute_damage_context_profile(
     const bool any_art_flag = flag_hex_artifact || adapter_clipped ||
                               adapter3_clipped ||
                               dp.position_0_artifact_5prime ||
-                              dp.position_0_artifact_3prime;
+                              dp.position_0_artifact_3prime ||
+                              dp.fit_offset_5prime > 1 ||
+                              dp.fit_offset_3prime > 1;
     const auto NaN = std::numeric_limits<float>::quiet_NaN();
     auto finite_max2 = [](float a, float b) {
         bool fa = std::isfinite(a), fb = std::isfinite(b);
@@ -565,12 +567,12 @@ DamageContextProfile compute_damage_context_profile(
         : clamp01f(1.0f - std::exp(-dmax_term / kDeamNorm));
 
     // CpG context: sigmoid on the CpG/non-CpG z-score from compute_cpg_score.
-    r.cpg_context_score = (std::isnan(dp.log2_cpg_ratio) || !std::isfinite(cpg_z))
+    r.cpg_context_score = (!std::isfinite(dp.log2_cpg_ratio) || !std::isfinite(cpg_z))
         ? NaN
         : sigmoidf(static_cast<float>(cpg_z));
 
     // Dipyrimidine context: normalized upstream-context excess.
-    r.dipyrimidine_context_score = std::isnan(r.evidence.dipyr_contrast)
+    r.dipyrimidine_context_score = !std::isfinite(r.evidence.dipyr_contrast)
         ? NaN
         : clamp01f(r.evidence.dipyr_contrast / kDipyrNorm);
 
@@ -582,7 +584,7 @@ DamageContextProfile compute_damage_context_profile(
         : clamp01f(ox_signed / kOxidativeNorm);
 
     // Fragmentation context: purine enrichment at read starts vs interior.
-    r.fragmentation_context_score = std::isnan(dp.purine_enrichment_5prime)
+    r.fragmentation_context_score = !std::isfinite(dp.purine_enrichment_5prime)
         ? NaN
         : clamp01f(dp.purine_enrichment_5prime / kFragNorm);
 
@@ -621,12 +623,15 @@ DamageContextProfile compute_damage_context_profile(
     } else if (std::isnan(td)) {
         r.dominant_process = D::None;
         r.interpretation   = "terminal deamination signal not evaluable";
-    } else if (any_art_flag && gt(art, 0.7f)) {
-        // Rule fires only when a boolean flag (hex-artifact detector, adapter
-        // stub, or position-0 artifact) corroborates the score. hex_shift_z
-        // alone is informative — it feeds library_artifact_score — but cannot
-        // assign the categorical label on its own, since clean libraries can
-        // reach z ~ 10-20 from compositional variance without being artifacts.
+    } else if (any_art_flag && lt(td, 0.5f)) {
+        // Rule fires when a boolean flag is set (hex-artifact detector, adapter
+        // stub, position-0 artifact, or fit-offset adapter remnant) AND the
+        // terminal deamination signal is not dominating. The score itself
+        // (library_artifact_score) saturates at 1.0 whenever a flag is present,
+        // so `gt(art, 0.7)` would be tautological; the meaningful second gate
+        // is "damage is not the primary driver", i.e. td < 0.5. When strong
+        // genuine damage is present alongside adapter evidence, the damage
+        // label wins (artifact booleans remain visible in evidence).
         r.dominant_process = D::LibraryArtifactLikely;
         r.interpretation = "composition or adapter-stub evidence dominates over damage signal";
     } else if (gt(fr, 0.5f) && lt(td, 0.3f)) {
@@ -635,7 +640,11 @@ DamageContextProfile compute_damage_context_profile(
     } else if (lt(td, 0.10f)) {
         r.dominant_process = D::LowDamage;
         r.interpretation = "terminal deamination signal below detection threshold";
-    } else if (gt(cpg, 0.7f) && gt(td, 0.3f)) {
+    } else if (gt(cpg, 0.7f) && gt(td, 0.3f)
+               && gt(r.evidence.log2_cpg_ratio, 0.15f)) {
+        // CpG z-scores can exceed the sigmoid threshold at modest effect sizes
+        // on large samples; require a minimum log2 ratio so the label reflects
+        // a real CpG-vs-non-CpG enrichment, not just statistical significance.
         r.dominant_process = D::CpgEnrichedDeamination;
         r.interpretation = "terminal deamination with elevated CpG-context contribution "
                            "consistent with methylated-cytosine deamination";

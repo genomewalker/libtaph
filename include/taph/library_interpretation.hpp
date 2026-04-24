@@ -199,7 +199,7 @@ struct DamageContextProfile {
         float lambda_5 = 0.0f, lambda_3 = 0.0f;
         float log2_cpg_ratio = std::numeric_limits<float>::quiet_NaN();
         float cpg_z = 0.0f;
-        float dipyr_contrast = 0.0f;          // (CC+TC) - (AC+GC)
+        float dipyr_contrast = 0.0f;          // 0.5*(CC+TC) - 0.5*(AC+GC)
         float ox_gt_asymmetry = 0.0f;
         float s_oxog_mean = 0.0f, s_oxog_max = 0.0f;
         float purine_enrichment_5prime = 0.0f;
