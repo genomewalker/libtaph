@@ -209,8 +209,8 @@ struct DamageContextProfile {
         bool  flag_hex_artifact = false;
         bool  position_0_artifact_5prime = false;
         bool  position_0_artifact_3prime = false;
-        int   fit_offset_5prime = 0;          // adapter-remnant width from DART fit
-        int   fit_offset_3prime = 0;          // adapter-remnant width from DART fit
+        int   fit_offset_5prime = 1;          // adapter-remnant width from DART fit (1 = no adapter)
+        int   fit_offset_3prime = 1;          // adapter-remnant width from DART fit (1 = no adapter)
         uint64_t n_reads = 0;
     } evidence;
 };
