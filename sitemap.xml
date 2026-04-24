@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://genomewalker.github.io/libtaph/</loc>
+         <lastmod>2026-04-24</lastmod>
+    </url>
+    <url>
+         <loc>https://genomewalker.github.io/libtaph/api/</loc>
+         <lastmod>2026-04-24</lastmod>
+    </url>
+    <url>
+         <loc>https://genomewalker.github.io/libtaph/changelog/</loc>
+         <lastmod>2026-04-24</lastmod>
+    </url>
+    <url>
+         <loc>https://genomewalker.github.io/libtaph/damage-types/</loc>
+         <lastmod>2026-04-24</lastmod>
+    </url>
+    <url>
+         <loc>https://genomewalker.github.io/libtaph/integration/</loc>
+         <lastmod>2026-04-24</lastmod>
+    </url>
+    <url>
+         <loc>https://genomewalker.github.io/libtaph/methods/</loc>
+         <lastmod>2026-04-24</lastmod>
+    </url>
+</urlset>
