@@ -542,44 +542,69 @@ DamageContextProfile compute_damage_context_profile(
     //   dipyr_contrast = 0.5*(CC + TC) - 0.5*(AC + GC).
     r.evidence.dipyr_contrast = dp.dipyr_contrast;
 
-    if (dp.n_reads < kMinReads) {
-        r.dominant_process     = DamageContextProfile::DominantProcess::None;
-        r.dominant_process_str = to_string(r.dominant_process);
-        r.interpretation       = "insufficient coverage for damage-context scoring";
-        return r;
-    }
+    const bool any_art_flag = flag_hex_artifact || adapter_clipped ||
+                              adapter3_clipped ||
+                              dp.position_0_artifact_5prime ||
+                              dp.position_0_artifact_3prime;
+    const auto NaN = std::numeric_limits<float>::quiet_NaN();
+    auto finite_max2 = [](float a, float b) {
+        bool fa = std::isfinite(a), fb = std::isfinite(b);
+        if (fa && fb) return std::max(a, b);
+        if (fa)       return a;
+        if (fb)       return b;
+        return std::numeric_limits<float>::quiet_NaN();
+    };
 
-    // Six scores.
-    // terminal deamination: 1 - exp(-max(d5, d3) / kDeamNorm).
-    float dmax_term = std::max(dp.d_max_5prime, dp.d_max_3prime);
-    r.terminal_deamination_score = clamp01f(1.0f - std::exp(-dmax_term / kDeamNorm));
+    // Six scores. Computed unconditionally so that low-coverage samples still
+    // surface any evaluable raw signal; dominant_process is set to None below.
+
+    // terminal deamination: 1 - exp(-max(d5, d3) / kDeamNorm). NaN-safe.
+    float dmax_term = finite_max2(dp.d_max_5prime, dp.d_max_3prime);
+    r.terminal_deamination_score = std::isnan(dmax_term)
+        ? NaN
+        : clamp01f(1.0f - std::exp(-dmax_term / kDeamNorm));
 
     // CpG context: sigmoid on the CpG/non-CpG z-score from compute_cpg_score.
-    r.cpg_context_score = std::isnan(dp.log2_cpg_ratio)
-        ? std::numeric_limits<float>::quiet_NaN()
+    r.cpg_context_score = (std::isnan(dp.log2_cpg_ratio) || !std::isfinite(cpg_z))
+        ? NaN
         : sigmoidf(static_cast<float>(cpg_z));
 
-    // Dipyrimidine context: normalized CC/TC upstream excess over AC/GC.
+    // Dipyrimidine context: normalized upstream-context excess.
     r.dipyrimidine_context_score = std::isnan(r.evidence.dipyr_contrast)
-        ? std::numeric_limits<float>::quiet_NaN()
+        ? NaN
         : clamp01f(r.evidence.dipyr_contrast / kDipyrNorm);
 
     // Oxidative context: max of strand-asymmetric G->T signal and mean NGN panel.
-    float ox_sig = std::max(std::fabs(dp.ox_gt_asymmetry), r.evidence.s_oxog_mean);
-    r.oxidative_context_score = clamp01f(ox_sig / kOxidativeNorm);
+    float ox_signed = finite_max2(std::fabs(dp.ox_gt_asymmetry),
+                                  r.evidence.s_oxog_mean);
+    r.oxidative_context_score = std::isnan(ox_signed)
+        ? NaN
+        : clamp01f(ox_signed / kOxidativeNorm);
 
     // Fragmentation context: purine enrichment at read starts vs interior.
-    r.fragmentation_context_score =
-        clamp01f(dp.purine_enrichment_5prime / kFragNorm);
+    r.fragmentation_context_score = std::isnan(dp.purine_enrichment_5prime)
+        ? NaN
+        : clamp01f(dp.purine_enrichment_5prime / kFragNorm);
 
     // Library artifact: max of flags and a sigmoid on the composition shift z.
-    float art_flag = (flag_hex_artifact || adapter_clipped || adapter3_clipped ||
-                      dp.position_0_artifact_5prime ||
-                      dp.position_0_artifact_3prime) ? 1.0f : 0.0f;
-    float art_sig = sigmoidf(static_cast<float>(hex_shift_z) - 4.0f);
-    r.library_artifact_score = clamp01f(std::max(art_flag, art_sig));
+    // If hex_shift_z is NaN and no flags are set the signal is unknown; the
+    // score stays NaN rather than silently reading as 0.
+    float art_flag = any_art_flag ? 1.0f : 0.0f;
+    float art_sig  = std::isfinite(hex_shift_z)
+        ? sigmoidf(static_cast<float>(hex_shift_z) - 4.0f)
+        : NaN;
+    if (any_art_flag) {
+        r.library_artifact_score = clamp01f(std::max(art_flag,
+                                     std::isnan(art_sig) ? 0.0f : art_sig));
+    } else if (std::isnan(art_sig)) {
+        r.library_artifact_score = NaN;
+    } else {
+        r.library_artifact_score = clamp01f(art_sig);
+    }
 
-    // Deterministic dominant-process rule.
+    // Deterministic dominant-process rule. Unevaluable signals (NaN) are not
+    // allowed to trigger a branch; a NaN terminal-deamination score in
+    // particular must not collapse to low_damage.
     using D = DamageContextProfile::DominantProcess;
     float td  = r.terminal_deamination_score;
     float cpg = r.cpg_context_score;
@@ -587,25 +612,32 @@ DamageContextProfile compute_damage_context_profile(
     float ox  = r.oxidative_context_score;
     float fr  = r.fragmentation_context_score;
     float art = r.library_artifact_score;
-    auto v = [](float x){ return std::isnan(x) ? 0.0f : x; };
+    auto gt = [](float x, float t){ return std::isfinite(x) && x >  t; };
+    auto lt = [](float x, float t){ return std::isfinite(x) && x <  t; };
 
-    if (v(art) > 0.7f) {
+    if (dp.n_reads < kMinReads) {
+        r.dominant_process = D::None;
+        r.interpretation   = "insufficient coverage for damage-context scoring";
+    } else if (std::isnan(td)) {
+        r.dominant_process = D::None;
+        r.interpretation   = "terminal deamination signal not evaluable";
+    } else if (gt(art, 0.7f)) {
         r.dominant_process = D::LibraryArtifactLikely;
         r.interpretation = "composition or adapter-stub evidence dominates over damage signal";
-    } else if (v(fr) > 0.5f && v(td) < 0.3f) {
+    } else if (gt(fr, 0.5f) && lt(td, 0.3f)) {
         r.dominant_process = D::FragmentationBias;
         r.interpretation = "purine enrichment at fragment starts without matching terminal deamination";
-    } else if (v(td) < 0.10f) {
+    } else if (lt(td, 0.10f)) {
         r.dominant_process = D::LowDamage;
         r.interpretation = "terminal deamination signal below detection threshold";
-    } else if (v(cpg) > 0.7f && v(td) > 0.3f) {
+    } else if (gt(cpg, 0.7f) && gt(td, 0.3f)) {
         r.dominant_process = D::CpgEnrichedDeamination;
         r.interpretation = "terminal deamination with elevated CpG-context contribution "
                            "consistent with methylated-cytosine deamination";
-    } else if (v(ox) > 0.5f && v(td) < 0.5f) {
+    } else if (gt(ox, 0.5f) && lt(td, 0.5f)) {
         r.dominant_process = D::OxidativeLike;
         r.interpretation = "strand-asymmetric G->T / C->A excess consistent with oxidative damage";
-    } else if (v(dip) > 0.4f) {
+    } else if (gt(dip, 0.4f)) {
         r.dominant_process = D::DipyrimidineBiased;
         r.interpretation = "dipyrimidine upstream-context excess in terminal C->T rates";
     } else {
