@@ -311,6 +311,13 @@ struct SampleDamageProfile {
     size_t n_reads_gc_filtered = 0;  // Reads skipped due to low GC content
     size_t n_reads_sampled = 0;  // Total reads sampled for GC histogram
 
+    // Lifecycle guard: finalize_sample_profile() converts raw count arrays
+    // (t_freq_5prime, etc.) into rates IN PLACE. Calling finalize twice, or
+    // merging a finalized profile, silently corrupts the math. This flag is
+    // checked at the entry of finalize_sample_profile() and merge_sample_profiles()
+    // so misuse becomes a hard error instead of a silent garbage result.
+    bool finalized = false;
+
     // GC content histogram (100 bins: 0-1%, 1-2%, ..., 99-100%)
     // Used to compute adaptive GC threshold for damage detection
     std::array<size_t, 100> gc_histogram = {};
@@ -636,9 +643,16 @@ struct SampleDamageProfile {
         }
     }
 
-    // Get GC bin index (0-9) for a sequence based on interior GC content
-    static int get_gc_bin(const std::string& seq) {
-        if (seq.length() < 20) return 4;
+    // Sentinel returned by try_get_gc_bin() when the sequence is too short or
+    // entirely ambiguous (no ACGT bases in the interior). Callers that ignore
+    // validity can use the bin-4 fallback via get_gc_bin().
+    static constexpr int GC_BIN_UNKNOWN = -1;
+
+    // Compute the interior GC bin. Returns GC_BIN_UNKNOWN when the sequence is
+    // shorter than 20 bp or has no ACGT bases in the interior window — letting
+    // callers distinguish "GC ≈ middle" from "no usable signal".
+    static int try_get_gc_bin(const std::string& seq) {
+        if (seq.length() < 20) return GC_BIN_UNKNOWN;
         size_t gc = 0, total = 0;
         size_t start = std::min(size_t(5), seq.length() / 4);
         size_t end = seq.length() - start;
@@ -650,10 +664,17 @@ struct SampleDamageProfile {
                 c == 'G' || c == 'g' || c == 'C' || c == 'c') ++total;
         }
 
-        if (total == 0) return 4;
+        if (total == 0) return GC_BIN_UNKNOWN;
         float gc_frac = static_cast<float>(gc) / static_cast<float>(total);
         int bin = static_cast<int>(gc_frac * 10.0f);
         return std::clamp(bin, 0, N_GC_BINS - 1);
+    }
+
+    // Backwards-compatible wrapper: collapses the unknown case to bin 4 (the
+    // historical silent fallback). Prefer try_get_gc_bin() in new code.
+    static int get_gc_bin(const std::string& seq) {
+        int b = try_get_gc_bin(seq);
+        return b == GC_BIN_UNKNOWN ? 4 : b;
     }
 
     // Get GC-conditional damage parameters for a read
@@ -666,23 +687,26 @@ struct SampleDamageProfile {
     };
 
     GCDamageParams get_gc_params(const std::string& seq) const {
-        int bin = get_gc_bin(seq);
+        int bin = try_get_gc_bin(seq);
+        GCDamageParams params{};
+        if (bin == GC_BIN_UNKNOWN) {
+            params.bin_valid = false;
+            return params;
+        }
         const auto& stats = gc_bins[bin];
-
-        GCDamageParams params;
-        params.p_damaged = stats.p_damaged;
-        params.delta_s = stats.d_max;
+        params.p_damaged   = stats.p_damaged;
+        params.delta_s     = stats.d_max;
         params.baseline_tc = stats.baseline_tc;
-        params.lambda = lambda_5prime;  // Use fitted lambda
-        params.bin_valid = stats.valid;
-
+        params.lambda      = lambda_5prime;
+        params.bin_valid   = stats.valid;
         return params;
     }
 
     // Get effective damage rate for a read (posterior-weighted)
-    // δ_eff = P(damaged|read) * δ_s
+    // δ_eff = P(damaged|read) * δ_s. Returns 0 when the GC bin is unknown.
     float get_effective_damage(const std::string& seq, float read_ancient_prob) const {
-        int bin = get_gc_bin(seq);
+        int bin = try_get_gc_bin(seq);
+        if (bin == GC_BIN_UNKNOWN) return 0.0f;
         return read_ancient_prob * gc_bins[bin].d_max;
     }
 };

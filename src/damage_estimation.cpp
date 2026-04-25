@@ -6,7 +6,10 @@
 #include <algorithm>
 #include <cmath>
 #include <array>
+#include <cstring>
 #include <limits>
+#include <stdexcept>
+#include <vector>
 
 namespace taph {
 
@@ -945,11 +948,27 @@ void FrameSelector::update_sample_profile(
         const int wlen = hi - lo;
         if (wlen >= 2) {
             auto& acc = profile.interior_ct_cluster;
-            // Build eligible + indicator arrays for CT and AG tracks
-            std::vector<uint8_t> ct_elig(static_cast<size_t>(wlen), 0);
-            std::vector<uint8_t> ct_pos (static_cast<size_t>(wlen), 0);
-            std::vector<uint8_t> ag_elig(static_cast<size_t>(wlen), 0);
-            std::vector<uint8_t> ag_pos (static_cast<size_t>(wlen), 0);
+            // Build eligible + indicator arrays for CT and AG tracks.
+            // Thread-local scratch reused across reads — eliminates 4 heap
+            // allocations per read on this hot path. Buffers grow monotonically
+            // and are zeroed in the prefix actually used (size_t wlen).
+            thread_local std::vector<uint8_t> ct_elig_buf, ct_pos_buf,
+                                              ag_elig_buf, ag_pos_buf;
+            const size_t W = static_cast<size_t>(wlen);
+            if (ct_elig_buf.size() < W) {
+                ct_elig_buf.resize(W);
+                ct_pos_buf .resize(W);
+                ag_elig_buf.resize(W);
+                ag_pos_buf .resize(W);
+            }
+            uint8_t* ct_elig = ct_elig_buf.data();
+            uint8_t* ct_pos  = ct_pos_buf.data();
+            uint8_t* ag_elig = ag_elig_buf.data();
+            uint8_t* ag_pos  = ag_pos_buf.data();
+            std::memset(ct_elig, 0, W);
+            std::memset(ct_pos,  0, W);
+            std::memset(ag_elig, 0, W);
+            std::memset(ag_pos,  0, W);
             int n_ct = 0, k_ct = 0, n_ag = 0, k_ag = 0;
             for (int i = lo; i < hi; ++i) {
                 const int j = i - lo;
@@ -1094,6 +1113,14 @@ static CtCtxFit fit_ct5_ctx_amplitude(
 
 void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     if (profile.n_reads == 0) return;
+    // Lifecycle guard (see SampleDamageProfile::finalized): finalize mutates
+    // raw counts into rates in place — calling it twice would normalize the
+    // already-normalized arrays again. Throw rather than silently corrupt.
+    if (profile.finalized) {
+        throw std::logic_error(
+            "finalize_sample_profile: profile already finalized; "
+            "reset_sample_profile() must be called before re-running update/finalize.");
+    }
 
     // Capture raw counts before normalization for statistical tests
     double base_tc_total = profile.baseline_t_freq + profile.baseline_c_freq;
@@ -2496,7 +2523,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             const bool misspec = profile.composition_bias_5prime
                               || profile.position_0_artifact_5prime
                               || (profile.fit_offset_5prime > 1 && profile.position_0_artifact_5prime);
-            if (misspec && profile.d_max_5prime >= 0.03f) {
+            // BUG FIX: rescue ran before d_max_5prime was assigned (that
+            // happens further below at the raw_d_max_5prime block). Use
+            // max_damage_5prime which is set up-stream at line ~1994.
+            if (misspec && profile.max_damage_5prime >= 0.03f) {
                 // CT5 empirical excess: max T/(T+C) at pos 1-4 over baseline
                 float ct5_exc = 0.0f;
                 float n_ct5   = 1.0f;
@@ -3213,9 +3243,19 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         else
             profile.preservation_label = PL::EXCEPTIONAL;
     }
+    // Lifecycle: mark finalized so re-entry is rejected (see SampleDamageProfile::finalized).
+    profile.finalized = true;
 }
 
 void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const SampleDamageProfile& src) {
+    // Lifecycle guard: merge sums raw count arrays. After finalize they hold
+    // rates, so summing them produces nonsense. Reject explicitly rather than
+    // corrupt downstream silently.
+    if (dst.finalized || src.finalized) {
+        throw std::logic_error(
+            "merge_sample_profiles: profiles must be merged BEFORE "
+            "finalize_sample_profile() is called on either side.");
+    }
     for (int i = 0; i < 15; ++i) {
         dst.t_freq_5prime[i] += src.t_freq_5prime[i];
         dst.c_freq_5prime[i] += src.c_freq_5prime[i];
@@ -3456,6 +3496,12 @@ void FrameSelector::update_sample_profile_weighted(
 }
 
 void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
+    // Default-construct first: covers every field (including ones the previous
+    // hand-rolled reset missed: d_max_*, damage_status, composition_bias_*,
+    // inverted_pattern_*, library_bic_*, etc.) and stays in sync as new
+    // members are added to SampleDamageProfile. Then restore the few
+    // historical non-zero defaults the manual reset relied on (below).
+    profile = SampleDamageProfile{};
     for (int i = 0; i < 15; ++i) {
         profile.t_freq_5prime[i] = 0.0;
         profile.c_freq_5prime[i] = 0.0;
