@@ -221,8 +221,13 @@ LogLengthGmmResult detect_log_length_gmm_edges(
         L = std::clamp(L, min_length + 1, max_length - 1);
         if (edges.empty() || L > edges.back()) edges.push_back(L);
     }
+    // After clamp/dedup, the realized component count is edges+1. Without this
+    // sync, n_components could disagree with the number of usable bins
+    // downstream (silent metadata drift).
     out.edges = std::move(edges);
-    if (out.edges.empty()) out.n_components = 1;
+    out.n_components = out.edges.empty()
+                       ? 1
+                       : static_cast<int>(out.edges.size()) + 1;
     return out;
 }
 

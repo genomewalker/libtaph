@@ -42,7 +42,11 @@ inline LengthGcJointMixtureResult fit_length_gc_joint_mixture(const LengthBinSta
     constexpr std::size_t MAX_CELLS =
         LengthBinStats::MAX_BINS * static_cast<std::size_t>(G);
 
-    const int n_bins = static_cast<int>(stats.n_bins);
+    // Trust nothing about caller-supplied `n_bins`: clamp to the static
+    // MAX_BINS so we never index past stats.profiles[]. Walking past the
+    // fixed-size storage on a bad input was the original failure mode.
+    const int n_bins = std::clamp(static_cast<int>(stats.n_bins), 0,
+                                  static_cast<int>(LengthBinStats::MAX_BINS));
     if (n_bins <= 0) return out;
 
     std::array<GCBinInput, MAX_CELLS> cells{};

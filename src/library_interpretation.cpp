@@ -16,11 +16,13 @@ namespace taph {
 std::array<char,7> decode_hex(int code) {
     const char bases[] = "ACGT";
     std::array<char,7> s{}; s[6] = '\0';
+    if (code < 0 || code >= 4096) { s[0] = '\0'; return s; }
     for (int i = 5; i >= 0; --i) { s[i] = bases[code & 3]; code >>= 2; }
     return s;
 }
 
 int encode_hex_at(const std::string& s, int pos) {
+    if (pos < 0 || static_cast<size_t>(pos) + 6 > s.size()) return -1;
     int code = 0;
     for (int i = pos; i < pos + 6; ++i) {
         int b;
@@ -54,7 +56,9 @@ std::vector<HexEnrichment> compute_hex_enriched_5prime(
     }
     std::sort(out.begin(), out.end(),
               [](const HexEnrichment& a, const HexEnrichment& b) {
-                  return a.log2fc > b.log2fc; });
+                  if (a.log2fc != b.log2fc) return a.log2fc > b.log2fc;
+                  return a.idx < b.idx;
+              });
     return out;
 }
 
@@ -102,7 +106,10 @@ AdapterStubs detect_adapter_stubs(
                 if (lfc > 3.0) hex3_enriched.push_back({lfc, i});
             }
             std::sort(hex3_enriched.begin(), hex3_enriched.end(),
-                      [](const H3& a, const H3& b) { return a.lfc > b.lfc; });
+                      [](const H3& a, const H3& b) {
+                          if (a.lfc != b.lfc) return a.lfc > b.lfc;
+                          return a.idx < b.idx;
+                      });
             for (const auto& hr : hex3_enriched) {
                 if ((int)r.stubs3.size() >= 5) break;
                 auto s = decode_hex(hr.idx);
