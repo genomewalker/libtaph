@@ -252,6 +252,18 @@ struct SampleDamageProfile {
     bool library_type_auto_detected = false;  // true when set by auto-detection, not user override
     bool library_type_rescued = false;  // true when DS call recovered from BIC failure via rescue rule
 
+    // Posterior probabilities derived from the 7-model BIC tournament via
+    // softmax(-BIC/2). Sum to 1.0 within numerical precision when evaluable.
+    // p_winner = max of the three; library_type_confidence_threshold below
+    // gates the UNKNOWN fallback. When library_type_evaluable=false (e.g. an
+    // input channel was invalid), all four are 0 and library_type=UNKNOWN.
+    float library_p_ds      = 0.0f;
+    float library_p_ss      = 0.0f;
+    float library_p_bias    = 0.0f;
+    float library_p_winner  = 0.0f;
+    bool  library_type_evaluable = false;
+    static constexpr float kLibraryTypeConfidenceThreshold = 0.60f;
+
     // Damage status: independent of library type, based on effect size + confidence interval
     enum class DamageStatus { ABSENT, WEAK, PRESENT };
     DamageStatus damage_status = DamageStatus::ABSENT;

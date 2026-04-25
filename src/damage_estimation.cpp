@@ -2391,6 +2391,14 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             profile.library_bic_ss   = best_ss;
             profile.library_bic_mix  = bic_M_SS_full;
 
+            // Softmax posterior probabilities over all 7 candidate models:
+            //   P(M_i | data) ∝ exp(-BIC_i/2)
+            // Subtracting min(BIC) before exp() keeps everything finite under
+            // the typical BIC range we see (Δ ~ 1e3–1e6 between models). Sum
+            // by class — DS includes M_DS_symm/spike/symm_art; SS includes
+            // M_SS_comp/orig/full/asym (the latter two only when active).
+            // M_DS_spike contributes to SS instead when spike_is_ss=true,
+            // matching the cascade's interpretation of bilateral pos-0 GA.
             double best = bic_M_bias;
             profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
             bool ds_spike_won = false;  // tracks whether M_DS_spike is the current winning model
@@ -2506,11 +2514,89 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             if (best == bic_M_bias) {
                 profile.library_type = SampleDamageProfile::LibraryType::UNKNOWN;
             }
+            // Posterior class probabilities P(class | data) ∝ exp(-BIC/2),
+            // computed AFTER the cascade so M_DS_spike (and M_SS_asym) are
+            // routed to whichever class the cascade's domain rescues actually
+            // assigned. Keeps p_ds/p_ss consistent with library_type.
+            {
+                // Hypothesis set must match the cascade's competition exactly:
+                //   M_bias, M_DS_symm, M_DS_spike, M_DS_symm_art, M_SS_comp,
+                //   M_SS_orig (only when ct3.delta_bic > 0),
+                //   M_SS_asym (only when spike_is_ss).
+                // M_SS_full is intentionally NOT in the cascade (its 4-param fit
+                // unfairly defeats M_DS_symm_art on asymmetric DS) so it is
+                // excluded from the softmax too — otherwise its mass would
+                // appear in p_ss without ever being a valid winner.
+                const bool inc_orig = (ct3.delta_bic > 0.0);
+                const bool inc_asym = spike_is_ss;
+                const double BIG = 1e300;
+                const double bics[7] = {
+                    bic_M_bias,
+                    bic_M_DS_symm,
+                    bic_M_DS_spike,
+                    bic_M_DS_symm_art,
+                    bic_M_SS_comp,
+                    inc_orig ? bic_M_SS_orig : BIG,
+                    inc_asym ? bic_M_SS_asym : BIG
+                };
+                double bmin = bics[0];
+                for (int i = 1; i < 7; ++i) if (bics[i] < bmin) bmin = bics[i];
+                double w[7];
+                double Z = 0.0;
+                for (int i = 0; i < 7; ++i) {
+                    double half = (bmin - bics[i]) * 0.5;
+                    if (half < -80.0) half = -80.0;
+                    w[i] = std::exp(half);
+                    Z += w[i];
+                }
+                if (Z > 0.0) {
+                    for (int i = 0; i < 7; ++i) w[i] /= Z;
+                    const double p_bias = w[0];
+                    double p_ds = w[1] + w[3];                 // M_DS_symm + M_DS_symm_art
+                    double p_ss = w[4] + w[5] + w[6];          // M_SS_comp + M_SS_orig (gated) + M_SS_asym (gated)
+                    // Route ambiguous M_DS_spike (w[2]) to the class the cascade
+                    // (with all rescues applied) ended up choosing. UNKNOWN/bias
+                    // falls back to the spike_is_ss heuristic.
+                    const auto LT = profile.library_type;
+                    if (LT == SampleDamageProfile::LibraryType::SINGLE_STRANDED) {
+                        p_ss += w[2];
+                    } else if (LT == SampleDamageProfile::LibraryType::DOUBLE_STRANDED) {
+                        p_ds += w[2];
+                    } else {
+                        if (spike_is_ss) p_ss += w[2]; else p_ds += w[2];
+                    }
+                    double sum = p_bias + p_ds + p_ss;
+                    if (sum > 0.0) {
+                        profile.library_p_bias   = static_cast<float>(p_bias / sum);
+                        profile.library_p_ds     = static_cast<float>(p_ds   / sum);
+                        profile.library_p_ss     = static_cast<float>(p_ss   / sum);
+                        profile.library_p_winner = std::max({profile.library_p_bias,
+                                                             profile.library_p_ds,
+                                                             profile.library_p_ss});
+                        profile.library_type_evaluable = true;
+                    }
+                }
+            }
+            // Low-confidence override: if the posterior winner sits below the
+            // confidence threshold AND no domain rescue rule fired, fall back
+            // to UNKNOWN so downstream consumers (fqdup) use a neutral damage
+            // prior instead of committing to a marginal call.
+            if (!profile.library_type_rescued &&
+                profile.library_p_winner > 0.0f &&
+                profile.library_p_winner <
+                    SampleDamageProfile::kLibraryTypeConfidenceThreshold) {
+                profile.library_type = SampleDamageProfile::LibraryType::UNKNOWN;
+            }
         } else {
             profile.library_bic_bias = 0.0;
             profile.library_bic_ds   = 0.0;
             profile.library_bic_ss   = 0.0;
             profile.library_bic_mix  = 0.0;
+            profile.library_p_bias   = 0.0f;
+            profile.library_p_ds     = 0.0f;
+            profile.library_p_ss     = 0.0f;
+            profile.library_p_winner = 0.0f;
+            profile.library_type_evaluable = false;
             profile.library_type = SampleDamageProfile::LibraryType::UNKNOWN;
         }
 
