@@ -246,11 +246,15 @@ inline JointDamageResult JointDamageModel::fit(const JointDamageSuffStats& stats
     // ΔBIC = BIC_M0 - BIC_M1 (positive favors M1 = damage)
     result.delta_bic = result.bic_m0 - result.bic_m1;
 
-    // Bayes factor approximation: BF_10 ≈ exp(ΔBIC/2)
-    result.bayes_factor = std::exp(result.delta_bic / 2.0f);
+    // Bayes factor approximation: BF_10 ≈ exp(ΔBIC/2). Cap exponent to keep
+    // BF / p_damage finite under extreme separations (avoid inf/inf = NaN).
+    float half_dbic = std::clamp(result.delta_bic / 2.0f, -80.0f, 80.0f);
+    result.bayes_factor = std::exp(half_dbic);
 
-    // P(damage) = BF / (1 + BF) with prior P(damage) = 0.5
-    result.p_damage = result.bayes_factor / (1.0f + result.bayes_factor);
+    // P(damage) computed via stable logistic on ΔBIC/2:
+    //   p = 1 / (1 + exp(-ΔBIC/2))
+    // Equivalent to BF/(1+BF) with prior 0.5, but never NaN.
+    result.p_damage = 1.0f / (1.0f + std::exp(-half_dbic));
 
     // Compute RMSE for diagnostics
     float sse = 0.0f;
