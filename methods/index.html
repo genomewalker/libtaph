@@ -1,0 +1,1448 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reference-free ancient DNA damage estimation and library-type classification">
+      
+      
+      
+        <link rel="canonical" href="https://genomewalker.github.io/libtaph/methods/">
+      
+      
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../damage-types/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Methods - libtaph</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#methods" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="libtaph" class="md-header__button md-logo" aria-label="libtaph" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            libtaph
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Methods
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/genomewalker/libtaph" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    genomewalker/libtaph
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Methods
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../damage-types/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Damage types
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../api/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  API Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../integration/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Classifier Integration
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="libtaph" class="md-nav__button md-logo" aria-label="libtaph" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    libtaph
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/genomewalker/libtaph" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    genomewalker/libtaph
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methods
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methods
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#per-position-accumulation-and-baseline-estimation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-position accumulation and baseline estimation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#paired-end-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Paired-end mode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#damage-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Damage model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-channel-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-channel validation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multi-channel validation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#channel-b-frame-agnostic-codon-scanning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channel B: frame-agnostic codon scanning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#joint-damage-model-jointdamagemodel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Joint damage model (JointDamageModel)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#library-type-classifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Library-type classifier
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Library-type classifier">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#biological-basis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Biological basis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#four-channels-and-the-ga0-spike" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Four channels and the GA0 spike
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bic-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BIC models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cascade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cascade
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-hoc-symmetry-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Post-hoc symmetry check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rescue-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rescue rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#unknown-category" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UNKNOWN category
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gc-stratified-estimation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GC-stratified estimation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d_max-combination" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D_max combination
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hexamer-signals-and-domain-classifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hexamer signals and domain classifier
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#handling-sparse-and-noisy-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Handling sparse and noisy data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#length-stratified-estimation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Length-stratified estimation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#context-aware-terminal-damage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context-aware terminal damage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#damage-context-profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Damage-context profile
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../damage-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Damage types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Classifier Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="methods">Methods</h1>
+<p>libtaph estimates ancient-DNA damage directly from raw reads, without alignment or a reference genome. Working directly on raw reads makes the method applicable early in a workflow, before any alignment step. The cost is that terminal base composition, library preparation, and genuine post-mortem damage can all produce superficially similar sequence patterns, making it difficult to attribute a terminal signal to any one cause. The method therefore uses multiple independent signals to reduce that ambiguity — each targeting a different biochemical process — and validates agreement between them before reporting a damage estimate.</p>
+<p>The processing pipeline has four stages: per-position accumulation, joint damage validation, library-type classification, GC-stratified mixture modelling, and final <code>d_max</code> selection. The sections below follow that order. The emphasis is not only on what is computed, but on why each stage is needed and what ambiguity it resolves.</p>
+<h2 id="per-position-accumulation-and-baseline-estimation">Per-position accumulation and baseline estimation</h2>
+<p>The raw material for all downstream inference is a set of terminal and interior counts accumulated directly from reads. For each read, libtaph inspects the first and last 15 positions and records the base combinations relevant to deamination and its controls. The goal at this stage is deliberately simple: count what is observed at the termini, count what is observed away from the termini, and postpone interpretation until enough evidence has accumulated.</p>
+<p>For each terminal position <span class="arithmatex">\(p\)</span>:</p>
+<ul>
+<li><strong>5' damage channel (ct5)</strong>: <span class="arithmatex">\(r_p = T_p / (T_p + C_p)\)</span>, excess T where C is expected</li>
+<li><strong>3' damage channel (ga3)</strong>: <span class="arithmatex">\(r_p = A_p / (A_p + G_p)\)</span>, excess A where G is expected</li>
+<li><strong>5' control channel</strong>: <span class="arithmatex">\(A_p / (A_p + G_p)\)</span> at the 5' end, which should remain flat if the 5' C→T signal is genuine deamination rather than composition bias</li>
+<li><strong>3' control channel (ct3)</strong>: <span class="arithmatex">\(T_p / (T_p + C_p)\)</span> at the 3' end, which acts as a negative control in DS libraries but becomes a biologically meaningful SS signal when the original strand is sequenced</li>
+</ul>
+<p>The interior of the read provides the undamaged reference state. libtaph uses the middle third of each read (positions 30 to <span class="arithmatex">\(L-30\)</span>) to estimate the background rate <span class="arithmatex">\(b\)</span>. This region is far enough from the termini to be largely insensitive to terminal overhang damage, but still reflects the sample's intrinsic sequence composition. In a reference-free setting this interior baseline is essential: the method does not ask whether a specific read differs from a reference genome, but whether terminal positions deviate from that sample's own interior composition.</p>
+<p>These per-position ratios are later summarized with a weighted least-squares (WLS) amplitude estimate using a fixed decay rate <span class="arithmatex">\(\hat\lambda\)</span>:</p>
+<div class="arithmatex">\[\hat{A} = \max\!\left(0,\; \frac{\sum_p n_p \cdot e^{-\hat\lambda p} \cdot (r_p - b)}{\sum_p n_p \cdot e^{-2\hat\lambda p}}\right)\]</div>
+<p>where <span class="arithmatex">\(n_p\)</span> is the coverage at terminal position <span class="arithmatex">\(p\)</span>. This expression asks whether terminal positions that should carry the strongest damage signal are systematically elevated above the interior baseline, weighted by how many reads cover each position. The WLS estimate is not the whole method; it is one summary of a richer terminal pattern that is cross-checked later against composition controls and codon-based evidence.</p>
+<hr />
+<h2 id="paired-end-mode">Paired-end mode</h2>
+<p><code>update_sample_profile_pe(R1, R2)</code> consumes a read pair directly rather than
+running SE accumulation on each mate separately. The mapping is biological:
+<code>R1[i]</code> measures the top strand 5'-end at position <code>i</code>, while <code>R2[i]</code>'s
+complement measures the <strong>same fragment's</strong> top strand 3'-end at position <code>i</code>.
+Treating R2 as an independent SE read would attribute its 5'-end signal to a
+second 5' damage process that does not exist, and would let G→A events on the
+bottom strand contribute to ct5 rather than ga3.</p>
+<p>When the insert length <code>M</code> is shorter than the read length <code>L</code>, both mates
+read into the sequencing adapter. Adapter bases have a fixed composition that
+differs from the genomic background, and after complement-mapping they imprint
+a deterministic pattern on the terminal channels — in the worst case enough to
+reroute a DS library through the SS branch of the classifier. libtaph detects
+short-insert pairs by R1/R2 overlap (a 15 bp window with at most 3 mismatches)
+and skips them, recording the count under <code>pe_short_insert_skipped</code>. Pairs
+with <code>M ≥ L</code> enter the accumulator unchanged.</p>
+<hr />
+<h2 id="damage-model">Damage model</h2>
+<p>Once terminal and interior counts have been accumulated, libtaph models ancient-DNA deamination as a terminal process that decays inward from each end of the fragment. In double-stranded libraries this appears as C→T excess at the 5' end and G→A excess at the 3' end, because the complementary strand carries the same damaged cytosines as G→A when read in the opposite orientation. This characteristic pattern was first systematically described by <a href="https://www.pnas.org/doi/10.1073/pnas.0704665104">Briggs et al. (2007)</a> and subsequently formalized as an exponential decay model by <a href="https://doi.org/10.1093/bioinformatics/btt193">Jónsson et al. (2013)</a>.</p>
+<p>The terminal signal is modelled as</p>
+<div class="arithmatex">\[\delta(p) = b + A \cdot e^{-\lambda p}\]</div>
+<p>where:</p>
+<ul>
+<li><span class="arithmatex">\(p\)</span> is distance from the terminus (0-indexed)</li>
+<li><span class="arithmatex">\(b\)</span> is the interior background rate</li>
+<li><span class="arithmatex">\(A\)</span> is the terminal excess above that background</li>
+<li><span class="arithmatex">\(\lambda\)</span> is the decay constant that controls how rapidly the excess disappears with distance from the end</li>
+</ul>
+<p>The role of this equation is not just descriptive. It encodes the central biological assumption of the method: genuine terminal damage should be strongest at the edge of the fragment and should decay smoothly inward, whereas many confounders either remain flat or fail to reproduce the same decay in independent channels.</p>
+<p>To report a quantity comparable to <a href="https://doi.org/10.1093/bioinformatics/btt193">mapDamage2.0 (Jónsson et al. 2013)</a> and <a href="https://doi.org/10.1101/2022.12.06.519264">metaDMG (Michelsen et al. 2022)</a>, libtaph converts the fitted amplitude into a calibrated terminal damage rate,</p>
+<div class="arithmatex">\[D_{\max} = \frac{A}{1 - b}\]</div>
+<p>which estimates the fraction of terminal C sites that were converted to T, after accounting for the background T proportion. <span class="arithmatex">\(A\)</span> is the absolute excess above that background; <span class="arithmatex">\(D_{\max}\)</span> converts it to the fraction of damage-susceptible terminal cytosines that were actually damaged.</p>
+<p>The background <span class="arithmatex">\(b\)</span> used in the fit is <strong>tail-anchored</strong>: it is estimated from
+positions 20..49 of the terminal accumulator rather than from the global mean
+of the per-position rates. This matters because the per-position rates near
+the terminus carry the deamination signal we are trying to fit, so a global
+mean leaks signal into the baseline and biases <span class="arithmatex">\(A\)</span> downward. Tail positions
+20..49 sit far enough inward that the exponential damage component has decayed
+by 1–2 orders of magnitude (for typical <span class="arithmatex">\(\lambda\)</span>), so they are effectively a
+chemistry-aware baseline immune to the deamination signal.</p>
+<p>Alongside <span class="arithmatex">\(D_{\max}\)</span> libtaph reports an <strong>area-excess</strong> statistic per channel:
+the sum of <span class="arithmatex">\((r_p - b)\)</span> over the first 10 positions, together with a
+likelihood-ratio score against the bg-only null. Area-excess is a non-parametric
+companion to <span class="arithmatex">\(D_{\max}\)</span>: it does not depend on the exponential functional form
+and is robust when the decay is slower or noisier than the model assumes. The
+classifier consumes both, so a library that fits the model poorly but has
+clear terminal excess can still be classified correctly.</p>
+<hr />
+<h2 id="multi-channel-validation">Multi-channel validation</h2>
+<p>The first major inference step in <code>finalize_sample_profile</code> asks a question that is specific to reference-free damage estimation: is terminal T enrichment actually ancient-DNA damage, or is it simply a compositional feature of the reads? A single nucleotide-frequency channel cannot answer that reliably, because elevated terminal T/(T+C) can arise from real C→T deamination or from a terminal sequence bias unrelated to damage.</p>
+<p>libtaph addresses this by evaluating several independent biochemical channels. Some channels are primary evidence for deamination, while others act as controls or orthogonal diagnostics.</p>
+<table>
+<thead>
+<tr>
+<th>Channel</th>
+<th>Signal</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>C→T rate per position</td>
+<td>Primary deamination channel</td>
+</tr>
+<tr>
+<td>B</td>
+<td>Stop codon conversion (CAA/CAG/CGA → TAA/TAG/TGA) at 5'</td>
+<td>Sequence-composition-independent validation</td>
+</tr>
+<tr>
+<td>B₃′</td>
+<td>Stop codon conversion via G→A at 3' (TGG → TAG/TGA)</td>
+<td>Validates SS 3' damage</td>
+</tr>
+<tr>
+<td>C</td>
+<td>G→T transversions (8-oxoG) via stop codon uniformity</td>
+<td>Uniform across read; distinguishes oxidation from terminal deamination</td>
+</tr>
+<tr>
+<td>D</td>
+<td>G→T / C→A direct transversion rates</td>
+<td>Terminal/interior contrast for oxidative damage</td>
+</tr>
+<tr>
+<td>E</td>
+<td>Purine enrichment at 5' termini (depurination)</td>
+<td>Independent evidence of fragmentation at AP sites</td>
+</tr>
+</tbody>
+</table>
+<p>In practice, the decision about whether 5' deamination is real is driven by a joint model built from Channel A, its 5' control channel, and Channel B. The other channels remain informative diagnostics, especially in asymmetric or unusual libraries, but they do not replace the core logic: a valid deamination call should be supported by an independent signal that composition alone cannot mimic. Channels D and E are described in detail in <a href="../damage-types/">Damage types</a>; the biochemical basis for Channel D (8-oxoG G→T misincorporation) is reviewed in <a href="#ref-shibutani1991">Shibutani et al. (1991)</a> and <a href="#ref-neeley2006">Neeley &amp; Essigmann (2006)</a>, and for Channel E (depurination fragmentation and AP-site strand cleavage) in <a href="#ref-lindahl1993">Lindahl (1993)</a>.</p>
+<p>At a high level, <code>damage_validated</code> means the primary nucleotide signal is supported by composition-robust evidence. Conversely, <code>damage_artifact</code> means terminal enrichment is present in Channel A but contradicted by the stop-codon signal, so the observed excess is more plausibly explained by composition than by genuine damage.</p>
+<h3 id="channel-b-frame-agnostic-codon-scanning">Channel B: frame-agnostic codon scanning</h3>
+<p>Channel B is designed to answer exactly the question that Channel A cannot: if terminal C→T damage is real, do we also see the specific codon changes that such damage should create? The key convertible codons are CAA, CAG, and CGA, which become the stop codons TAA, TAG, and TGA after a single C→T event at the first position.</p>
+<p>Crucially, this test does <strong>not</strong> require reference alignment, ORF prediction, strand selection, or choosing a single reading frame. Instead, libtaph scans all three forward reading frames simultaneously at every position in every read:</p>
+<ul>
+<li>For each frame offset <span class="arithmatex">\(f \in \{0, 1, 2\}\)</span> and each codon starting at position <span class="arithmatex">\(p\)</span>, classify the codon as:</li>
+<li><strong>pre-image</strong> (CAA, CAG, CGA): a codon that would become a stop after C→T damage</li>
+<li><strong>stop</strong> (TAA, TAG, TGA): either a genuine stop or a damage-converted pre-image</li>
+<li>Accumulate those counts separately at each terminal distance (positions 0-14) and in the interior (positions 30 to <span class="arithmatex">\(L-30\)</span>)</li>
+</ul>
+<p>Why does this work without frame selection? Because the method does not need to know which individual codons are biologically translated. It only needs the <strong>relative excess</strong> of stop codons near the terminus compared with the interior. Any bias caused by the mixture of frames is present at both locations, because the same three-frame scan is applied everywhere. As a result, the ratio</p>
+<div class="arithmatex">\[r_p = \frac{\text{stop}}{\text{pre} + \text{stop}}\]</div>
+<p>is largely insensitive to frame composition itself. What can change this ratio specifically at the termini is real C→T damage converting pre-image codons into stops. This is why Channel B is useful as a composition-robust validator rather than merely another way of counting terminal bases.</p>
+<p>The trade-off is statistical rather than conceptual. Channel B is more specific than Channel A, but it uses a smaller subset of informative sites, so it needs more data before it becomes decisive. In low-complexity or low-coverage samples, Channel A may show a suggestive terminal pattern while Channel B remains underpowered.</p>
+<h3 id="joint-damage-model-jointdamagemodel">Joint damage model (<code>JointDamageModel</code>)</h3>
+<p>Rather than interpreting Channel A, the control channel, and Channel B separately, libtaph fits them jointly with <code>JointDamageModel::fit()</code>. The observed 5' terminal profile can be a mixture of at least two effects.</p>
+<ol>
+<li><strong>Real deamination</strong>, which should elevate Channel A and Channel B but not the control channel.</li>
+<li><strong>Compositional artifact</strong>, which can elevate Channel A and the control channel together, but has no reason to elevate Channel B.</li>
+</ol>
+<p>The joint model makes that distinction explicit:</p>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Formula</th>
+<th>What it captures</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Channel A (ct5)</td>
+<td><span class="arithmatex">\(\pi_{TC}(p) = (b_{tc} + a(p)) + (1 - b_{tc} - a(p)) \cdot \delta_{\max} \cdot e^{-\lambda p}\)</span></td>
+<td>Deamination + compositional artifact</td>
+</tr>
+<tr>
+<td>Control (5' AG)</td>
+<td><span class="arithmatex">\(\pi_{AG}(p) = b_{ag} + a(p)\)</span></td>
+<td>Compositional artifact only</td>
+</tr>
+<tr>
+<td>Channel B (stop)</td>
+<td><span class="arithmatex">\(\pi_{stop}(p) = b_{stop} + (1 - b_{stop}) \cdot \delta_{\max} \cdot e^{-\lambda p}\)</span></td>
+<td>Deamination only</td>
+</tr>
+</tbody>
+</table>
+<p>Here <span class="arithmatex">\(b_{tc}\)</span>, <span class="arithmatex">\(b_{ag}\)</span>, and <span class="arithmatex">\(b_{stop}\)</span> are interior baselines estimated directly from the accumulated counts. The term</p>
+<div class="arithmatex">\[a(p) = a_{\max} \cdot e^{-\lambda p}\]</div>
+<p>represents a terminal compositional shift that affects Channel A and the control in parallel. The damage term, parameterized by <span class="arithmatex">\(\delta_{\max}\)</span>, affects Channel A and Channel B. This structure is what makes the model identifiable in practice:</p>
+<ul>
+<li>If the apparent terminal excess is due to composition, Channel A and the control rise together and <span class="arithmatex">\(a_{\max}\)</span> absorbs that pattern, while Channel B remains flat.</li>
+<li>If the excess is due to genuine deamination, Channel A rises, the control stays comparatively flat, and Channel B rises in parallel with the damage term.</li>
+</ul>
+<p>This is the core reason the joint model is more robust than thresholding Channel A alone. It does not merely ask whether the terminal frequency is high; it asks which of two mechanistic explanations better accounts for the joint behavior of all three observed channels.</p>
+<p>The fitted model has three free parameters: <span class="arithmatex">\(\delta_{\max}\)</span>, <span class="arithmatex">\(\lambda\)</span>, and <span class="arithmatex">\(a_{\max}\)</span>. The baselines are fixed from the interior counts. The implementation searches a grid over <span class="arithmatex">\((\lambda, \delta_{\max})\)</span> and, at each grid point, optimizes <span class="arithmatex">\(a_{\max}\)</span> by a nested golden-section search. It then compares the best damage model (<span class="arithmatex">\(M_1\)</span>: <span class="arithmatex">\(\delta_{\max} &gt; 0\)</span>) to a no-damage model (<span class="arithmatex">\(M_0\)</span>: <span class="arithmatex">\(\delta_{\max} = 0\)</span>) using both BIC and an approximate Bayes factor.</p>
+<p><code>damage_validated</code> is set when the joint damage model is favored strongly enough by the implemented criteria: posterior probability <span class="arithmatex">\(p_{\text{damage}} &gt; 0.95\)</span>, BIC evidence <span class="arithmatex">\(\Delta\text{BIC} &gt; 10\)</span> (<a href="#ref-kass1995">Kass &amp; Raftery 1995</a>), or a degenerate Bayes factor in extreme cases. <code>damage_artifact</code> is set when Channel A shows terminal enrichment but the stop-codon channel remains flat or inverted, implying that the enrichment is not supported by composition-independent evidence. When <code>damage_artifact = true</code>, <code>d_max_combined</code> is forced to zero so that downstream tools do not treat a compositional bias as authentic damage.</p>
+<hr />
+<h2 id="library-type-classifier">Library-type classifier</h2>
+<p>After establishing whether terminal damage is genuine, libtaph asks a different question: <strong>which library architecture produced the observed terminal asymmetry?</strong> This is a separate inference problem. Damage validation is about distinguishing authentic deamination from artifact; library classification is about determining which ends and strands are expected to carry that damage signal.</p>
+<p>This separation matters. A sample can have real damage but still show very different terminal patterns depending on whether the library is double-stranded, single-stranded in the original orientation, single-stranded in the complement orientation, or a mixture. The classifier therefore works with four observable channels rather than only the damage-validation trio.</p>
+<p>See <a href="../damage-types/">Damage types</a> for the biological background of these categories and how fqdup uses the resulting call for damage-aware hashing.</p>
+<h3 id="biological-basis">Biological basis</h3>
+<table>
+<thead>
+<tr>
+<th>Library prep</th>
+<th>Typical observed pattern</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Double-stranded (DS)</td>
+<td>Symmetric ct5 and ga3 exponential decay</td>
+</tr>
+<tr>
+<td>DS + end-repair artifact</td>
+<td>DS pattern plus a ga0 spike</td>
+</tr>
+<tr>
+<td>Single-stranded (SS), complement orientation</td>
+<td>ga0-dominated 3' G→A signal; often without smooth ga3</td>
+</tr>
+<tr>
+<td>SS, original orientation</td>
+<td>ct5 + ct3; no ga3</td>
+</tr>
+<tr>
+<td>SS, mixed orientations</td>
+<td>ct5 + ga0; weak residual ga3 may be present depending on protocol</td>
+</tr>
+</tbody>
+</table>
+<p>Single-stranded library protocols include <a href="https://doi.org/10.1038/nprot.2013.038">Gansauge &amp; Meyer (2013)</a>, the Santa Cruz method (<a href="#ref-kapp2021">Kapp et al. 2021</a>), and SRSLY (Claret Bioscience; <a href="#ref-gansauge2017">Gansauge et al. 2017</a>).</p>
+<p>The main difficulty is that these patterns are not perfectly separable by any single statistic. For example, a strong <code>ga0</code> spike can reflect either a DS end-repair artifact or a genuinely single-stranded complement-orientation library. Likewise, asymmetric mixtures of SS orientations can partially mimic a DS signal if one end dominates the evidence. The classifier therefore uses a model-comparison approach rather than a fixed decision tree.</p>
+<h3 id="four-channels-and-the-ga0-spike">Four channels and the GA0 spike</h3>
+<p>In addition to the smooth exponential channels, the classifier treats position 0 of the 3' end as a separate single-position feature (<strong>ga0</strong>). This is necessary because some library-preparation artifacts and some SS signatures are localized almost entirely at the ligation junction rather than forming a smooth inward decay.</p>
+<p>The <code>ga0</code> term is particularly informative because it captures two biologically distinct cases:</p>
+<ul>
+<li><strong>DS end-repair artifacts</strong>: bilateral behavior, with elevated terminal substitutions caused by enzymatic processing rather than unilateral SS damage</li>
+<li><strong>SS complement-orientation reads</strong>: unilateral 3' G→A spikes without the 5' counterpart expected under DS symmetry</li>
+</ul>
+<p>Treating <code>ga0</code> as its own channel prevents the classifier from forcing a spike into an exponential model that does not actually describe the data.</p>
+<h3 id="bic-models">BIC models</h3>
+<p>Seven composite BIC models partition the four channels into active (alt) and inactive (null):</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>ct5</th>
+<th>ga3</th>
+<th>ga0</th>
+<th>ct3</th>
+<th>Interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>M_bias</td>
+<td>null</td>
+<td>null</td>
+<td>null</td>
+<td>null</td>
+<td>No signal</td>
+</tr>
+<tr>
+<td>M_DS_symm</td>
+<td>joint↑</td>
+<td>joint↑</td>
+<td>null</td>
+<td>null</td>
+<td>DS symmetric deamination</td>
+</tr>
+<tr>
+<td>M_DS_spike</td>
+<td>null</td>
+<td>null</td>
+<td>alt</td>
+<td>null</td>
+<td>DS end-repair artifact only</td>
+</tr>
+<tr>
+<td>M_DS_symm_art</td>
+<td>joint↑</td>
+<td>joint↑</td>
+<td>alt</td>
+<td>null</td>
+<td>DS deamination + end-repair</td>
+</tr>
+<tr>
+<td>M_SS_comp</td>
+<td>null</td>
+<td>alt</td>
+<td>alt</td>
+<td>null</td>
+<td>SS complement-orientation only</td>
+</tr>
+<tr>
+<td>M_SS_orig</td>
+<td>alt</td>
+<td>null</td>
+<td>null</td>
+<td>alt</td>
+<td>SS original-orientation only</td>
+</tr>
+<tr>
+<td>M_SS_asym</td>
+<td>alt</td>
+<td>null</td>
+<td>alt</td>
+<td>null</td>
+<td>SS both orientations, no smooth ga3</td>
+</tr>
+</tbody>
+</table>
+<p>In <code>M_DS_symm</code>, ct5 and ga3 share one amplitude parameter (<code>joint↑</code>). This reflects a direct consequence of Chargaff's first rule: in double-stranded DNA, [C] = [G] between strands by complementarity (<a href="#ref-chargaff1950">Chargaff et al. 1950</a>). Deaminated cytosines on the original strand appear as C→T when that strand is sequenced; the same damage events on the complementary strand appear as G→A when it is sequenced. With unbiased adapter ligation capturing both strands in equal proportion, as expected in standard DS library preparation, the two terminal signals should have equal amplitude. The shared parameter improves efficiency when that assumption holds, but it also deliberately penalizes a DS interpretation when the ends are strongly asymmetric — in effect, the model is using symmetry itself as evidence. The post-hoc symmetry check below makes that penalty explicit when asymmetry is extreme.</p>
+<p>Each composite BIC is the sum of channel-level BIC terms:</p>
+<div class="arithmatex">\[\text{BIC}(M) = \sum_{\text{channels}} \text{BIC}_{\text{component}}(\text{channel}, \text{active/null})\]</div>
+<p>Lower BIC wins (<a href="#ref-schwarz1978">Schwarz 1978</a>). The null model contributes no amplitude parameter; each active channel contributes one amplitude parameter with a complexity penalty of <span class="arithmatex">\(\ln(n_{\text{trials}})\)</span>. This formulation makes the trade-off explicit: a more complex library explanation is only preferred if it improves fit enough to justify the additional flexibility.</p>
+<p>In addition to the waterfall candidates, the implementation also evaluates an unconstrained four-channel SS model (<code>M_SS_full</code>: ct5=alt, ga3=alt, ga0=alt, ct3=alt), reported as <code>library_bic_mix</code> in <code>SampleDamageProfile</code>. This model is useful diagnostically and for likelihood-based summaries, even though it is not itself the winner in the cascade.</p>
+<h3 id="cascade">Cascade</h3>
+<p>The classifier evaluates candidate models in the following order:</p>
+<ol>
+<li>Start with <code>best = BIC(M_bias)</code>, type = DS</li>
+<li>M_DS_symm, DS</li>
+<li>M_DS_spike (only when <code>spike_is_ss = false</code>), DS</li>
+<li>M_DS_symm_art, DS</li>
+<li>M_SS_comp, SS</li>
+<li>M_SS_orig (only when ct3 ΔBIC &gt; 0), SS</li>
+<li>M_DS_spike as SS (only when <code>spike_is_ss = true</code>), SS</li>
+<li>M_SS_asym (only when <code>spike_is_ss = true</code>), SS</li>
+</ol>
+<p>Here <code>spike_is_ss = (ga0.amplitude &gt;= 0.10)</code>. A very large <code>ga0</code> spike is difficult to reconcile with a simple DS end-repair artifact, so once it crosses that threshold the classifier explicitly allows single-stranded interpretations that would otherwise be disfavored.</p>
+<p>The cascade structure is a practical compromise between exhaustive model comparison and biological prior knowledge. It keeps the classifier interpretable while still allowing asymmetric or spike-dominated libraries to escape an overly rigid DS default.</p>
+<h3 id="post-hoc-symmetry-check">Post-hoc symmetry check</h3>
+<p>If a DS model wins but the evidence is strongly asymmetric between ct5 and ga3, the symmetry assumption underlying the DS call is revisited:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>if DS wins AND ga3.ΔBIC &gt; 30,000 AND ct5.ΔBIC / ga3.ΔBIC &lt; 0.50 -&gt; SS
+</code></pre></div>
+<p>This rule is motivated by a known failure mode: an SS library can contain a mixture of original-orientation and complement-orientation reads such that one end dominates ct5 and the other dominates ga3, creating a superficially DS-like pattern without true bilateral symmetry. The post-hoc check prevents the shared-amplitude DS model from winning purely because both ends have signal, even when that signal is clearly imbalanced.</p>
+<h3 id="rescue-rules">Rescue rules</h3>
+<p>The rescue rules exist because real libraries do not always occupy cleanly separated regions of model space. In particular, a localized <code>ga0</code> spike can dominate the likelihood and pull the classifier toward a DS artifact explanation even when the underlying biology is unilateral SS damage.</p>
+<p><strong>M_DS_spike rescue</strong> (for <code>spike_is_ss = false</code>): when <code>M_DS_spike</code> wins but <code>d5</code> is effectively absent, the 3' spike is more consistent with complement-orientation SS than with bilateral DS end repair:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>if DS wins AND ds_spike_won AND ct5.ΔBIC &lt;= 0 AND ga3.ΔBIC &lt;= 0
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>   AND ga0.ΔBIC &gt; 0 AND ga0.amplitude &gt; 0.02 AND d5 &lt;= 0.005 -&gt; SS
+</code></pre></div>
+<p><strong>GA0 bilateral rescue</strong> (for <code>spike_is_ss = true</code>): when a very large <code>ga0</code> spike drives <code>M_DS_symm_art</code> to win, <code>d5</code> is used to distinguish true bilateral DS behavior from complement-only SS behavior:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>if DS wins AND spike_is_ss AND ga0.ΔBIC &gt; 0 AND d5 &lt;= 0.005 -&gt; SS
+</code></pre></div>
+<p>These rescue rules are not ad hoc patches in the pejorative sense; they encode biological asymmetries that the base model family only approximates. Without them, the classifier would be too willing to interpret unilateral junction spikes as DS artifacts simply because those spikes are statistically strong. The trade-off is that the rules introduce a small amount of thresholded expert knowledge, but they do so precisely to avoid a larger systematic bias.</p>
+<p>Validated on 24 DS controls with <code>ga0_amp &gt;= 0.10</code>, all had <code>d5 &gt;= 0.11</code>. In contrast, the observed SS mixed failures with <code>ga0_amp &gt;= 0.10</code> had <code>d5 = 0.00</code>. That separation is large enough to support a deterministic rescue threshold.</p>
+<h3 id="unknown-category">UNKNOWN category</h3>
+<p>If no model beats <code>M_bias</code> exactly, the library has no detectable damage in any channel and the result is <code>UNKNOWN</code> rather than a default DS call. This is an important design choice: in a genuinely low-damage or modern library, the correct answer is often that library type cannot be inferred from sequence alone. Reporting <code>UNKNOWN</code> makes that uncertainty explicit instead of converting absence of evidence into a potentially misleading structural call.</p>
+<hr />
+<h2 id="gc-stratified-estimation">GC-stratified estimation</h2>
+<p>After the global damage call and library-type classification are established, libtaph asks whether the sample is compositionally heterogeneous. This matters because environmental and metagenomic ancient-DNA datasets often contain mixtures of genuinely ancient molecules and lower-damage background DNA, and those components can differ systematically in GC content. A single global <code>d_max</code> is still useful, but it can blur together distinct populations.</p>
+<p>To expose that heterogeneity, reads are binned by <strong>interior</strong> GC content into 10 bins spanning 0-100%. Interior GC is used rather than whole-read GC so that the binning itself is less sensitive to terminal damage. Within each bin, the method re-estimates damage using terminal and interior counts aggregated across reads in that bin.</p>
+<p>This introduces a deliberate trade-off. Stratifying by GC can reveal mixtures that a global estimate would average away, but each bin has fewer observations than the full sample. The implementation therefore regularizes low-information bins and treats bins with insufficient support as invalid rather than forcing unstable estimates.</p>
+<p>Two mixture models operate over the GC bins:</p>
+<p><strong><code>DamageMixtureModel</code></strong> is a simple 2-component Gaussian model over per-bin <code>d_max</code> values. It treats one component as effectively undamaged (<span class="arithmatex">\(\mu = 0\)</span>, <span class="arithmatex">\(\sigma = 0.01\)</span>) and one as damaged (<span class="arithmatex">\(\mu\)</span> estimated, <span class="arithmatex">\(\sigma = 0.10\)</span>), and uses the EM algorithm (<a href="#ref-dempster1977">Dempster, Laird &amp; Rubin 1977</a>) to estimate the fraction and mean damage of the damaged component. This model provides a compact summary of whether the GC bins separate into low-damage and high-damage groups.</p>
+<p><strong><code>MixtureDamageModel</code></strong> is the full GC-aware model. It fits <span class="arithmatex">\(K = 2, 3, 4\)</span> latent classes with multiple random restarts and selects the best solution by BIC. Each class has its own <code>delta_max</code>, while <code>lambda</code> and <code>a_max</code> are shared. The model also learns a GC distribution for each class, so it can represent situations in which high-damage and low-damage molecules occupy different GC ranges rather than simply different damage levels.</p>
+<p>In implementation terms, the full model operates on per-bin "super-reads": for each GC bin it aggregates Channel A, the control channel, and Channel B counts, then evaluates how well each latent class explains those summaries. Per-class <code>delta_max</code> values are updated by grid search, shared <code>a_max</code> is updated by golden-section search, and per-bin baselines are shrunk toward global baselines to stabilize sparse bins. This regularization is important: without it, a few low-count bins could dominate the mixture fit through sampling noise alone.</p>
+<p>The reported outputs summarize different biological questions:</p>
+<ul>
+<li><code>mixture_pi_ancient</code>: fraction of C-sites assigned to high-damage classes (<code>delta_max &gt; 5%</code>)</li>
+<li><code>mixture_d_ancient</code>: expected damage rate among the high-damage component only</li>
+<li><code>mixture_d_population</code>: population-average damage across all C-sites</li>
+<li><code>mixture_d_reference</code>: expected damage restricted to GC &gt;= 50% classes, intended as a rough proxy for the GC-rich fraction that reference-based tools often emphasize</li>
+<li><code>mixture_K</code>: number of classes selected by BIC</li>
+</ul>
+<p>The full GC-stratified model is therefore not just a refinement of the global call. It is an attempt to separate "how damaged are the ancient molecules?" from "what fraction of the sample is ancient at all?" Those are distinct questions in mixed environmental samples, and collapsing them into one global <code>d_max</code> can be misleading.</p>
+<hr />
+<h2 id="d_max-combination">D_max combination</h2>
+<p>The final step converts several end-specific and channel-specific estimates into a single reported <code>d_max_combined</code>. A naive strategy would simply average the 5' and 3' estimates, but that is not robust across library types. In DS libraries, averaging is sensible because both ends should reflect the same terminal damage process. In SS, mixed-orientation, or artifact-affected libraries, however, one end can be informative while the other is structurally absent, biased by adapter effects, or driven by a different biochemical process.</p>
+<p>libtaph therefore uses an asymmetry-aware combination rule rather than unconditional averaging. The selected strategy is recorded in <code>d_max_source</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Condition</th>
+<th>Strategy</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Both ends valid, low asymmetry</td>
+<td>Average of d5 and d3</td>
+</tr>
+<tr>
+<td>High asymmetry (SS mixed)</td>
+<td>Use whichever end is more reliable</td>
+</tr>
+<tr>
+<td>Only one end valid</td>
+<td>Use that end alone</td>
+</tr>
+<tr>
+<td>Channel B₃′ available</td>
+<td>Structural estimate from stop codon decay</td>
+</tr>
+</tbody>
+</table>
+<p>The rationale is as follows:</p>
+<ul>
+<li><strong>When both ends agree</strong>, averaging reduces variance and yields the most stable estimate.</li>
+<li><strong>When one end is clearly less reliable</strong>, averaging would dilute the biologically meaningful signal with structural noise or protocol-specific asymmetry.</li>
+<li><strong>When only one end is supported</strong>, forcing a two-end summary would create a false sense of symmetry.</li>
+<li><strong>When Channel B₃′ is informative</strong>, its stop-codon conversion signal can provide a structural 3' estimate even when a simple terminal nucleotide fit is weak or confounded.</li>
+</ul>
+<p>This final combination stage is where several earlier diagnostics matter operationally. Position-0 artifacts, inverted terminal patterns, strong library asymmetry, and Channel B/B₃′ structural estimates all influence which end should be trusted. The output <code>d_max_combined</code> is therefore not merely the result of one exponential fit; it is the end product of the full evidence cascade described above.</p>
+<hr />
+<h2 id="hexamer-signals-and-domain-classifier">Hexamer signals and domain classifier</h2>
+<p>Ancient-DNA libraries rarely fail in a uniform way. Adapter stubs, ligation artifacts, and residual protocol sequence all manifest as over-represented 6-mers at the read terminus, often with upstream bases that damage alone would not explain. libtaph accumulates a full 4096-bin hexamer histogram at both the 5' terminus (<code>hexamer_count_5prime[4096]</code>, hexamers at read positions 0-5) and the interior (<code>hexamer_count_interior[4096]</code>, middle third of the read), plus running totals <code>n_hexamers_5prime</code> and <code>n_hexamers_interior</code>. These counts drive three independent analyses.</p>
+<p><strong>Terminal-vs-interior enrichment.</strong> <code>compute_hex_enriched_5prime</code> reports every hexamer whose terminal frequency exceeds its interior frequency by <code>log2fc &gt; 1.5</code> (3x enrichment) with a minimum of 20 observations on each side. The function also flags whether the hexamer starts with T, which is the expected leading base for a C-to-T deamination product. An enriched terminal hexamer whose first base is not T is suspicious because genuine deamination cannot produce arbitrary 5' base changes.</p>
+<p><strong>Adapter stub detection.</strong> <code>detect_adapter_stubs</code> keeps up to five enriched 5' stubs (<code>log2fc &gt; 3.0</code>, first base != T) and up to five enriched 3' stubs (<code>log2fc &gt; 3.0</code>, last base != A, computed from the pre-scan 3' terminal hexamer histogram passed in as <code>hex3_terminal[4096]</code> with total <code>n_hex3</code>). 3' detection is gated on 5' stubs being present first, reflecting the biology: if the 5' end is clean, a smaller 3' enrichment is unlikely to be a real adapter. The boolean <code>flag_hex_artifact</code> fires when the single top-enriched 5' hexamer has <code>log2fc &gt; 1.5</code> and a first base other than T. Genuine deamination cannot lead with any base except T, so a non-T top hexamer above that threshold is evidence of a composition or protocol artifact rather than damage.</p>
+<p><strong>Hexamer distribution statistics.</strong> <code>compute_hex_stats</code> summarises the terminal vs interior 6-mer distributions with Shannon entropy of each, Jensen-Shannon divergence (<code>jsd</code>), and a multinomial G-test on the two empirical distributions. The statistic is reported alongside a z-score against a chi-squared null and a p-value (<code>shift_p</code>). Large <code>jsd</code> values mean the terminal composition is not merely noisy: it is drawn from a different distribution than the interior, which is the expected fingerprint of a protocol-driven terminal bias.</p>
+<p><strong>Hexamer-corrected 5' d_max.</strong> In DS libraries where an adapter artifact suppresses the position-0 C-to-T rate, the WLS exponential fit is shifted inward: <code>fit_offset_5prime &gt;= 1</code> indicates the fit started at position 1 or later. When <code>position_0_artifact_5prime &amp;&amp; flag_hex_artifact &amp;&amp; !adapter_clipped &amp;&amp; lambda_5prime &gt; 0</code>, the preservation summary extrapolates the decay back to position 0 via <code>d5_corr = d5_raw * exp(lambda_5prime * fit_offset_5prime)</code>, capped at 0.50 so a fit on a small offset cannot blow up. The correction is recorded in <code>d5_hexamer_corrected</code> and <code>d5_was_corrected</code> for auditability; the raw value is never overwritten.</p>
+<p><strong>Domain-aware hexamer scoring.</strong> libtaph ships eight pre-computed 4096-bin hexamer frequency tables covering GTDB (bacteria + archaea), fungi, protozoa, invertebrate, plant, vertebrate mammalian, vertebrate other, and viral sequences. <code>score_all_domains(seq, frame)</code> sums <code>log2(freq[h] * 4096 + epsilon)</code> across every in-frame hexamer in a read for each domain, then normalises to a posterior with temperature-scaled softmax (<code>exp(0.1 * (score - max))</code>). The result is an eight-element <code>MultiDomainResult</code> with per-domain probabilities, a <code>best_domain</code>, and a <code>best_score</code>. Two mechanisms consume that posterior:</p>
+<ul>
+<li><code>set_active_domain(d)</code> sets a global selected domain (read via <code>get_active_domain()</code>). It controls which table <code>get_hexamer_freq(code)</code> and <code>get_hexamer_score(seq)</code> fall through to when the caller does not specify a domain. The active domain is not thread-local: set it once for the pass.</li>
+<li><code>set_ensemble_mode(true)</code> and <code>set_domain_probs(probs)</code> switch hexamer lookups through <code>get_ensemble_hexamer_freq(code)</code>, which returns the posterior-weighted average of the eight tables rather than committing to one. Ensemble state and the posterior (<code>current_domain_probs</code>) are thread-local, so per-thread pipelines can carry their own blend.</li>
+</ul>
+<p>The domain classifier is not a taxonomic identifier in the metagenomic sense. It provides a calibrated hexamer background for Channel B codon scanning and library-composition diagnostics that is better than a single universal model when samples are known to be non-bacterial.</p>
+<hr />
+<h2 id="handling-sparse-and-noisy-data">Handling sparse and noisy data</h2>
+<p>Every stage of the pipeline makes explicit decisions about what to do when evidence is thin, because collapsing sparse counts into a point estimate silently fabricates structure.</p>
+<p><strong>Coverage thresholds.</strong> Per-position baseline and shift estimators (<code>src/damage_estimation.cpp</code>) require <code>total[pos] &gt;= MIN_COVERAGE = 100</code> before using a position. Positions below the threshold are skipped, not imputed. <code>compute_damage_mask</code> uses the same threshold (<code>min_cov = 100</code>) by default: positions that do not clear <code>min_cov</code> are never flagged as masked regardless of apparent rate. At the sample level, <code>is_valid()</code> returns <code>true</code> only when <code>n_reads &gt;= 1000</code>; consumers that want a conservative gate check <code>is_detection_unreliable()</code> which also folds in the inversion and composition-bias flags.</p>
+<p><strong>Shrinkage baselines.</strong> In the GC-stratified fits, per-bin baselines are shrunk toward the global baseline before any likelihood is evaluated. Low-count bins therefore pull toward the overall sample rather than producing a noise-driven <code>d_max</code>, while high-count bins dominate their own posterior. The GC categorical component of <code>MixtureDamageModel</code> applies Dirichlet smoothing with <code>alpha = 1</code> (<code>p_gc[k][b] = w[b][k] * c_sites + 1</code>), which prevents a single unrepresented GC bin from zeroing out a class's likelihood.</p>
+<p><strong>Per-cell invalidity markers.</strong> <code>fit_length_gc_joint_mixture</code> marks cells with insufficient C-sites (<code>c_sites &lt; 1</code>) or that were never valid after <code>finalize_all</code> with <code>cell_w_ancient[b][g] = -1.0</code>. Downstream code distinguishes "low ancient fraction" (value near 0) from "no evidence" (value -1), so consumers do not silently treat missing cells as uncontaminated.</p>
+<p><strong>Uninformative priors as floors.</strong> Several late-stage signals fall back to explicit priors rather than aggressive extrapolation. Preservation-layer <code>preservation_f_cpg</code> defaults to <code>0.3</code> (uninformative) when the CpG signal is absent or inverted, which prevents a dropped signal from being interpreted as evidence of no CpG methylation. The sample-level <code>preservation_f_cpg</code> fallback fires for <code>total &lt; 1000</code>, returning <code>0.40</code>. Joint damage model priors follow the same philosophy: when the posterior collapses to the no-damage model, <code>p_damage = BF / (1 + BF)</code> under a <code>0.5</code> prior, so the classifier reports "not detected" rather than "no damage" when the data are uninformative.</p>
+<p><strong>Validation flags and rescue rules.</strong> The cascade in <code>finalize_sample_profile</code> is explicitly layered to avoid false positives from composition or artifacts while still rescuing partially valid signals:</p>
+<ul>
+<li><code>composition_bias_5prime</code> / <code>composition_bias_3prime</code> fire when the control channel rises in lockstep with the damage channel, meaning the apparent excess is compositional. These flags feed <code>is_detection_unreliable()</code>.</li>
+<li><code>position_0_artifact_5prime</code> / <code>position_0_artifact_3prime</code> flag a depleted position 0 with downstream enrichment, which is the signature of an adapter / ligation artifact rather than a terminal decay. When this fires together with <code>flag_hex_artifact</code> in a DS library, the hexamer-corrected <code>d5</code> is computed as described above.</li>
+<li><code>inverted_pattern_5prime</code> / <code>inverted_pattern_3prime</code> flag terminal rates below the interior; the inversion fallback in the library classifier is suppressed when Channel B has validated damage, because the stop-codon signal is treated as ground truth when available.</li>
+<li><code>damage_artifact = true</code> forces <code>d_max_combined = 0.0</code> so downstream consumers never apply an artifact-driven mask.</li>
+</ul>
+<p><strong>Numerical guards.</strong> Inputs near the probability boundary are clamped before use (<code>std::clamp(d, 1e-3, 1.0 - 1e-3)</code> in the per-cell posterior for the length x GC fit; <code>std::max(S_FLOOR, sigma_binom)</code> with <code>S_FLOOR = 0.02</code> for per-cell variances; <code>std::max(p, 1e-300)</code> before <code>-log10(p)</code>). Log-sum-exp is computed with the standard max-subtract trick so posterior weights remain finite when either component has very low likelihood.</p>
+<p>The combined effect is that under-powered samples do not produce confident-looking point estimates: they produce flagged estimates, quantized p-values, or explicit fallbacks. Every path that ends with a number records why that number is believed, and the preservation summary distinguishes evidence strength (<code>_evidence</code>) from the estimate itself (<code>_eff</code>).</p>
+<hr />
+<h2 id="length-stratified-estimation">Length-stratified estimation</h2>
+<p>Aggregating every read into one profile treats short, damage-rich molecules and longer, less-damaged molecules as a single population. Ancient samples are usually mixtures along the length axis, so libtaph can stratify the profile by read length.</p>
+<p><code>taph::LengthBinStats</code> holds up to four independent <code>SampleDamageProfile</code> instances plus an <code>edges</code> vector that defines the length bins. A read of length <code>L</code> is routed to the bin whose half-open interval contains <code>L</code>. The same accumulate / merge / finalize contract as the unstratified profile applies per bin:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">taph</span><span class="o">::</span><span class="n">LengthBinStats</span><span class="w"> </span><span class="n">stats</span><span class="p">;</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">stats</span><span class="p">.</span><span class="n">configure</span><span class="p">({</span><span class="mi">35</span><span class="p">,</span><span class="w"> </span><span class="mi">60</span><span class="p">,</span><span class="w"> </span><span class="mi">90</span><span class="p">});</span><span class="w">          </span><span class="c1">// bins: [min,35), [35,60), [60,90), [90,max]</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="k">auto</span><span class="o">&amp;</span><span class="w"> </span><span class="n">read</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">reads</span><span class="p">)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="n">stats</span><span class="p">.</span><span class="n">update</span><span class="p">(</span><span class="n">read</span><span class="p">.</span><span class="n">seq</span><span class="p">,</span><span class="w"> </span><span class="n">read</span><span class="p">.</span><span class="n">length</span><span class="p">);</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">stats</span><span class="p">.</span><span class="n">finalize_all</span><span class="p">();</span><span class="w">                    </span><span class="c1">// finalizes every bin&#39;s SampleDamageProfile</span>
+</code></pre></div>
+<p>Bin edges can be supplied explicitly or derived from the empirical length distribution. <code>taph::detect_log_length_gmm_edges</code> fits a 1D Gaussian mixture on a log-length histogram, selects the number of components by BIC up to <code>max_components</code>, and returns the density valleys between adjacent component means as split points. Separation filters are applied before the valleys are computed: the histogram must contain at least 256 counts, components with weight below <code>3%</code> are dropped, and adjacent means within <code>0.25</code> in log space (roughly 30% length change) are merged. If fewer than two components survive, <code>n_components</code> is reported as 1 and no edges are returned. <code>taph::detect_quantile_length_edges</code> is a separate helper that splits the histogram into equal-count quantile bins; libtaph does not fall through to it automatically, the caller chooses when to use it.</p>
+<p>On top of a finalized <code>LengthBinStats</code>, <code>fit_length_gc_joint_mixture</code> runs a shared-component 2-Gaussian mixture over the flat length × GC cell grid. The damaged component has a single <code>d_ancient</code> shared across all cells; the undamaged component is fixed at <code>μ=0</code>. Each cell contributes its <code>d_max</code> and <code>c_sites</code>. The fit returns:</p>
+<ul>
+<li><code>d_ancient</code>, <code>pi_ancient</code>: shared mean and mixing weight of the ancient component.</li>
+<li><code>d_population</code>: <code>c_sites</code>-weighted mean <code>d_max</code> across all cells.</li>
+<li><code>cell_w_ancient[b][g]</code>: posterior <code>P(damaged | cell)</code> for each (length bin, GC bin). Cells with insufficient C-sites are marked <code>-1.0</code>.</li>
+<li><code>converged</code>, <code>separated</code>: numerical state of the EM fit.</li>
+</ul>
+<p>The design reuses <code>DamageMixtureModel</code>'s fixed priors (undamaged width <code>τ₀ = 0.01</code>, damaged width <code>τ₁ = 0.10</code>, minimum per-cell sigma <code>0.02</code>) so length × GC cells live in the same calibration as the GC-only fit. Per-cell posteriors give downstream code a per-length-bin ancient fraction rather than a single global number, which matters when the short end of the distribution is almost entirely ancient and the long end is dominated by a modern contaminant.</p>
+<hr />
+<h2 id="context-aware-terminal-damage">Context-aware terminal damage</h2>
+<p>C→T rates at the 5' terminus average over four upstream bases (A, C, G, T). Different biological processes imprint different context distributions, and a single <code>d_max</code> erases that structure. libtaph accumulates the 5' C→T channel separately for each upstream base and exposes fitted amplitudes per context.</p>
+<p>The counts live on <code>SampleDamageProfile</code>:</p>
+<ul>
+<li><code>ct5_t_by_upstream[ctx][pos]</code>, <code>ct5_total_by_upstream[ctx][pos]</code> for <code>ctx ∈ {CTX_AC, CTX_CC, CTX_GC, CTX_TC}</code> and <code>pos ∈ [0, N_POS)</code>.</li>
+<li><code>ct5_t_interior_by_upstream[ctx]</code>, <code>ct5_total_interior_by_upstream[ctx]</code> as per-context interior baselines.</li>
+</ul>
+<p>Finalization fits a fixed-lambda binomial likelihood per context via golden-section search on <code>d</code> (<code>fit_ct5_ctx_amplitude</code>), using the interior T/(T+C) as the baseline and clamping <code>mu</code> to <code>[1e-6, 1-1e-6]</code>. Coverage gates are explicit: the interior must have <code>total &gt;= 500</code> with effective coverage <code>&gt;= 100</code>, each fit position must have <code>&gt;= 50</code> observations, at least three positions must clear that gate, and the cumulative terminal effective coverage must be <code>&gt;= 50</code>. A fit that lands at <code>d &gt;= 0.98</code> is reported as invalid (the optimizer hit the upper wall and the signal is indistinguishable from saturation). Results are stored as <code>dmax_ct5_by_upstream[ctx]</code>, <code>baseline_ct5_by_upstream[ctx]</code>, and the terminal / interior coverage arrays. Two derived contrasts summarize the pattern:</p>
+<ul>
+<li><code>dipyr_contrast = ½(d_CC + d_TC) − ½(d_AC + d_GC)</code>: positive when dipyrimidine contexts (CC, TC) carry more damage than non-dipyrimidine, as expected for UV-driven 6-4 photoproduct / CPD-linked deamination.</li>
+<li><code>cpg_contrast = d_GC − ⅓(d_AC + d_CC + d_TC)</code>: positive when 5-methylcytosine at CpG sites dominates, as expected for methylation-driven hydrolytic deamination.</li>
+</ul>
+<p>A coverage-weighted pseudo-chi-squared statistic on the four fitted <code>dmax</code> values tests the null that the context amplitudes are equal. With three degrees of freedom, <code>context_heterogeneity_chi2 &gt; 7.81</code> sets <code>context_heterogeneity_detected = true</code>. The p-value is read off a coarse critical-value ladder (<code>0.001, 0.01, 0.05, 0.1, 0.5, 0.9</code>) rather than a full chi-squared CDF, since the statistic is a pseudo-chi-squared and a precise p-value would imply more calibration than the construction warrants.</p>
+<p>In practice the contrast pair separates three regimes we observe in real samples: ancient DNA with a flat spectrum across contexts (cytosine hydrolysis everywhere), methylation-driven deamination with a CpG-dominant signal (<code>cpg_contrast &gt; 0</code>, other contexts near baseline), and UV-damaged material where dipyrimidine contexts lead (<code>dipyr_contrast &gt; 0</code>).</p>
+<hr />
+<h2 id="damage-context-profile">Damage-context profile</h2>
+<p>The damage-context profile is a training-free, reference-free, alignment-free summary of the per-process signals already present in <code>SampleDamageProfile</code>. It is a pure function of the finalized profile plus the already-computed <code>cpg_z</code> and <code>hex_shift_z</code>; it introduces no new scan pass, no fitted model, and no external reference panel.</p>
+<p>Six scores are emitted in <code>[0, 1]</code>, with <code>NaN</code> when the underlying signal is not evaluable. The normalization constants are tunable and live as named <code>constexpr</code> values at the top of <code>library_interpretation.cpp</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Score</th>
+<th>Definition</th>
+<th>Underlying fields</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>terminal_deamination_score</code></td>
+<td><code>1 − exp(−max(d_max_5, d_max_3) / 0.10)</code></td>
+<td><code>d_max_5prime</code>, <code>d_max_3prime</code></td>
+</tr>
+<tr>
+<td><code>cpg_context_score</code></td>
+<td><code>sigmoid(cpg_z)</code> from <code>compute_cpg_score</code></td>
+<td><code>log2_cpg_ratio</code>, <code>effcov_ct5_cpg_like_*</code></td>
+</tr>
+<tr>
+<td><code>dipyrimidine_context_score</code></td>
+<td><code>clamp(dp.dipyr_contrast / 0.05, 0, 1)</code> where <code>dipyr_contrast = 0.5·(d_CC + d_TC) − 0.5·(d_AC + d_GC)</code></td>
+<td><code>dipyr_contrast</code>, <code>dmax_ct5_by_upstream[AC,CC,GC,TC]</code></td>
+</tr>
+<tr>
+<td><code>oxidative_context_score</code></td>
+<td><code>clamp(max(|ox_gt_asymmetry|, mean(s_oxog_16ctx)) / 0.05, 0, 1)</code></td>
+<td><code>ox_gt_asymmetry</code>, <code>s_oxog_16ctx</code></td>
+</tr>
+<tr>
+<td><code>fragmentation_context_score</code></td>
+<td><code>clamp(purine_enrichment_5prime / 0.15, 0, 1)</code></td>
+<td><code>purine_enrichment_5prime</code></td>
+</tr>
+<tr>
+<td><code>library_artifact_score</code></td>
+<td><code>max(indicator(flag_hex_artifact ∨ adapter_clipped ∨ adapter3_clipped ∨ pos0 artifact ∨ fit_offset_{5,3}prime &gt; 1), sigmoid(hex_shift_z − 4))</code></td>
+<td><code>flag_hex_artifact</code>, <code>adapter_clipped</code>, <code>hex_shift_z</code>, <code>position_0_artifact_*</code>, <code>fit_offset_{5,3}prime</code></td>
+</tr>
+</tbody>
+</table>
+<p>A single <code>dominant_process</code> label is assigned by a deterministic rule over the six scores. The rule is evaluated top-to-bottom and stops at the first match:</p>
+<ol>
+<li><code>n_reads &lt; 1000</code> → <code>none</code> (insufficient coverage). The six scores are populated where the underlying signals are evaluable; fields whose source signal is <code>NaN</code> remain <code>NaN</code> in the output.</li>
+<li>Terminal deamination score <code>NaN</code> (neither end has a finite <code>d_max</code>) → <code>none</code>.</li>
+<li>A boolean artifact flag is set (<code>flag_hex_artifact</code>, <code>adapter_clipped</code>, <code>adapter3_clipped</code>, a position-0 artifact on either end, or <code>fit_offset_{5,3}prime &gt; 1</code>) <strong>and</strong> <code>terminal_deamination_score &lt; 0.5</code> → <code>library_artifact_likely</code>. The categorical label fires only when adapter/hexamer evidence is present <em>and</em> genuine deamination is not dominating; strong terminal damage alongside adapter contamination keeps a damage label (the artifact booleans remain visible in <code>evidence</code>). A high <code>hex_shift_z</code> alone is reported in the score but cannot trigger the label on its own, because clean libraries can reach z ≈ 10–20 purely from compositional variance.</li>
+<li><code>fragmentation_context_score &gt; 0.5</code> and <code>terminal_deamination_score &lt; 0.3</code> → <code>fragmentation_bias</code>.</li>
+<li><code>terminal_deamination_score &lt; 0.10</code> → <code>low_damage</code>.</li>
+<li><code>cpg_context_score &gt; 0.7</code>, <code>terminal_deamination_score &gt; 0.3</code>, and <code>log2_cpg_ratio &gt; 0.15</code> → <code>cpg_enriched_deamination</code>. The effect-size floor on <code>log2_cpg_ratio</code> prevents large-sample z-scores from assigning the label on negligible CpG vs non-CpG differences.</li>
+<li><code>oxidative_context_score &gt; 0.5</code> and <code>terminal_deamination_score &lt; 0.5</code> → <code>oxidative_like</code>.</li>
+<li><code>dipyrimidine_context_score &gt; 0.4</code> → <code>dipyrimidine_biased</code>.</li>
+<li>Otherwise → <code>cytosine_deamination</code>.</li>
+</ol>
+<p>Threshold comparisons require a finite score; <code>NaN</code> scores never satisfy a <code>&gt;</code> / <code>&lt;</code> branch. Only a <code>NaN</code> <code>terminal_deamination_score</code> forces <code>none</code>; if terminal deamination is finite and all other scores are <code>NaN</code>, the rule falls through to <code>cytosine_deamination</code> as the catch-all.</p>
+<p>The <code>evidence</code> block in the JSON output mirrors the raw underlying numbers (d_max, λ, log2 CpG ratio, dipyr contrast, <code>ox_gt_asymmetry</code>, <code>s_oxog_{mean,max}</code>, purine enrichment, <code>hex_shift_z</code>, adapter and position-0 flags, <code>fit_offset_{5,3}prime</code>, <code>n_reads</code>). Downstream tools can therefore re-normalize scores or replace the rule without rescanning.</p>
+<p><strong>Design notes.</strong> The six scores only summarise mechanisms that are independently measurable in the existing <code>SampleDamageProfile</code>. The profile deliberately avoids latent-process decomposition (for example <code>NMF</code> over a trinucleotide matrix against a reference panel), since ancient-DNA damage mechanisms are small in number, well characterised, and already directly observable here. The rule is intentionally legible so a human can check which signals drove each label.</p>
+<hr />
+<h2 id="references">References</h2>
+<p><a id="ref-briggs2007"></a><strong>Briggs AW, Stenzel U, Johnson PLF, Green RE, Kelso J, Prüfer K, Meyer M, Krause J, Ronan MT, Lachmann M, Pääbo S</strong> (2007) Patterns of damage in genomic DNA sequences from a Neandertal. <em>Proc Natl Acad Sci USA</em> <strong>104</strong>:14616–14621. <a href="https://doi.org/10.1073/pnas.0704665104">doi:10.1073/pnas.0704665104</a></p>
+<p><a id="ref-chargaff1950"></a><strong>Chargaff E, Zamenhof S, Green C</strong> (1950) Composition of human desoxypentose nucleic acid. <em>Nature</em> <strong>165</strong>:756–757. <a href="https://doi.org/10.1038/165756b0">doi:10.1038/165756b0</a></p>
+<p><a id="ref-dempster1977"></a><strong>Dempster AP, Laird NM, Rubin DB</strong> (1977) Maximum likelihood from incomplete data via the EM algorithm. <em>J R Stat Soc Ser B</em> <strong>39</strong>:1–22. <a href="https://doi.org/10.1111/j.2517-6161.1977.tb01600.x">doi:10.1111/j.2517-6161.1977.tb01600.x</a></p>
+<p><a id="ref-gansauge2013"></a><strong>Gansauge M-T, Meyer M</strong> (2013) Single-stranded DNA library preparation for the sequencing of ancient or damaged DNA. <em>Nat Protoc</em> <strong>8</strong>:737–748. <a href="https://doi.org/10.1038/nprot.2013.038">doi:10.1038/nprot.2013.038</a></p>
+<p><a id="ref-gansauge2017"></a><strong>Gansauge M-T, Gerber T, Glocke I, Korlević P, Lippik L, Nagel S, Riehl LM, Schmidt A, Meyer M</strong> (2017) Single-stranded DNA library preparation from highly degraded DNA using T4 DNA ligase. <em>Nucleic Acids Res</em> <strong>45</strong>:e79. <a href="https://doi.org/10.1093/nar/gkx033">doi:10.1093/nar/gkx033</a></p>
+<p><a id="ref-jonsson2013"></a><strong>Jónsson H, Ginolhac A, Schubert M, Johnson PLF, Orlando L</strong> (2013) mapDamage2.0: fast approximate Bayesian estimates of ancient DNA damage parameters. <em>Bioinformatics</em> <strong>29</strong>:1682–1684. <a href="https://doi.org/10.1093/bioinformatics/btt193">doi:10.1093/bioinformatics/btt193</a></p>
+<p><a id="ref-kapp2021"></a><strong>Kapp JD, Green RE, Shapiro B</strong> (2021) A fast and efficient single-stranded genomic library preparation method optimized for ancient DNA. <em>J Hered</em> <strong>112</strong>:241–249. <a href="https://doi.org/10.1093/jhered/esab012">doi:10.1093/jhered/esab012</a></p>
+<p><a id="ref-kass1995"></a><strong>Kass RE, Raftery AE</strong> (1995) Bayes factors. <em>J Am Stat Assoc</em> <strong>90</strong>:773–795. <a href="https://doi.org/10.1080/01621459.1995.10476572">doi:10.1080/01621459.1995.10476572</a></p>
+<p><a id="ref-lindahl1993"></a><strong>Lindahl T</strong> (1993) Instability and decay of the primary structure of DNA. <em>Nature</em> <strong>362</strong>:709–715. <a href="https://doi.org/10.1038/362709a0">doi:10.1038/362709a0</a></p>
+<p><a id="ref-michelsen2022"></a><strong>Michelsen C, Fortunato G, Warinner C, Jonsson H, Schroeder H, Orlando L, Renaud G, Librado P</strong> (2022) metaDMG: a fast and accurate ancient DNA damage toolkit for metagenomic sequencing data. <em>bioRxiv</em>. <a href="https://doi.org/10.1101/2022.12.06.519264">doi:10.1101/2022.12.06.519264</a></p>
+<p><a id="ref-neeley2006"></a><strong>Neeley WL, Essigmann JM</strong> (2006) Mechanisms of formation, genotoxicity, and mutation of guanine oxidation products. <em>Chem Res Toxicol</em> <strong>19</strong>:491–505. <a href="https://doi.org/10.1021/tx0600043">doi:10.1021/tx0600043</a></p>
+<p><a id="ref-schwarz1978"></a><strong>Schwarz G</strong> (1978) Estimating the dimension of a model. <em>Ann Stat</em> <strong>6</strong>:461–464. <a href="https://doi.org/10.1214/aos/1176344136">doi:10.1214/aos/1176344136</a></p>
+<p><a id="ref-shibutani1991"></a><strong>Shibutani S, Takeshita M, Grollman AP</strong> (1991) Insertion of specific bases during DNA synthesis past the oxidation-damaged base 8-oxodG. <em>Nature</em> <strong>349</strong>:431–434. <a href="https://doi.org/10.1038/349431a0">doi:10.1038/349431a0</a></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
