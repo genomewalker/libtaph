@@ -38,6 +38,47 @@ int encode_hex_at(const std::string& s, int pos) {
     return code;
 }
 
+// ── Protocol-tag table ────────────────────────────────────────────────────────
+// Empirical mapping derived from observed 5' top-hexamer fingerprints across
+// labelled libraries. Each entry is a deterministic chemistry artefact, not a
+// statistical pattern. log_lr = +4.0 (≈55:1 odds shift) reflects strong but
+// not absolute evidence — leaves room for residual sample-mislabel risk.
+//
+// SS protocols (Santa-Cruz / Gansauge SS, SRSLY, splint-ligation variants):
+//   TGTAGA  Santa-Cruz/Gansauge SS      (CL78/CL128 oligo footprint)
+//   ACACTC  SRSLY                       (splint-ligation tag)
+//   GTCACT  SS-variant                  (observed in SS-labelled libraries)
+//   AACCCC  SS-variant                  (observed; tentative)
+//
+// DS protocols (TruSeq Y-adapter / NEBNext / similar):
+//   CGATCT  TruSeq                      (Y-adapter remnant)
+//   TGCTCT  NEBNext                     (Y-adapter variant)
+//   TCAGTG  DS-UMI                      (end-repair + A-tail signature)
+//   ACAATC  DS-variant
+//   TCCGAT  DS-variant
+//   CGCTCT  DS-variant
+static const ProtocolTag kProtocolTags[] = {
+    {"TGTAGA", SampleDamageProfile::LibraryType::SINGLE_STRANDED, 4.0f, "SantaCruz/Gansauge_SS"},
+    {"ACACTC", SampleDamageProfile::LibraryType::SINGLE_STRANDED, 4.0f, "SRSLY"},
+    {"GTCACT", SampleDamageProfile::LibraryType::SINGLE_STRANDED, 4.0f, "SS_variant"},
+    {"AACCCC", SampleDamageProfile::LibraryType::SINGLE_STRANDED, 3.0f, "SS_variant_tentative"},
+    {"CGATCT", SampleDamageProfile::LibraryType::DOUBLE_STRANDED, 4.0f, "TruSeq"},
+    {"TGCTCT", SampleDamageProfile::LibraryType::DOUBLE_STRANDED, 4.0f, "NEBNext"},
+    {"TCAGTG", SampleDamageProfile::LibraryType::DOUBLE_STRANDED, 4.0f, "DS_UMI"},
+    {"ACAATC", SampleDamageProfile::LibraryType::DOUBLE_STRANDED, 3.0f, "DS_variant"},
+    {"TCCGAT", SampleDamageProfile::LibraryType::DOUBLE_STRANDED, 3.0f, "DS_variant"},
+    {"CGCTCT", SampleDamageProfile::LibraryType::DOUBLE_STRANDED, 3.0f, "DS_variant"},
+};
+static constexpr size_t kProtocolTagsCount = sizeof(kProtocolTags) / sizeof(kProtocolTags[0]);
+
+const ProtocolTag* lookup_protocol_tag(const char* hex) {
+    if (!hex || !hex[0]) return nullptr;
+    for (size_t i = 0; i < kProtocolTagsCount; ++i)
+        if (std::strcmp(kProtocolTags[i].hex, hex) == 0)
+            return &kProtocolTags[i];
+    return nullptr;
+}
+
 std::vector<HexEnrichment> compute_hex_enriched_5prime(
         const SampleDamageProfile& dp, float lfc_threshold) {
     std::vector<HexEnrichment> out;
