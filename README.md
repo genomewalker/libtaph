@@ -251,11 +251,18 @@ std::vector<std::string> reads = { "ACGTCTAGCT...", ... };
 taph::SampleDamageProfile profile =
     taph::FrameSelector::compute_sample_profile(reads);
 
-// Streaming
+// Streaming (single-end)
 taph::SampleDamageProfile profile{};
 for (const auto& seq : reads)
     taph::FrameSelector::update_sample_profile(profile, seq);
 taph::FrameSelector::finalize_sample_profile(profile);
+
+// Streaming (paired-end — R2 maps to top-strand 3' end; short-insert pairs
+// are auto-skipped via R1/R2 overlap detection)
+taph::SampleDamageProfile profile_pe{};
+for (size_t i = 0; i < r1_reads.size(); ++i)
+    taph::FrameSelector::update_sample_profile_pe(profile_pe, r1_reads[i], r2_reads[i]);
+taph::FrameSelector::finalize_sample_profile(profile_pe);
 
 // Results
 std::cout << "D_max (5'): " << profile.d_max_5prime << "\n";
@@ -274,6 +281,7 @@ Tested on 315 Mediterranean sediment aDNA libraries (two independent datasets):
 |---|---|---|---|---|
 | Dataset 1 (91 samples) | 88 | 3 | 0 | **100%** |
 | Dataset 2 (224 samples) | 193 | 28 | 3 | **98.5%** |
+| Chemistry-aware regression (78 samples) | 77 | 0 | 1 | **98.7%** (vs 80.8% in v8) |
 
 UNKNOWN: no model beats the null (zero-damage libraries where library type cannot be inferred from sequence alone).
 

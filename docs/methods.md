@@ -25,6 +25,27 @@ where $n_p$ is the coverage at terminal position $p$. This expression asks wheth
 
 ---
 
+## Paired-end mode
+
+`update_sample_profile_pe(R1, R2)` consumes a read pair directly rather than
+running SE accumulation on each mate separately. The mapping is biological:
+`R1[i]` measures the top strand 5'-end at position `i`, while `R2[i]`'s
+complement measures the **same fragment's** top strand 3'-end at position `i`.
+Treating R2 as an independent SE read would attribute its 5'-end signal to a
+second 5' damage process that does not exist, and would let G→A events on the
+bottom strand contribute to ct5 rather than ga3.
+
+When the insert length `M` is shorter than the read length `L`, both mates
+read into the sequencing adapter. Adapter bases have a fixed composition that
+differs from the genomic background, and after complement-mapping they imprint
+a deterministic pattern on the terminal channels — in the worst case enough to
+reroute a DS library through the SS branch of the classifier. libtaph detects
+short-insert pairs by R1/R2 overlap (a 15 bp window with at most 3 mismatches)
+and skips them, recording the count under `pe_short_insert_skipped`. Pairs
+with `M ≥ L` enter the accumulator unchanged.
+
+---
+
 ## Damage model
 
 Once terminal and interior counts have been accumulated, libtaph models ancient-DNA deamination as a terminal process that decays inward from each end of the fragment. In double-stranded libraries this appears as C→T excess at the 5' end and G→A excess at the 3' end, because the complementary strand carries the same damaged cytosines as G→A when read in the opposite orientation. This characteristic pattern was first systematically described by [Briggs et al. (2007)](https://www.pnas.org/doi/10.1073/pnas.0704665104) and subsequently formalized as an exponential decay model by [Jónsson et al. (2013)](https://doi.org/10.1093/bioinformatics/btt193).
@@ -47,6 +68,23 @@ To report a quantity comparable to [mapDamage2.0 (Jónsson et al. 2013)](https:/
 $$D_{\max} = \frac{A}{1 - b}$$
 
 which estimates the fraction of terminal C sites that were converted to T, after accounting for the background T proportion. $A$ is the absolute excess above that background; $D_{\max}$ converts it to the fraction of damage-susceptible terminal cytosines that were actually damaged.
+
+The background $b$ used in the fit is **tail-anchored**: it is estimated from
+positions 20..49 of the terminal accumulator rather than from the global mean
+of the per-position rates. This matters because the per-position rates near
+the terminus carry the deamination signal we are trying to fit, so a global
+mean leaks signal into the baseline and biases $A$ downward. Tail positions
+20..49 sit far enough inward that the exponential damage component has decayed
+by 1–2 orders of magnitude (for typical $\lambda$), so they are effectively a
+chemistry-aware baseline immune to the deamination signal.
+
+Alongside $D_{\max}$ libtaph reports an **area-excess** statistic per channel:
+the sum of $(r_p - b)$ over the first 10 positions, together with a
+likelihood-ratio score against the bg-only null. Area-excess is a non-parametric
+companion to $D_{\max}$: it does not depend on the exponential functional form
+and is robust when the decay is slower or noisier than the model assumes. The
+classifier consumes both, so a library that fits the model poorly but has
+clear terminal excess can still be classified correctly.
 
 ---
 
