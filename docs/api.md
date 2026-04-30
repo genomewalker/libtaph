@@ -41,6 +41,29 @@ Safe parallel pattern: update separate `SampleDamageProfile` objects in parallel
 
 ---
 
+### `update_sample_profile_pe`
+
+```cpp
+static void update_sample_profile_pe(
+    SampleDamageProfile& profile,
+    const std::string& r1,
+    const std::string& r2);
+```
+
+Accumulate one **read pair** into `profile`. Maps `R1[i]` to top-strand 5'-end
+position `i` and the complement of `R2[i]` to top-strand 3'-end position `i`,
+so a single fragment contributes once to ct5 and once to ga3 (no double-count).
+
+Pairs whose insert length is shorter than the read length read into the
+sequencing adapter and would imprint adapter composition onto the terminal
+channels. Such pairs are detected by R1/R2 overlap (15 bp window, ≤3
+mismatches) and skipped; the count is reported in `pe_short_insert_skipped`.
+
+Sets `profile.input_mode = InputMode::PAIRED`. Same threading contract as
+`update_sample_profile` — accumulate into per-thread profiles, then merge.
+
+---
+
 ### `update_sample_profile_weighted`
 
 ```cpp
@@ -105,6 +128,24 @@ All fields are public. Key results after `finalize_sample_profile`:
 | `lambda_3prime` | `float` | Fitted decay constant $\lambda$ at 3' |
 | `asymmetry` | `float` | `\|d5 - d3\| / mean(d5, d3)`, >0.5 flagged as suspicious |
 | `d_max_source_str()` | `const char*` | Source used for `d_max_combined`: `"average"`, `"5prime_only"`, `"3prime_only"`, `"channel_b_structural"`, `"channel_b3_structural"`, `"min_asymmetry"`, `"max_ss_asymmetry"`, `"none"` |
+
+### Chemistry-aware background and area-excess
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `bg_5prime_anchored` / `bg_3prime_anchored` | `float` | Tail-anchored background: trimmed mean of C→T (G→A) rate over positions 20..49, restricted to positions with denom ≥ 100. Used as `b` in the Briggs fit. |
+| `bg_n_positions_5prime` / `bg_n_positions_3prime` | `int` | Number of tail positions that contributed to the anchored bg. |
+| `bg_denominator_5prime` / `bg_denominator_3prime` | `double` | Total T+C (A+G) coverage in the bg window. |
+| `briggs_pos0_masked_5prime` / `briggs_pos0_masked_3prime` | `bool` | True when position 0 was excluded from the Briggs fit because the protocol-tag fingerprint dominated it (ligation footprint). |
+| `damage_5prime_area_excess` / `damage_3prime_area_excess` | `float` | $\sum_{i=k}^{14} \max(0, r_i - b)$ over the first 15 positions (k=1 if pos0 masked, else k=0). Robust headline statistic for cross-library comparison; preferred over `d_max` when chemistry-tag is set. |
+| `damage_5prime_lr` / `damage_3prime_lr` | `float` | Log-likelihood ratio of the per-position binomial(rate, bg) model vs the bg-only null over positions k..14. Coverage-scaling companion to area-excess. |
+
+### Input mode
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `input_mode` | `InputMode` | `SINGLE` (default) or `PAIRED`. Set to `PAIRED` by `update_sample_profile_pe`. |
+| `pe_short_insert_skipped` | `uint64_t` | Number of pairs skipped because R1/R2 overlap revealed insert < read length (adapter read-through). |
 
 ### Library-type classification
 
