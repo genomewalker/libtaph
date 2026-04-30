@@ -28,6 +28,22 @@ std::vector<HexEnrichment> compute_hex_enriched_5prime(
     const SampleDamageProfile& dp,
     float lfc_threshold = 1.5f);
 
+// ── Protocol-tag table ────────────────────────────────────────────────────────
+// Library-prep chemistry leaves a deterministic 5' oligo footprint at the start
+// of every read. The dominant 5' hexamer is therefore a chemistry fingerprint:
+// independent of damage, deterministic per protocol. Used as a Bayes auxiliary
+// evidence term for library-type classification when the BIC tournament's
+// damage-shape verdict disagrees with the chemistry.
+struct ProtocolTag {
+    const char*                       hex;       // canonical top 5' hexamer
+    SampleDamageProfile::LibraryType  klass;     // SS or DS
+    float                             log_lr;    // strength of evidence (chemistry-justified)
+    const char*                       protocol;  // human-readable provenance
+};
+
+// Curated table; extend by adding entries as new protocols are characterised.
+const ProtocolTag* lookup_protocol_tag(const char* hex);  // nullptr if not in table
+
 struct AdapterStubs {
     std::vector<std::string> stubs5;           // up to 5 enriched 5' stubs
     std::vector<std::string> stubs3;           // up to 5 enriched 3' stubs

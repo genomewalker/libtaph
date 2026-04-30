@@ -64,6 +64,18 @@ struct SampleDamageProfile {
     std::array<double, 15> tc_total_5prime = {};  // T+C counts at 5'
     std::array<double, 15> ag_total_3prime = {};  // A+G counts at 3'
 
+    // === Tail-anchored background tracking (chemistry-aware Briggs fit) ===
+    // Positions BG_TAIL_LO..BG_TAIL_HI from each terminus give a stable
+    // C->T (G->A) baseline far from terminal damage. Filled only when read
+    // length permits (read_length > pos+1).
+    static constexpr int BG_TAIL_LO = 20;
+    static constexpr int BG_TAIL_HI = 49;
+    static constexpr int BG_TAIL_N  = BG_TAIL_HI - BG_TAIL_LO + 1;  // 30
+    std::array<double, BG_TAIL_N> tail_t_5prime  = {};
+    std::array<double, BG_TAIL_N> tail_tc_5prime = {};
+    std::array<double, BG_TAIL_N> tail_a_3prime  = {};
+    std::array<double, BG_TAIL_N> tail_ag_3prime = {};
+
     // CpG context damage tracking
     float cpg_damage_rate = 0.0f;      // C→T rate in CpG context
     float non_cpg_damage_rate = 0.0f;  // C→T rate outside CpG
@@ -261,8 +273,140 @@ struct SampleDamageProfile {
     float library_p_ss      = 0.0f;
     float library_p_bias    = 0.0f;
     float library_p_winner  = 0.0f;
+    // F3: post-hoc-vetoed final probabilities. When override fires, these are
+    // one-hot to the surviving library_type; otherwise they mirror raw probs.
+    float library_p_ds_final     = 0.0f;
+    float library_p_ss_final     = 0.0f;
+    float library_p_bias_final   = 0.0f;
+    float library_p_winner_final = 0.0f;
     bool  library_type_evaluable = false;
     static constexpr float kLibraryTypeConfidenceThreshold = 0.60f;
+
+    // === ADDITIVE: P0-1 forced-type diagnostics ===
+    LibraryType library_auto_type = LibraryType::UNKNOWN;       // BIC tournament winner regardless of override
+    bool        library_auto_evaluable = false;                 // true if the BIC tournament produced a valid call
+    LibraryType library_forced_type = LibraryType::UNKNOWN;     // mirror of forced_library_type for downstream JSON
+
+    // === ADDITIVE: P1-A calibrated call quality ===
+    std::string library_bic_winner_model;     // e.g. "M_DS_symm_art"
+    std::string library_bic_second_model;
+    double      library_bic_margin = 0.0;     // second_BIC - winner_BIC (>=0; bigger = more confident)
+    float       library_p_ds_class_min   = 0.0f;  // softmax over best-BIC-per-class only
+    float       library_p_ss_class_min   = 0.0f;
+    float       library_p_bias_class_min = 0.0f;
+    bool        library_artifact_contaminated = false;
+    std::vector<std::string> library_artifact_reasons;
+
+    // Protocol-tag classifier evidence: top 5' hexamer matches a known
+    // library-prep oligo fingerprint (e.g. TGTAGA = SS Santa-Cruz / Gansauge,
+    // CGATCT = DS TruSeq). When the BIC verdict disagrees with the chemistry
+    // fingerprint, the chemistry is the stronger evidence and the cascade
+    // overrides library_type. Fields populated whenever the top hex matches a
+    // table entry; protocol_tag_applied=true only when the override fired.
+    std::string protocol_tag_5prime;       // observed top 5' hexamer (e.g. "TGTAGA")
+    std::string protocol_tag_protocol;     // matched protocol name
+    LibraryType protocol_tag_class    = LibraryType::UNKNOWN;
+    float       protocol_tag_log2fc   = 0.0f;
+    float       protocol_tag_log_lr   = 0.0f;
+    bool        protocol_tag_applied  = false;  // true when override flipped library_type
+
+    // === Chemistry-aware Briggs fit + headline area-excess statistics ===
+    // bg_*_anchored: trimmed-mean C->T (G->A) rate over tail positions
+    // [BG_TAIL_LO..BG_TAIL_HI] using only positions with denom >= 100.
+    // briggs_pos0_masked_*: pos 0 excluded from Briggs fit because protocol
+    // tag dominates that position (5' ligation footprint suppresses real signal).
+    // damage_*_area_excess: sum_{i=k}^{14} max(0, rate[i] - bg) where k=1 if
+    // pos0 masked, else k=0. Robust headline statistic for cross-library
+    // comparison; preferred over d_max when chemistry tag is set.
+    // damage_*_lr: log-likelihood ratio of binomial(rate, bg) per-position
+    // model vs bg-only null over positions k..14. Coverage-scaling companion.
+    float  bg_5prime_anchored        = 0.0f;
+    float  bg_3prime_anchored        = 0.0f;
+    int    bg_n_positions_5prime     = 0;
+    int    bg_n_positions_3prime     = 0;
+    double bg_denominator_5prime     = 0.0;
+    double bg_denominator_3prime     = 0.0;
+    bool   briggs_pos0_masked_5prime = false;
+    bool   briggs_pos0_masked_3prime = false;
+    float  damage_5prime_area_excess = 0.0f;
+    float  damage_3prime_area_excess = 0.0f;
+    float  damage_5prime_lr          = 0.0f;
+    float  damage_3prime_lr          = 0.0f;
+
+    // Input mode: single-end (-i) or paired-end (-1/-2). Paired routes R1
+    // 5' to per_pos_5prime, R2 5' to per_pos_3prime; read 3' ends ignored.
+    enum class InputMode { SINGLE, PAIRED };
+    InputMode input_mode = InputMode::SINGLE;
+    uint64_t  pe_short_insert_skipped = 0;  // pairs skipped for short-insert read-through
+
+    // === ADDITIVE: P1-B all 7 submodel BICs ===
+    double library_bic_M_bias        = 0.0;
+    double library_bic_M_DS_symm     = 0.0;
+    double library_bic_M_DS_spike    = 0.0;
+    double library_bic_M_DS_symm_art = 0.0;
+    double library_bic_M_SS_comp     = 0.0;
+    double library_bic_M_SS_orig     = 0.0;
+    double library_bic_M_SS_asym     = 0.0;
+    double library_bic_M_SS_full     = 0.0;
+    bool   library_M_SS_orig_active  = false;  // ct3.delta_bic > 0
+    bool   library_M_SS_asym_active  = false;  // spike_is_ss
+
+    // === ADDITIVE: P2 spike-gate diagnostics ===
+    bool  library_spike_is_ss = false;
+    float library_spike_gate_ga0_amp = 0.0f;
+    bool  library_spike_gate_structural_bilateral = false;
+    bool  library_joint_lambda_restricted = false;
+
+    // === ADDITIVE: S1 telemetry (frozen schema, never affects classification) ===
+    // Counterfactual M_DS_asym (independent ct5/ga3 amps, no shared-amp constraint).
+    // Telemetry only: never enters cascade or softmax.
+    double library_bic_M_DS_asym_art = 0.0;
+    // M_DS_symm rebuilt from a no-offset joint fit (start_pos=1 forced) — invariant
+    // probe to catch joint best-offset regressions.
+    double library_bic_M_DS_symm_art_no_offset = 0.0;
+
+    // Raw 9-candidate winner ranking (8 cascade contenders + M_DS_asym_art),
+    // ignores cascade gating and post-hoc rescue.
+    std::string library_bic_raw_winner_model;
+    std::string library_bic_raw_winner_class;   // "ds" | "ss" | "bias"
+    std::string library_bic_raw_second_model;
+    double      library_bic_raw_margin = 0.0;   // raw_2nd - raw_winner (>=0)
+    bool        library_bic_raw_winner_in_cascade = false;
+
+    // Cascade exclusion booleans (multi-valued: each gate evaluated independently).
+    bool library_bic_excl_structural_bilateral = false;  // !structural_bilateral required for some gates
+    bool library_bic_excl_spike_is_ss = false;           // spike_is_ss flipped routing
+    bool library_bic_excl_ct3_zero = false;              // ct3.delta_bic <= 0 -> M_SS_orig inactive
+    bool library_bic_excl_M_SS_full_hardcoded = false;   // M_SS_full structurally excluded
+    bool library_bic_excl_in_cascade = false;            // raw winner WAS in cascade (no exclusion)
+
+    // Post-hoc final winner (after veto/rescue logic mutates library_type).
+    std::string final_library_bic_winner_model;
+    std::string final_library_bic_override_reason;  // "" if final == cascade winner
+
+    // Gate inputs (already computed; expose for audit).
+    bool  library_gate_artifact_5 = false;
+    bool  library_gate_artifact_3 = false;
+    bool  library_gate_position_0_artifact_5prime = false;
+    bool  library_gate_position_0_artifact_3prime = false;
+    bool  library_gate_inverted_pattern_5prime = false;
+    bool  library_gate_inverted_pattern_3prime = false;
+    float library_gate_max_damage_5prime = 0.0f;
+    bool  library_gate_ss_orientation_evidence = false;
+    bool  library_gate_ga_spike_dominant = false;
+    bool  library_gate_ds_spike_won = false;
+    bool  library_gate_ga0_dominates_ct5 = false;
+    bool  library_gate_structural_bilateral = false;
+
+    // Per-channel offsets (already computed; expose).
+    int library_ct3_offset = 1;
+    int library_ds_symm_offset = 1;
+
+    // ds_symm joint-fit diagnostics.
+    float library_ds_symm_lambda_used = 0.0f;
+    float library_ds_symm_amp = 0.0f;
+    float library_ds_symm_ct5_resid = 0.0f;  // ct5.amplitude - ds_symm.amplitude
+    float library_ds_symm_ga3_resid = 0.0f;  // ga3.amplitude - ds_symm.amplitude
 
     // Damage status: independent of library type, based on effect size + confidence interval
     enum class DamageStatus { ABSENT, WEAK, PRESENT };

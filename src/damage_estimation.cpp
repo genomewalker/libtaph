@@ -3,6 +3,7 @@
 #include "taph/frame_selector_decl.hpp"
 #include "taph/codon_tables.hpp"
 #include "taph/hexamer_tables.hpp"
+#include "taph/library_interpretation.hpp"
 #include <algorithm>
 #include <cmath>
 #include <array>
@@ -417,6 +418,26 @@ void FrameSelector::update_sample_profile(
             profile.t_freq_3prime[i]++;
         } else if (base == 'C') {
             profile.c_freq_3prime[i]++;
+        }
+    }
+
+    // Tail-anchored background sampling: track C->T (G->A) rates at
+    // positions BG_TAIL_LO..BG_TAIL_HI from each terminus to provide a
+    // chemistry-robust baseline. Only fills positions actually covered by
+    // this read.
+    {
+        const int lo = SampleDamageProfile::BG_TAIL_LO;
+        const int hi = SampleDamageProfile::BG_TAIL_HI;
+        for (int i = lo; i <= hi && static_cast<size_t>(i) < len; ++i) {
+            const int idx = i - lo;
+            const char b5 = fast_upper(seq[i]);
+            if (b5 == 'T') { profile.tail_t_5prime[idx]++; profile.tail_tc_5prime[idx]++; }
+            else if (b5 == 'C') { profile.tail_tc_5prime[idx]++; }
+
+            const size_t pos3 = len - 1 - i;
+            const char b3 = fast_upper(seq[pos3]);
+            if (b3 == 'A') { profile.tail_a_3prime[idx]++; profile.tail_ag_3prime[idx]++; }
+            else if (b3 == 'G') { profile.tail_ag_3prime[idx]++; }
         }
     }
 
@@ -2021,8 +2042,13 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     profile.max_damage_5prime = profile.damage_rate_5prime[0];
     profile.max_damage_3prime = profile.damage_rate_3prime[0];
 
-    // Briggs-like damage model parameter estimation (closed-form)
+    // Briggs-like damage model parameter estimation (closed-form).
+    // start_pos: first position to use (1 when chemistry tag suppresses pos 0).
+    // fixed_bg: when >= 0, use this as the background instead of the tail mean
+    // computed from rates[10..14]. Tail-anchored bg gives a chemistry-robust
+    // baseline that does not trade off with d_max in the fit.
     auto estimate_briggs_params = [](const std::array<float, 15>& rates, float max_rate,
+                                     int start_pos, float fixed_bg,
                                      float& delta_s, float& delta_d, float& lambda, float& r_squared) {
         delta_s = 0.0f;
         delta_d = 0.0f;
@@ -2030,82 +2056,180 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         r_squared = 0.0f;
 
         if (max_rate < 0.02f) return;
+        if (start_pos < 0 || start_pos > 5) start_pos = 0;
 
-        delta_s = rates[0];
+        delta_s = rates[start_pos];
 
-        float sum_background = 0.0f;
-        for (int i = 10; i < 15; ++i) {
-            sum_background += rates[i];
+        if (fixed_bg >= 0.0f) {
+            delta_d = fixed_bg;
+        } else {
+            float sum_background = 0.0f;
+            for (int i = 10; i < 15; ++i) sum_background += rates[i];
+            delta_d = sum_background / 5.0f;
         }
-        delta_d = sum_background / 5.0f;
 
         if (delta_s <= delta_d + 0.01f) {
             lambda = 0.3f;
             return;
         }
 
-        // Weighted log-linear regression for lambda estimation
-        float sum_xy = 0.0f;
-        float sum_x2 = 0.0f;
-        float sum_y = 0.0f;
-        float sum_x = 0.0f;
-        float sum_w = 0.0f;
-        float sum_y2 = 0.0f;
+        // Weighted log-linear regression for lambda estimation.
+        // Fit log((rate-bg)/(d_s-bg)) = -slope * (pos - start_pos) over
+        // start_pos..14. x is the offset from start_pos so the intercept
+        // corresponds to delta_s.
+        float sum_xy = 0.0f, sum_x2 = 0.0f, sum_y = 0.0f, sum_x = 0.0f;
+        float sum_w  = 0.0f, sum_y2 = 0.0f;
 
-        for (int pos = 0; pos < 15; ++pos) {
+        for (int pos = start_pos; pos < 15; ++pos) {
             float normalized = (rates[pos] - delta_d) / (delta_s - delta_d + 0.001f);
             normalized = std::clamp(normalized, 0.01f, 1.0f);
-
             float y = std::log(normalized);
-            float x = static_cast<float>(pos);
+            float x = static_cast<float>(pos - start_pos);
             float w = normalized * normalized;
-
             sum_xy += w * x * y;
             sum_x2 += w * x * x;
-            sum_y += w * y;
-            sum_x += w * x;
-            sum_w += w;
+            sum_y  += w * y;
+            sum_x  += w * x;
+            sum_w  += w;
             sum_y2 += w * y * y;
         }
 
         float denom = sum_w * sum_x2 - sum_x * sum_x;
-        if (std::abs(denom) < 0.001f) {
-            lambda = 0.3f;
-            return;
-        }
+        if (std::abs(denom) < 0.001f) { lambda = 0.3f; return; }
 
         float slope = (sum_w * sum_xy - sum_x * sum_y) / denom;
-
-        if (slope >= 0.0f) {
-            lambda = 0.3f;
-            return;
-        }
+        if (slope >= 0.0f) { lambda = 0.3f; return; }
 
         lambda = 1.0f - std::exp(slope);
         lambda = std::clamp(lambda, 0.05f, 0.95f);
 
-        // Calculate R²
         float ss_tot = sum_y2 - (sum_y * sum_y) / sum_w;
         float intercept = (sum_y - slope * sum_x) / sum_w;
         float ss_res = 0.0f;
-        for (int pos = 0; pos < 15; ++pos) {
+        for (int pos = start_pos; pos < 15; ++pos) {
             float normalized = (rates[pos] - delta_d) / (delta_s - delta_d + 0.001f);
             normalized = std::clamp(normalized, 0.01f, 1.0f);
             float y = std::log(normalized);
-            float y_pred = slope * static_cast<float>(pos) + intercept;
+            float y_pred = slope * static_cast<float>(pos - start_pos) + intercept;
             float w = normalized * normalized;
             ss_res += w * (y - y_pred) * (y - y_pred);
         }
         r_squared = (ss_tot > 0.001f) ? std::max(0.0f, 1.0f - ss_res / ss_tot) : 0.0f;
     };
 
-    estimate_briggs_params(profile.damage_rate_5prime, profile.max_damage_5prime,
-                           profile.delta_s_5prime, profile.delta_d_5prime,
-                           profile.lambda_5prime, profile.r_squared_5prime);
+    // Tail-anchored background: trimmed mean of per-position C->T (G->A)
+    // rates over BG_TAIL_LO..BG_TAIL_HI, requiring denom >= 100. If too few
+    // eligible positions, falls through to the legacy joint-fit bg.
+    auto compute_anchored_bg = [](const std::array<double, SampleDamageProfile::BG_TAIL_N>& num,
+                                  const std::array<double, SampleDamageProfile::BG_TAIL_N>& den,
+                                  int min_n_positions, double trim_frac,
+                                  float& bg_out, int& n_pos_out, double& denom_out) {
+        bg_out = -1.0f;
+        n_pos_out = 0;
+        denom_out = 0.0;
+        std::vector<float> rates;
+        rates.reserve(SampleDamageProfile::BG_TAIL_N);
+        for (int i = 0; i < SampleDamageProfile::BG_TAIL_N; ++i) {
+            if (den[i] >= 100.0) {
+                rates.push_back(static_cast<float>(num[i] / den[i]));
+                denom_out += den[i];
+            }
+        }
+        n_pos_out = static_cast<int>(rates.size());
+        if (n_pos_out < min_n_positions) return;
+        std::sort(rates.begin(), rates.end());
+        int n_trim = static_cast<int>(std::floor(trim_frac * n_pos_out));
+        int lo = n_trim, hi = n_pos_out - n_trim;
+        if (hi <= lo) { lo = 0; hi = n_pos_out; }
+        double sum = 0.0;
+        for (int i = lo; i < hi; ++i) sum += rates[i];
+        bg_out = static_cast<float>(sum / static_cast<double>(hi - lo));
+    };
 
-    estimate_briggs_params(profile.damage_rate_3prime, profile.max_damage_3prime,
-                           profile.delta_s_3prime, profile.delta_d_3prime,
-                           profile.lambda_3prime, profile.r_squared_3prime);
+    {
+        float  bg5 = -1.0f, bg3 = -1.0f;
+        int    n5  = 0,     n3  = 0;
+        double d5  = 0.0,   d3  = 0.0;
+        compute_anchored_bg(profile.tail_t_5prime,  profile.tail_tc_5prime,  10, 0.20, bg5, n5, d5);
+        compute_anchored_bg(profile.tail_a_3prime,  profile.tail_ag_3prime,  10, 0.20, bg3, n3, d3);
+        profile.bg_5prime_anchored    = (bg5 >= 0.0f) ? bg5 : 0.0f;
+        profile.bg_3prime_anchored    = (bg3 >= 0.0f) ? bg3 : 0.0f;
+        profile.bg_n_positions_5prime = n5;
+        profile.bg_n_positions_3prime = n3;
+        profile.bg_denominator_5prime = d5;
+        profile.bg_denominator_3prime = d3;
+
+        // Inline chemistry-tag detection: top 5' hexamer matches a curated
+        // protocol-tag table at log2fc >= 3.0. Populates profile.protocol_tag_*
+        // here (early) so the Briggs fit can mask pos 0; the post-bias-gate
+        // rescue further down only mutates library_type if needed.
+        if (profile.protocol_tag_5prime.empty()) {
+            auto enriched = compute_hex_enriched_5prime(profile, 3.0f);
+            if (!enriched.empty()) {
+                auto seq = decode_hex(enriched[0].idx);
+                const ProtocolTag* tag = lookup_protocol_tag(seq.data());
+                if (tag) {
+                    profile.protocol_tag_5prime   = std::string(seq.data(), 6);
+                    profile.protocol_tag_protocol = tag->protocol;
+                    profile.protocol_tag_class    = tag->klass;
+                    profile.protocol_tag_log2fc   = static_cast<float>(enriched[0].log2fc);
+                    profile.protocol_tag_log_lr   = tag->log_lr;
+                }
+            }
+        }
+        const bool tag5 = !profile.protocol_tag_5prime.empty()
+                          && profile.protocol_tag_log2fc >= 3.0f;
+        profile.briggs_pos0_masked_5prime = tag5;
+        // No 3' chemistry-tag table currently; mirror flag stays false.
+        profile.briggs_pos0_masked_3prime = false;
+
+        const int  start5 = profile.briggs_pos0_masked_5prime ? 1 : 0;
+        const int  start3 = profile.briggs_pos0_masked_3prime ? 1 : 0;
+        const float fb5   = (bg5 >= 0.0f) ? bg5 : -1.0f;
+        const float fb3   = (bg3 >= 0.0f) ? bg3 : -1.0f;
+
+        estimate_briggs_params(profile.damage_rate_5prime, profile.max_damage_5prime,
+                               start5, fb5,
+                               profile.delta_s_5prime, profile.delta_d_5prime,
+                               profile.lambda_5prime, profile.r_squared_5prime);
+
+        estimate_briggs_params(profile.damage_rate_3prime, profile.max_damage_3prime,
+                               start3, fb3,
+                               profile.delta_s_3prime, profile.delta_d_3prime,
+                               profile.lambda_3prime, profile.r_squared_3prime);
+
+        // Headline area-excess + LR companion vs bg-only null over k..14.
+        // Uses RAW per-position T/(T+C) rates (t_freq_5prime / a_freq_3prime,
+        // rate-valued post-finalize) and the tail-anchored bg in the same
+        // P-space, so area_excess is comparable across libraries without
+        // depending on the joint Briggs fit's interior baseline.
+        auto compute_headline = [](const std::array<double, 15>& rates,
+                                   const std::array<double, 15>& tc_total,
+                                   int k, float bg,
+                                   float& area_excess, float& lr) {
+            area_excess = 0.0f;
+            lr = 0.0f;
+            if (bg < 0.0f) bg = 0.0f;
+            const double bg_safe = std::clamp(static_cast<double>(bg), 1e-6, 1.0 - 1e-6);
+            for (int p = k; p < 15; ++p) {
+                const double r = rates[p];
+                if (r > bg) area_excess += static_cast<float>(r - bg);
+                const double n = tc_total[p];
+                if (n < 5.0) continue;
+                const double k_obs = r * n;
+                const double p_alt = std::clamp(r, 1e-6, 1.0 - 1e-6);
+                const double ll_alt  = k_obs * std::log(p_alt) + (n - k_obs) * std::log(1.0 - p_alt);
+                const double ll_null = k_obs * std::log(bg_safe) + (n - k_obs) * std::log(1.0 - bg_safe);
+                if (ll_alt > ll_null) lr += static_cast<float>(ll_alt - ll_null);
+            }
+        };
+        compute_headline(profile.t_freq_5prime, profile.tc_total_5prime,
+                         start5, profile.bg_5prime_anchored,
+                         profile.damage_5prime_area_excess, profile.damage_5prime_lr);
+        compute_headline(profile.a_freq_3prime, profile.ag_total_3prime,
+                         start3, profile.bg_3prime_anchored,
+                         profile.damage_3prime_area_excess, profile.damage_3prime_lr);
+    }
 
     profile.lambda_5prime = std::clamp(profile.lambda_5prime, 0.1f, 1.0f);
     profile.lambda_3prime = std::clamp(profile.lambda_3prime, 0.1f, 1.0f);
@@ -2228,10 +2352,11 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     // Lambda is fixed to the fitted 5' C→T decay, so coverage inflating z-scores
     // does not affect the classification — only whether the decay shape fits.
     // Position 0 is excluded entirely (known adapter ligation artifact at 3' in SS prep).
-    if (profile.forced_library_type != SampleDamageProfile::LibraryType::UNKNOWN) {
-        profile.library_type = profile.forced_library_type;
-        profile.library_type_auto_detected = false;
-    } else {
+    // P0-1: BIC tournament runs UNCONDITIONALLY. The forced-library override is
+    // applied AFTER, by overwriting profile.library_type only — diagnostic
+    // BIC fields, posteriors, and submodel scores remain populated so KapK-forced
+    // runs produce identical numbers to KapK-auto runs.
+    {
         float lambda_lib = std::clamp(fit_lambda_5p, 0.05f, 0.50f);
 
         // Four channels, all with lambda fixed to the fitted 5' C→T decay rate.
@@ -2307,6 +2432,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         // the high-lambda CT5 fit should not inflate the DS joint BIC when the sample already
         // shows a large GA0 spike (spike_is_ss-like pattern). ga0 is fit before this point.
         const bool restrict_joint_lambda = (ga0.amplitude >= 0.10f && ga0.delta_bic > ct5.delta_bic);
+        // P2: spike-gate diagnostic — record the joint-lambda gating decision
+        profile.library_joint_lambda_restricted = restrict_joint_lambda;
         if (artifact_5 || artifact_3) {
             std::tie(ds_symm, ds_symm_offset) = fit_decay_joint_best_offset(
                 profile.t_freq_5prime, profile.tc_total_5prime, static_cast<float>(baseline_tc),
@@ -2354,13 +2481,42 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         profile.libtype_dbic_ct3 = ct3.delta_bic;
 
         if (ct5.valid && ga3.valid && ga0.valid && ct3.valid && ds_symm.valid) {
+            // Hard biological gates (no tunable parameters):
+            //   M_DS_symm:     DS damage is symmetric — requires ga3 to have real
+            //                  signal. Use the standard Bayes-factor "no evidence"
+            //                  threshold: ga3.delta_bic > log(2) ≈ 0.693
+            //                  (Kass & Raftery 1995). If ga3 is indistinguishable
+            //                  from null, there is nothing for ct5 to be symmetric
+            //                  with — the joint ds_symm fit is fitting noise.
+            //   M_DS_symm_art: 3' GA spike is the complementary-strand reflection
+            //                  of 5' CT damage. A reflection cannot exceed its
+            //                  source — require ga0 ≤ ct5.
+            // When violated, the model is invalid for this sample and excluded
+            // from the tournament (BIC = +inf).
+            const bool ds_symm_valid     = (ga3.delta_bic > std::log(2.0));
+            const bool ds_symm_art_valid = (ga0.amplitude <= ct5.amplitude);
+            constexpr double kInvalidBIC = 1e300;
+
             const double bic_M_bias        = ct5.bic_null   + ga3.bic_null + ga0.bic_null + ct3.bic_null;
-            const double bic_M_DS_symm     = ds_symm.bic_alt               + ga0.bic_null + ct3.bic_null;
+            const double bic_M_DS_symm     = ds_symm_valid     ? (ds_symm.bic_alt + ga0.bic_null + ct3.bic_null) : kInvalidBIC;
             const double bic_M_DS_spike    = ct5.bic_null   + ga3.bic_null + ga0.bic_alt  + ct3.bic_null;
-            const double bic_M_DS_symm_art = ds_symm.bic_alt               + ga0.bic_alt  + ct3.bic_null;
+            const double bic_M_DS_symm_art = ds_symm_art_valid ? (ds_symm.bic_alt + ga0.bic_alt  + ct3.bic_null) : kInvalidBIC;
             const double bic_M_SS_comp     = ct5.bic_null   + ga3.bic_alt  + ga0.bic_alt  + ct3.bic_null;
             const double bic_M_SS_orig     = ct5.bic_alt    + ga3.bic_null + ga0.bic_null + ct3.bic_alt;
             const double bic_M_SS_full     = ct5.bic_alt    + ga3.bic_alt  + ga0.bic_alt  + ct3.bic_alt;
+            // S1 telemetry only: asymmetric DS counterfactual (independent ct5/ga3 amps,
+            // GA0 artifact, no CT3). Never enters cascade/softmax.
+            const double bic_M_DS_asym_art = ct5.bic_alt    + ga3.bic_alt  + ga0.bic_alt  + ct3.bic_null;
+            // S1 invariant probe: M_DS_symm_art rebuilt from a forced no-offset joint fit
+            // (start_pos=1, no joint best-offset search) regardless of artifact_5/artifact_3.
+            // Catches future regressions where joint best-offset search inflates ds_symm.
+            ChannelDecayFit ds_symm_no_off = fit_decay_fixed_lambda_joint(
+                profile.t_freq_5prime, profile.tc_total_5prime, static_cast<float>(baseline_tc),
+                profile.a_freq_3prime, profile.ag_total_3prime, static_cast<float>(baseline_ag),
+                lambda_lib, 1, 10);
+            const double bic_M_DS_symm_art_no_offset = (ds_symm_no_off.valid
+                ? ds_symm_no_off.bic_alt + ga0.bic_alt + ct3.bic_null
+                : 0.0);
             // SS asymmetric: original-orientation CT5 + complement-orientation GA0 spike; no GA3 smooth decay.
             // Wins over M_DS_symm_art when ga3.delta_bic < log(2), i.e. ga3 has no real signal.
             // Only considered when spike_is_ss=true so it cannot compete with M_DS_spike in the DS-only path.
@@ -2376,6 +2532,41 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             const bool structural_bilateral = profile.channel_b_quantifiable
                                            && (profile.d_max_from_channel_b > 0.10f);
             const bool spike_is_ss = (ga0.amplitude >= 0.10f) && !structural_bilateral;
+            // P2: spike-gate diagnostics — record the gating inputs and decision
+            profile.library_spike_is_ss                    = spike_is_ss;
+            profile.library_spike_gate_ga0_amp             = ga0.amplitude;
+            profile.library_spike_gate_structural_bilateral = structural_bilateral;
+            // P1-B: store all 7 submodel BICs and active-flags so callers can audit the tournament
+            profile.library_bic_M_bias        = bic_M_bias;
+            profile.library_bic_M_DS_symm     = bic_M_DS_symm;
+            profile.library_bic_M_DS_spike    = bic_M_DS_spike;
+            profile.library_bic_M_DS_symm_art = bic_M_DS_symm_art;
+            profile.library_bic_M_SS_comp     = bic_M_SS_comp;
+            profile.library_bic_M_SS_orig     = bic_M_SS_orig;
+            profile.library_bic_M_SS_asym     = bic_M_SS_asym;
+            profile.library_bic_M_SS_full     = bic_M_SS_full;
+            profile.library_M_SS_orig_active  = (ct3.delta_bic > 0.0);
+            profile.library_M_SS_asym_active  = spike_is_ss;
+            // S1 telemetry: counterfactual + invariant probe BICs (never enter cascade)
+            profile.library_bic_M_DS_asym_art          = bic_M_DS_asym_art;
+            profile.library_bic_M_DS_symm_art_no_offset = bic_M_DS_symm_art_no_offset;
+            // S1 telemetry: gate inputs / per-channel offsets / ds_symm joint diagnostics
+            profile.library_gate_artifact_5                   = artifact_5;
+            profile.library_gate_artifact_3                   = artifact_3;
+            profile.library_gate_position_0_artifact_5prime   = profile.position_0_artifact_5prime;
+            profile.library_gate_position_0_artifact_3prime   = profile.position_0_artifact_3prime;
+            profile.library_gate_inverted_pattern_5prime      = profile.inverted_pattern_5prime;
+            profile.library_gate_inverted_pattern_3prime      = profile.inverted_pattern_3prime;
+            profile.library_gate_max_damage_5prime            = profile.max_damage_5prime;
+            profile.library_gate_structural_bilateral         = structural_bilateral;
+            profile.library_gate_ga0_dominates_ct5            =
+                (ga0.amplitude >= 0.10f && ga0.delta_bic > ct5.delta_bic);
+            profile.library_ct3_offset      = ct3_offset;
+            profile.library_ds_symm_offset  = ds_symm_offset;
+            profile.library_ds_symm_lambda_used = ds_symm.lambda;
+            profile.library_ds_symm_amp     = ds_symm.amplitude;
+            profile.library_ds_symm_ct5_resid = ct5.amplitude - ds_symm.amplitude;
+            profile.library_ds_symm_ga3_resid = ga3.amplitude - ds_symm.amplitude;
             const double best_ds = std::min({bic_M_DS_symm,
                                              bic_M_DS_symm_art,
                                              spike_is_ss ? 1e300 : bic_M_DS_spike});
@@ -2432,6 +2623,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             if (spike_is_ss && bic_M_DS_spike < best) {
                 best = bic_M_DS_spike;
                 profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+                ds_spike_won = false;
             }
             // M_SS_asym: SS with CT5 from original-orientation + GA0 spike from complement-orientation,
             // but no detectable GA3 smooth decay (ga3.delta_bic ≈ 0). Analytically beats M_DS_symm_art
@@ -2503,16 +2695,92 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // is comparable to GA0 rather than being dwarfed by it.
             const bool ga_spike_dominant = (ga3.delta_bic * 5.0 < ga0.delta_bic);
             if (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED
-                && structural_bilateral && ga_spike_dominant) {
+                && structural_bilateral && ga_spike_dominant
+                && ct3.delta_bic <= 0.0) {
                 profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
                 profile.library_type_rescued = true;
             }
+            // GA0-spike DS-symm veto: when the 3' ga0 ligation spike unambiguously
+            // dominates (ga0 ≥ 0.10, ga0_dominates_ct5, ga0 > both ct5 and ga3),
+            // an apparent CT5/GA3 symmetry absorbed by M_DS_symm is artifact, not
+            // real DS damage — true DS has ct5≈ga3 ≫ ga0. Restricted to ds_symm
+            // winners; independent of max_damage_5prime (the artifact inflates it).
+            if (profile.library_type == SampleDamageProfile::LibraryType::DOUBLE_STRANDED &&
+                profile.library_gate_ga0_dominates_ct5 &&
+                ga0.amplitude >= 0.10f &&
+                ga0.amplitude > std::max(ct5.amplitude, ga3.amplitude) &&
+                (best == bic_M_DS_symm || best == bic_M_DS_symm_art)) {
+                profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+            }
+            // Channel-B DS rescue from M_SS_comp: structural_bilateral confirms
+            // bilateral symmetric damage (channel B is artifact-immune); ct5≈ga3
+            // (within 30%, both ≥ 0.03) confirms the symmetric DS pair. M_SS_comp
+            // wins by capturing ct5+ga3+ga0 as 3 independent bumps; M_DS_symm has
+            // no ga0 term and loses on raw BIC despite being the correct model
+            // (the ga0 here is end-repair / ligation residue co-occurring with
+            // real DS damage, not the SS complement-orientation signature).
+            if (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED &&
+                structural_bilateral &&
+                best == bic_M_SS_comp &&
+                ct3.delta_bic <= 0.0 &&
+                ct5.amplitude >= 0.03f &&
+                ga3.amplitude >= 0.03f &&
+                std::abs(ct5.amplitude - ga3.amplitude) <=
+                    0.30f * std::max(ct5.amplitude, ga3.amplitude)) {
+                profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+                profile.library_type_rescued = true;
+            }
+            // Low-amp symmetric DS rescue: zero 3' damage collapses the per-end
+            // DS amplitudes so M_SS_full / M_SS_orig wins raw BIC, but the joint
+            // M_DS_symm fit is still valid (ct5 ~= ga3, residuals ~= 0). ga0 < 0.005
+            // and !spike_is_ss exclude SS-complement orientation.
+            if (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED &&
+                !spike_is_ss &&
+                ds_symm.amplitude >= 0.005f &&
+                ct5.amplitude >= 0.005f && ga3.amplitude >= 0.005f &&
+                ga0.amplitude < 0.005f &&
+                std::abs(ct5.amplitude - ga3.amplitude) <=
+                    0.50f * std::max(ct5.amplitude, ga3.amplitude) &&
+                profile.max_damage_3prime < 0.005f) {
+                profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+                profile.library_type_rescued = true;
+            }
+            // S1 telemetry: capture cascade-derived gate outputs.
+            profile.library_gate_ss_orientation_evidence = ss_orientation_evidence;
+            profile.library_gate_ga_spike_dominant       = ga_spike_dominant;
+            profile.library_gate_ds_spike_won            = ds_spike_won;
             // Uninformative: if nothing beat M_bias (best unchanged), no damage channel
             // provided evidence for either DS or SS. Use exact equality — best is only
             // updated via assignment from another BIC value, so equality is safe here.
             // Does NOT affect low-damage DS libraries where M_DS_symm still beats M_bias.
             if (best == bic_M_bias) {
                 profile.library_type = SampleDamageProfile::LibraryType::UNKNOWN;
+            }
+            // Protocol-tag rescue: top 5' hexamer is a chemistry fingerprint
+            // (deterministic per library prep, independent of damage shape).
+            // Runs AFTER the bias gate so chemistry evidence overrides UNKNOWN
+            // for low-damage libraries where BIC has nothing to fit. Only fires
+            // when log2fc >= 3.0 (8x enrichment) and the hex matches the curated
+            // table, so noise hexamers cannot trip it.
+            {
+                auto enriched = compute_hex_enriched_5prime(profile, 3.0f);
+                if (!enriched.empty()) {
+                    auto seq = decode_hex(enriched[0].idx);
+                    const ProtocolTag* tag = lookup_protocol_tag(seq.data());
+                    if (tag) {
+                        profile.protocol_tag_5prime   = std::string(seq.data(), 6);
+                        profile.protocol_tag_protocol = tag->protocol;
+                        profile.protocol_tag_class    = tag->klass;
+                        profile.protocol_tag_log2fc   = static_cast<float>(enriched[0].log2fc);
+                        profile.protocol_tag_log_lr   = tag->log_lr;
+                        if (profile.library_type != tag->klass) {
+                            profile.library_type        = tag->klass;
+                            profile.library_type_rescued = true;
+                            profile.protocol_tag_applied = true;
+                            profile.library_artifact_reasons.push_back("protocol_tag_5prime");
+                        }
+                    }
+                }
             }
             // Posterior class probabilities P(class | data) ∝ exp(-BIC/2),
             // computed AFTER the cascade so M_DS_spike (and M_SS_asym) are
@@ -2576,6 +2844,111 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                         profile.library_type_evaluable = true;
                     }
                 }
+            }
+            // P1-A: winner / second-best model + margin and class-min softmax.
+            // The candidate set MUST match the cascade exactly (same gating as
+            // the existing posterior block above): always-on M_bias/M_DS_symm/
+            // M_DS_spike/M_DS_symm_art/M_SS_comp; M_SS_orig only when ct3
+            // shows positive evidence; M_SS_asym only when spike_is_ss.
+            {
+                struct CandM { const char* name; double bic; bool active; int klass; };
+                // klass: 0=bias, 1=DS, 2=SS. M_DS_spike routes per cascade outcome.
+                int spike_klass = 1;  // default DS
+                if (spike_is_ss) {
+                    spike_klass = 2;
+                } else if (profile.library_type ==
+                           SampleDamageProfile::LibraryType::SINGLE_STRANDED) {
+                    spike_klass = 2;
+                }
+                CandM cands[7] = {
+                    {"M_bias",        bic_M_bias,        true,                       0},
+                    {"M_DS_symm",     bic_M_DS_symm,     true,                       1},
+                    {"M_DS_spike",    bic_M_DS_spike,    true,                       spike_klass},
+                    {"M_DS_symm_art", bic_M_DS_symm_art, true,                       1},
+                    {"M_SS_comp",     bic_M_SS_comp,     true,                       2},
+                    {"M_SS_orig",     bic_M_SS_orig,     ct3.delta_bic > 0.0,        2},
+                    {"M_SS_asym",     bic_M_SS_asym,     spike_is_ss,                2},
+                };
+                int win_i = -1, sec_i = -1;
+                for (int i = 0; i < 7; ++i) {
+                    if (!cands[i].active) continue;
+                    if (win_i < 0 || cands[i].bic < cands[win_i].bic) {
+                        sec_i = win_i; win_i = i;
+                    } else if (sec_i < 0 || cands[i].bic < cands[sec_i].bic) {
+                        sec_i = i;
+                    }
+                }
+                if (win_i >= 0) {
+                    profile.library_bic_winner_model = cands[win_i].name;
+                    if (sec_i >= 0) {
+                        profile.library_bic_second_model = cands[sec_i].name;
+                        profile.library_bic_margin = cands[sec_i].bic - cands[win_i].bic;
+                    }
+                }
+                // Class-min softmax: best-BIC representative per class only.
+                // 3-way over { best DS, best SS, M_bias }, subtract-min trick.
+                double best_per_class[3] = {1e300, 1e300, 1e300};
+                for (int i = 0; i < 7; ++i) {
+                    if (!cands[i].active) continue;
+                    int k = cands[i].klass;
+                    if (cands[i].bic < best_per_class[k]) best_per_class[k] = cands[i].bic;
+                }
+                double bmin_c = std::min({best_per_class[0], best_per_class[1], best_per_class[2]});
+                double w_c[3] = {0.0, 0.0, 0.0};
+                double Z_c = 0.0;
+                for (int k = 0; k < 3; ++k) {
+                    if (best_per_class[k] >= 1e299) continue;
+                    double half = (bmin_c - best_per_class[k]) * 0.5;
+                    if (half < -80.0) half = -80.0;
+                    w_c[k] = std::exp(half);
+                    Z_c += w_c[k];
+                }
+                if (Z_c > 0.0) {
+                    profile.library_p_bias_class_min = static_cast<float>(w_c[0] / Z_c);
+                    profile.library_p_ds_class_min   = static_cast<float>(w_c[1] / Z_c);
+                    profile.library_p_ss_class_min   = static_cast<float>(w_c[2] / Z_c);
+                }
+            }
+            // S1 telemetry: raw 9-candidate ranking — ignores cascade gating, exposes
+            // the absolute-best fit so callers can audit cascade exclusions.
+            // 8 cascade contenders + M_DS_asym_art (telemetry-only counterfactual).
+            {
+                struct Raw { const char* name; double bic; const char* klass; bool in_cascade; };
+                const Raw raw[9] = {
+                    {"M_bias",        bic_M_bias,        "bias", true},
+                    {"M_DS_symm",     bic_M_DS_symm,     "ds",   true},
+                    {"M_DS_spike",    bic_M_DS_spike,    "ds",   true},
+                    {"M_DS_symm_art", bic_M_DS_symm_art, "ds",   true},
+                    {"M_SS_comp",     bic_M_SS_comp,     "ss",   true},
+                    {"M_SS_orig",     bic_M_SS_orig,     "ss",   true},
+                    {"M_SS_asym",     bic_M_SS_asym,     "ss",   true},
+                    {"M_SS_full",     bic_M_SS_full,     "ss",   false},  // structurally excluded from cascade
+                    {"M_DS_asym_art", bic_M_DS_asym_art, "ds",   false},  // telemetry-only counterfactual
+                };
+                int rwin = 0;
+                for (int i = 1; i < 9; ++i) if (raw[i].bic < raw[rwin].bic) rwin = i;
+                int rsec = -1;
+                for (int i = 0; i < 9; ++i) {
+                    if (i == rwin) continue;
+                    if (rsec < 0 || raw[i].bic < raw[rsec].bic) rsec = i;
+                }
+                profile.library_bic_raw_winner_model = raw[rwin].name;
+                profile.library_bic_raw_winner_class = raw[rwin].klass;
+                profile.library_bic_raw_winner_in_cascade = raw[rwin].in_cascade;
+                if (rsec >= 0) {
+                    profile.library_bic_raw_second_model = raw[rsec].name;
+                    profile.library_bic_raw_margin       = raw[rsec].bic - raw[rwin].bic;
+                }
+                // Cascade-exclusion booleans: which gating reasons could have
+                // suppressed the raw winner from cascade competition. Multi-valued.
+                profile.library_bic_excl_in_cascade            = raw[rwin].in_cascade;
+                profile.library_bic_excl_M_SS_full_hardcoded   = (std::string(raw[rwin].name) == "M_SS_full");
+                profile.library_bic_excl_ct3_zero              = (std::string(raw[rwin].name) == "M_SS_orig"
+                                                                  && ct3.delta_bic <= 0.0);
+                profile.library_bic_excl_spike_is_ss           = ((std::string(raw[rwin].name) == "M_SS_asym" && !spike_is_ss)
+                                                                  || (std::string(raw[rwin].name) == "M_DS_spike" && spike_is_ss));
+                profile.library_bic_excl_structural_bilateral  = (std::string(raw[rwin].name) == "M_DS_asym_art"
+                                                                  && !structural_bilateral);
             }
             // Low-confidence override: if the posterior winner sits below the
             // confidence threshold AND no domain rescue rule fired, fall back
@@ -2657,6 +3030,66 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         }
 
         profile.library_type_auto_detected = true;
+
+        // S1 telemetry: final winner after all post-hoc rescues / vetoes / UNKNOWN
+        // overrides. final_library_bic_winner_model echoes the cascade-tournament
+        // winner; override_reason is non-empty when post-hoc logic moved
+        // library_type to a class that disagrees with the winner model's class.
+        {
+            const std::string& cw = profile.library_bic_winner_model;
+            std::string cw_class;
+            if (cw == "M_bias")                                    cw_class = "bias";
+            else if (cw == "M_DS_symm" || cw == "M_DS_symm_art")   cw_class = "ds";
+            else if (cw == "M_DS_spike")                           cw_class = profile.library_spike_is_ss ? "ss" : "ds";
+            else                                                   cw_class = "ss";  // M_SS_*
+            std::string lt_class;
+            switch (profile.library_type) {
+                case SampleDamageProfile::LibraryType::DOUBLE_STRANDED: lt_class = "ds"; break;
+                case SampleDamageProfile::LibraryType::SINGLE_STRANDED: lt_class = "ss"; break;
+                default:                                                lt_class = "unknown"; break;
+            }
+            profile.final_library_bic_winner_model = cw;
+            if (cw_class == lt_class) {
+                profile.final_library_bic_override_reason.clear();
+            } else if (lt_class == "unknown") {
+                profile.final_library_bic_override_reason =
+                    profile.library_type_rescued
+                        ? "post_hoc_rescue_to_unknown"
+                        : "low_confidence_override_to_unknown";
+            } else if (profile.library_type_rescued) {
+                profile.final_library_bic_override_reason =
+                    "post_hoc_rescue_" + cw_class + "_to_" + lt_class;
+            } else {
+                profile.final_library_bic_override_reason =
+                    "post_hoc_veto_" + cw_class + "_to_" + lt_class;
+            }
+            // F3: post-veto final probabilities. One-hot when override fired
+            // (veto/rescue/UNKNOWN), mirror raw probs when class survived.
+            if (profile.final_library_bic_override_reason.empty()) {
+                profile.library_p_ds_final     = profile.library_p_ds;
+                profile.library_p_ss_final     = profile.library_p_ss;
+                profile.library_p_bias_final   = profile.library_p_bias;
+                profile.library_p_winner_final = profile.library_p_winner;
+            } else {
+                profile.library_p_ds_final     = (lt_class == "ds")   ? 1.0f : 0.0f;
+                profile.library_p_ss_final     = (lt_class == "ss")   ? 1.0f : 0.0f;
+                profile.library_p_bias_final   = (lt_class == "bias") ? 1.0f : 0.0f;
+                profile.library_p_winner_final = (lt_class == "unknown") ? 0.0f : 1.0f;
+            }
+        }
+
+        // P0-1: capture the BIC tournament's verdict regardless of any forced override.
+        profile.library_auto_type      = profile.library_type;
+        profile.library_auto_evaluable = profile.library_type_evaluable;
+
+        // P0-1: forced-library override — applied AFTER the tournament so all
+        // diagnostic BICs / posteriors remain populated. Only library_type and
+        // the auto-detect flag change; library_auto_type preserves the auto call.
+        profile.library_forced_type = profile.forced_library_type;
+        if (profile.forced_library_type != SampleDamageProfile::LibraryType::UNKNOWN) {
+            profile.library_type               = profile.forced_library_type;
+            profile.library_type_auto_detected = false;
+        }
     }
 
     float damage_signal = (profile.max_damage_5prime + profile.max_damage_3prime) / 2.0f;
@@ -2726,7 +3159,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         // Using damage_rate[0] fails when pos 0 carries adapter artifact (below baseline);
         // using damage_rate[fit_offset] fails when BIC-best offset points to a below-baseline pos.
         float raw_d_max_5prime, raw_d_max_3prime;
-        if (profile.position_0_artifact_5prime || profile.inverted_pattern_5prime) {
+        if (profile.position_0_artifact_5prime || profile.inverted_pattern_5prime
+            || profile.briggs_pos0_masked_5prime) {
             float peak = 0.0f;
             for (int p = 1; p <= 5 && p < 15; ++p) {
                 if (profile.damage_rate_5prime[p] > peak) peak = profile.damage_rate_5prime[p];
@@ -2735,7 +3169,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         } else {
             raw_d_max_5prime = std::clamp(profile.damage_rate_5prime[0], 0.0f, 1.0f);
         }
-        if (profile.position_0_artifact_3prime || profile.inverted_pattern_3prime) {
+        if (profile.position_0_artifact_3prime || profile.inverted_pattern_3prime
+            || profile.briggs_pos0_masked_3prime) {
             float peak = 0.0f;
             for (int p = 1; p <= 5 && p < 15; ++p) {
                 if (profile.damage_rate_3prime[p] > peak) peak = profile.damage_rate_3prime[p];
@@ -3220,10 +3655,14 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 : SampleDamageProfile::DamageStatus::WEAK;
         } else {
             profile.damage_status = SampleDamageProfile::DamageStatus::ABSENT;
-            // Conservative: absent damage means the BIC competition had no signal.
-            // Report UNKNOWN rather than keeping the DS default — we cannot distinguish
-            // zero-damage DS from zero-damage SS. Only applies in auto-detect mode.
-            if (profile.forced_library_type == SampleDamageProfile::LibraryType::UNKNOWN) {
+            // Inversion artifacts zero d_max_5/3prime even when BIC fit ct5~=ga3
+            // up to ~0.17. Preserve confident BIC verdicts; only fall back to
+            // UNKNOWN when the tournament itself was uncertain.
+            bool bic_confident =
+                profile.library_p_winner >= 0.95f &&
+                profile.library_auto_type != SampleDamageProfile::LibraryType::UNKNOWN;
+            if (profile.forced_library_type == SampleDamageProfile::LibraryType::UNKNOWN
+                && !bic_confident) {
                 profile.library_type = SampleDamageProfile::LibraryType::UNKNOWN;
             }
         }
@@ -3354,6 +3793,16 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         dst.t_freq_3prime[i] += src.t_freq_3prime[i];
         dst.c_freq_3prime[i] += src.c_freq_3prime[i];
         dst.tc_total_3prime[i] += src.tc_total_3prime[i];
+    }
+    for (int i = 0; i < SampleDamageProfile::BG_TAIL_N; ++i) {
+        dst.tail_t_5prime[i]  += src.tail_t_5prime[i];
+        dst.tail_tc_5prime[i] += src.tail_tc_5prime[i];
+        dst.tail_a_3prime[i]  += src.tail_a_3prime[i];
+        dst.tail_ag_3prime[i] += src.tail_ag_3prime[i];
+    }
+    dst.pe_short_insert_skipped += src.pe_short_insert_skipped;
+    if (src.input_mode == SampleDamageProfile::InputMode::PAIRED) {
+        dst.input_mode = SampleDamageProfile::InputMode::PAIRED;
     }
 
     dst.baseline_t_freq += src.baseline_t_freq;
@@ -3494,6 +3943,220 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
     dst.n_reads += src.n_reads;
 }
 
+// Paired-end variant. R1 contributes 5'-end counters + interior baseline;
+// R2 (complement-mapped) contributes 3'-end counters. Read 3' ends are
+// ignored — for inserts shorter than read length, R2's 5' end may read
+// through into R1's 5' adapter, contaminating per_pos_3prime. The caller
+// (fqdup PE worker) skips short pairs before calling this.
+//
+// Coverage scope: per-pos C->T and G->A counters at both ends, tail-anchored
+// background counters, codon-position counters, hexamer counts at 5', and
+// interior baseline. Advanced features filled by single-end update
+// (CpG-like ctx, upstream ctx, oxoG 16-ctx, trinuc spectrum, channel D
+// transversions, GC bins, channel B stop codons, channel C oxidative codons,
+// interior CT cluster) are NOT recomputed here — PE mode is intended for
+// raw bilateral 5'/3' damage QA, not full library profiling. Use SE on
+// merged reads when those signals are needed.
+bool FrameSelector::update_sample_profile_paired(
+    SampleDamageProfile& profile,
+    std::string_view r1,
+    std::string_view r2)
+{
+    if (r1.length() < 30 || r2.length() < 30) return false;
+
+    // Short-insert detection via R1/R2 overlap. When the molecule (insert)
+    // is shorter than the read length, R1 reads through the molecule into
+    // adapter A1 and R2 into adapter A2; the per-position damage windows
+    // and tail counters then mix molecule and adapter bases, producing an
+    // "anti-damage" shape at the 3' end (R2 first 15 bases are largely
+    // adapter, complement-mapped into top-strand frame as A-depletion at
+    // the 3'-end window).
+    //
+    // For an insert of length M, R1[M-K..M-1] is the molecule's 3' tail
+    // and should reverse-complement to R2[0..K-1] (which reads the
+    // molecule's bottom strand from the same end). We scan plausible M
+    // values; require K=15 bases of overlap with at most 3 mismatches
+    // (allows for sequencing error and aDNA damage at the molecule 3'
+    // end). When overlap is detected, the pair is short-insert by
+    // definition and belongs to the merged-read SE workflow — skip it.
+    // Native PE is intended for true long-insert pairs (insert > read
+    // length) where R1 and R2 do not overlap and the per-position
+    // windows are clean molecule bases.
+    {
+        auto rc_base = [](char c) -> char {
+            switch (c) { case 'A': return 'T'; case 'T': return 'A';
+                         case 'C': return 'G'; case 'G': return 'C'; }
+            return 'N';
+        };
+        constexpr int CHECK_LEN = 15;
+        constexpr int MAX_MISMATCH = 3;
+        const int max_M = static_cast<int>(std::min(r1.length(), r2.length()));
+        bool overlap_found = false;
+        for (int M = CHECK_LEN; M <= max_M; ++M) {
+            int mismatches = 0;
+            for (int i = 0; i < CHECK_LEN; ++i) {
+                const char r1b = fast_upper(r1[M - 1 - i]);
+                const char r2b = fast_upper(r2[i]);
+                if (r1b == 'N' || r2b == 'N' || rc_base(r2b) != r1b) {
+                    if (++mismatches > MAX_MISMATCH) break;
+                }
+            }
+            if (mismatches <= MAX_MISMATCH) {
+                overlap_found = true;
+                break;
+            }
+        }
+        if (overlap_found) {
+            profile.pe_short_insert_skipped++;
+            return false;
+        }
+    }
+
+    profile.input_mode = SampleDamageProfile::InputMode::PAIRED;
+
+    const size_t l1 = r1.length();
+    const size_t l2 = r2.length();
+
+    // R1 → 5' end counters
+    for (size_t i = 0; i < std::min(size_t(15), l1); ++i) {
+        char b = fast_upper(r1[i]);
+        if (b == 'T')      { profile.t_freq_5prime[i]++; profile.tc_total_5prime[i]++; }
+        else if (b == 'C') { profile.c_freq_5prime[i]++; profile.tc_total_5prime[i]++; }
+        if (b == 'A')      profile.a_freq_5prime[i]++;
+        else if (b == 'G') profile.g_freq_5prime[i]++;
+    }
+
+    // R2 → 3' end counters (complement-mapped: R2 reads bottom strand from
+    // the molecule 3' inward, so R2[i] = complement(top_strand_at_3prime[i]).
+    // The damage signal we want is G->A on top strand 3' end, which appears
+    // as C->T on R2. Map R2 base to its complement, then accumulate with the
+    // same logic as the SE 3'-end loop.
+    for (size_t i = 0; i < std::min(size_t(15), l2); ++i) {
+        char b = fast_upper(r2[i]);
+        // complement: R2[i] → top_strand_at_3prime[i]
+        char top;
+        switch (b) {
+            case 'A': top = 'T'; break;
+            case 'T': top = 'A'; break;
+            case 'C': top = 'G'; break;
+            case 'G': top = 'C'; break;
+            default:  top = 'N'; break;
+        }
+        if (top == 'A')      { profile.a_freq_3prime[i]++; profile.ag_total_3prime[i]++; }
+        else if (top == 'G') { profile.g_freq_3prime[i]++; profile.ag_total_3prime[i]++; }
+        if (top == 'T')      profile.t_freq_3prime[i]++;
+        else if (top == 'C') profile.c_freq_3prime[i]++;
+    }
+
+    // 5' tail from R1, 3' tail from R2 (complement-mapped)
+    {
+        const int lo = SampleDamageProfile::BG_TAIL_LO;
+        const int hi = SampleDamageProfile::BG_TAIL_HI;
+        for (int i = lo; i <= hi && static_cast<size_t>(i) < l1; ++i) {
+            const int idx = i - lo;
+            const char b = fast_upper(r1[i]);
+            if (b == 'T')      { profile.tail_t_5prime[idx]++; profile.tail_tc_5prime[idx]++; }
+            else if (b == 'C') profile.tail_tc_5prime[idx]++;
+        }
+        for (int i = lo; i <= hi && static_cast<size_t>(i) < l2; ++i) {
+            const int idx = i - lo;
+            const char b = fast_upper(r2[i]);
+            char top;
+            switch (b) {
+                case 'A': top = 'T'; break;
+                case 'T': top = 'A'; break;
+                case 'C': top = 'G'; break;
+                case 'G': top = 'C'; break;
+                default:  top = 'N'; break;
+            }
+            if (top == 'A')      { profile.tail_a_3prime[idx]++; profile.tail_ag_3prime[idx]++; }
+            else if (top == 'G') profile.tail_ag_3prime[idx]++;
+        }
+    }
+
+    // Interior baseline from R1's middle third (R2's middle would mostly
+    // overlap for short inserts; tracking only R1's middle avoids double-
+    // counting and keeps the baseline consistent with SE behavior).
+    {
+        constexpr size_t INTERIOR_TERM_PAD = 15;
+        size_t mid_start = l1 / 3;
+        size_t mid_end   = 2 * l1 / 3;
+        if (mid_start < INTERIOR_TERM_PAD) mid_start = INTERIOR_TERM_PAD;
+        if (l1 > INTERIOR_TERM_PAD && mid_end + INTERIOR_TERM_PAD > l1)
+            mid_end = l1 - INTERIOR_TERM_PAD;
+        if (mid_start < mid_end) {
+            for (size_t i = mid_start; i < mid_end; ++i) {
+                char b = fast_upper(r1[i]);
+                if (b == 'T') profile.baseline_t_freq++;
+                else if (b == 'C') profile.baseline_c_freq++;
+                else if (b == 'A') profile.baseline_a_freq++;
+                else if (b == 'G') profile.baseline_g_freq++;
+            }
+        }
+    }
+
+    // Codon-position counters: 5' from R1, 3' from R2 (complement-mapped)
+    for (size_t i = 0; i < std::min(size_t(15), l1); ++i) {
+        char b = fast_upper(r1[i]);
+        int cp = i % 3;
+        if (b == 'T') profile.codon_pos_t_count_5prime[cp]++;
+        else if (b == 'C') profile.codon_pos_c_count_5prime[cp]++;
+    }
+    for (size_t i = 0; i < std::min(size_t(15), l2); ++i) {
+        char b = fast_upper(r2[i]);
+        char top;
+        switch (b) { case 'A': top='T'; break; case 'T': top='A'; break;
+                     case 'C': top='G'; break; case 'G': top='C'; break;
+                     default: top='N'; }
+        // Codon position in R2: position i in R2 == position (l_mol-1-i) in
+        // top strand. Without alignment we can't recover exact codon phase
+        // on the top strand, so we use the natural R2 codon phase (which
+        // matches the molecule's 3' frame for inserts of length 3k).
+        int cp = i % 3;
+        if (top == 'A') profile.codon_pos_a_count_3prime[cp]++;
+        else if (top == 'G') profile.codon_pos_g_count_3prime[cp]++;
+    }
+
+    // 5' hexamer + interior hexamer (from R1)
+    if (l1 >= 18) {
+        char hex_5prime[7];
+        bool valid_5prime = true;
+        for (int i = 0; i < 6; ++i) {
+            char b = fast_upper(r1[i]);
+            if (b != 'A' && b != 'C' && b != 'G' && b != 'T') { valid_5prime = false; break; }
+            hex_5prime[i] = b;
+        }
+        hex_5prime[6] = '\0';
+        if (valid_5prime) {
+            uint32_t code = encode_hexamer(hex_5prime);
+            if (code < 4096) {
+                profile.hexamer_count_5prime[code] += 1.0;
+                profile.n_hexamers_5prime++;
+            }
+        }
+
+        size_t interior_start = l1 / 2 - 3;
+        char hex_interior[7];
+        bool valid_interior = true;
+        for (int i = 0; i < 6; ++i) {
+            char b = fast_upper(r1[interior_start + i]);
+            if (b != 'A' && b != 'C' && b != 'G' && b != 'T') { valid_interior = false; break; }
+            hex_interior[i] = b;
+        }
+        hex_interior[6] = '\0';
+        if (valid_interior) {
+            uint32_t code = encode_hexamer(hex_interior);
+            if (code < 4096) {
+                profile.hexamer_count_interior[code] += 1.0;
+                profile.n_hexamers_interior++;
+            }
+        }
+    }
+
+    profile.n_reads++;
+    return true;
+}
+
 void FrameSelector::update_sample_profile_weighted(
     SampleDamageProfile& profile,
     std::string_view seq,
@@ -3523,6 +4186,23 @@ void FrameSelector::update_sample_profile_weighted(
         } else if (base == 'G') {
             profile.g_freq_3prime[i] += weight;
             profile.ag_total_3prime[i] += weight;
+        }
+    }
+
+    // Tail-anchored background sampling (weighted variant)
+    {
+        const int lo = SampleDamageProfile::BG_TAIL_LO;
+        const int hi = SampleDamageProfile::BG_TAIL_HI;
+        for (int i = lo; i <= hi && static_cast<size_t>(i) < len; ++i) {
+            const int idx = i - lo;
+            const char b5 = fast_upper(seq[i]);
+            if (b5 == 'T') { profile.tail_t_5prime[idx] += weight; profile.tail_tc_5prime[idx] += weight; }
+            else if (b5 == 'C') { profile.tail_tc_5prime[idx] += weight; }
+
+            const size_t pos3 = len - 1 - i;
+            const char b3 = fast_upper(seq[pos3]);
+            if (b3 == 'A') { profile.tail_a_3prime[idx] += weight; profile.tail_ag_3prime[idx] += weight; }
+            else if (b3 == 'G') { profile.tail_ag_3prime[idx] += weight; }
         }
     }
 
