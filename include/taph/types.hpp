@@ -1,10 +1,10 @@
 #pragma once
 
-// Cooperative include guard: if a project defines its own dart/types.hpp and sets
-// DART_TYPES_HPP_DEFINED, this file becomes a no-op (avoiding redefinition errors
+// Cooperative include guard: if a project defines its own taph/types.hpp and sets
+// TAPH_TYPES_HPP_DEFINED, this file becomes a no-op (avoiding redefinition errors
 // when both the project and this library provide the same type definitions).
-#ifndef DART_TYPES_HPP_DEFINED
-#define DART_TYPES_HPP_DEFINED
+#ifndef TAPH_TYPES_HPP_DEFINED
+#define TAPH_TYPES_HPP_DEFINED
 
 #include <cstdint>
 #include <string>
@@ -275,4 +275,4 @@ struct CodonTable {
 
 } // namespace taph
 
-#endif // DART_TYPES_HPP_DEFINED
+#endif // TAPH_TYPES_HPP_DEFINED
