@@ -2037,13 +2037,14 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
     // Channels F, G, H: resolve interior reference (far-interior pos 30+ if ≥50 counts,
     // else mid-read pos 5-14), then compute z and fill profile fields.
-    // Adapter skip: p0=1 when position_0 artifact or hexamer bias detected (5' end),
-    //               p0=1 when position_0 artifact detected (3' end).
-    // p0_h5: hexamer_excess_tc is TC-specific; Channel H (A→T) must not inherit it.
-    const int p0_5  = (profile.position_0_artifact_5prime
-                       || profile.hexamer_excess_tc < -0.02f) ? 1 : 0;
-    const int p0_h5 = profile.position_0_artifact_5prime ? 1 : 0;
-    const int p0_3  = profile.position_0_artifact_3prime ? 1 : 0;
+    // Adapter skip: set to 1 to exclude p=0 from terminal accumulation.
+    // p0_tc_5: TC hexamer bias (hexamer_excess_tc) can corrupt C-context p=0 counts;
+    //          used for channels F and G (C-anchored contexts).
+    // p0_h5:   A→T channel has no C in its contexts; TC hexamer gate must not apply.
+    const int p0_tc_5 = (profile.position_0_artifact_5prime
+                         || profile.hexamer_excess_tc < -0.02f) ? 1 : 0;
+    const int p0_h5   = profile.position_0_artifact_5prime ? 1 : 0;
+    const int p0_3    = profile.position_0_artifact_3prime ? 1 : 0;
 
     // Channel F: C→A oxidation (bottom-strand 8-oxoG)
     {
@@ -2054,8 +2055,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             double stop = profile.convertible_taa_ca_5prime[p] + profile.convertible_tag_ca_5prime[p] +
                           profile.convertible_tga_ca_5prime[p];
             pre5 += pre; stop5 += stop;
-            if (p >= p0_5 && p < 5) { pre_t += pre; stop_t += stop; }
-            else if (p >= 5)        { pre_m += pre; stop_m += stop; }
+            if (p >= p0_tc_5 && p < 5) { pre_t += pre; stop_t += stop; }
+            else if (p >= 5)           { pre_m += pre; stop_m += stop; }
         }
         double pre_far  = (double)profile.ca_pre_interior;
         double stop_far = (double)profile.ca_stop_interior;
@@ -2088,8 +2089,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             double pre  = profile.convertible_tca_cg_5prime[p] + profile.convertible_tac_cg_5prime[p];
             double stop = profile.convertible_tga_cg_5prime[p] + profile.convertible_tag_cg_5prime[p];
             pre5 += pre; stop5 += stop;
-            if (p >= p0_5 && p < 5) { pre_t += pre; stop_t += stop; }
-            else if (p >= 5)        { pre_m += pre; stop_m += stop; }
+            if (p >= p0_tc_5 && p < 5) { pre_t += pre; stop_t += stop; }
+            else if (p >= 5)           { pre_m += pre; stop_m += stop; }
         }
         double pre_far  = (double)profile.cg_pre_interior;
         double stop_far = (double)profile.cg_stop_interior;
