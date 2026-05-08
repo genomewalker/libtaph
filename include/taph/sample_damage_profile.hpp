@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 
 #include "types.hpp"
 #include "joint_damage_model.hpp"
@@ -21,6 +22,10 @@ struct SampleDamageProfile {
     static constexpr int N_CT_CTX = 2;
     static constexpr int N_OXOG16 = 16;
     static constexpr int N_UPSTREAM_CTX = 4;  // AC, CC, GC, TC (upstream base before C)
+    static constexpr int N_OX_LEN_BINS = 4;   // <=50, <=75, <=100, >100
+    static constexpr int N_OX_GC_BINS = 10;
+    static constexpr int N_OX_DEAM_STRATA = 5;
+    static constexpr int N_OX_BINS = N_OX_LEN_BINS * N_OX_GC_BINS;
 
     enum CtContext : int { CPG_LIKE = 0, NONCPG_LIKE = 1 };
     enum UpstreamContext : int { CTX_AC = 0, CTX_CC = 1, CTX_GC = 2, CTX_TC = 3 };
@@ -167,6 +172,41 @@ struct SampleDamageProfile {
     std::array<uint64_t, N_TRINUC> tri_5prime_interior = {};
     std::array<uint64_t, N_TRINUC> tri_3prime_terminal = {};
     std::array<uint64_t, N_TRINUC> tri_3prime_interior = {};
+
+    // Reference-free oxidation-like composition contrast.
+    // Reads are first stratified by read-local terminal deamination excess.
+    // Finalization then calibrates those strata against bin-matched interior
+    // baselines and compares high-deamination vs low-deamination strata within
+    // length x GC bins. The counters are composition-only: no reference-derived
+    // substitution calls are implied.
+    struct OxidationLikeBin {
+        struct Stratum {
+            double term_t5 = 0.0, term_tc5 = 0.0;
+            double term_a3 = 0.0, term_ag3 = 0.0;
+            double int_t = 0.0, int_tc = 0.0;
+            double int_a = 0.0, int_ag = 0.0;
+            double sig_t = 0.0, sig_tg = 0.0;
+            double sig_a = 0.0, sig_ac = 0.0;
+            double ctrl_a = 0.0, ctrl_at = 0.0;
+            double ctrl_c = 0.0, ctrl_cg = 0.0;
+            uint64_t reads = 0;
+        };
+        std::array<Stratum, N_OX_DEAM_STRATA> strata = {};
+    };
+    std::array<OxidationLikeBin, N_OX_BINS> oxidation_like_bins = {};
+    float oxidation_like_signal = 0.0f;
+    float oxidation_like_signal_se = 0.0f;
+    float oxidation_like_control = 0.0f;
+    float oxidation_like_control_se = 0.0f;
+    float oxidation_like_adjusted = 0.0f;
+    float oxidation_like_excess = 0.0f;
+    float oxidation_like_se = 0.0f;
+    float oxidation_like_z = 0.0f;
+    float oxidation_like_reliability = 0.0f;
+    int oxidation_like_bins_used = 0;
+    float oxidation_like_effective_bins = 0.0f;
+    float oxidation_like_heterogeneity = 0.0f;
+    bool oxidation_like_artifact_suspect = false;
 
     // Interior clustered C→T: excess short-range co-occurrence of T at non-CpG {C,T} sites
     struct InteriorCtClusterAccumulator {
@@ -578,18 +618,139 @@ struct SampleDamageProfile {
     std::array<double, 15> convertible_gga_5prime = {};      // GGA (Gly) codons at 5'
     std::array<double, 15> convertible_tga_ox_5prime = {};   // TGA (Stop) from G→T at 5'
 
-    double convertible_gag_interior = 0.0;
-    double convertible_tag_ox_interior = 0.0;
-    double convertible_gaa_interior = 0.0;
-    double convertible_taa_ox_interior = 0.0;
-    double convertible_gga_interior = 0.0;
-    double convertible_tga_ox_interior = 0.0;
+    uint64_t convertible_gag_interior = 0.0;
+    uint64_t convertible_tag_ox_interior = 0.0;
+    uint64_t convertible_gaa_interior = 0.0;
+    uint64_t convertible_taa_ox_interior = 0.0;
+    uint64_t convertible_gga_interior = 0.0;
+    uint64_t convertible_tga_ox_interior = 0.0;
 
     float ox_stop_conversion_rate_baseline = 0.0f;
     float ox_stop_rate_terminal = 0.0f;
     float ox_stop_rate_interior = 0.0f;
     float ox_uniformity_ratio = 0.0f;   // terminal/interior (≈1 = uniform = real oxidation)
     bool channel_c_valid = false;
+
+    // Channel C3': G→T stop codon conversion at 3' end (validates oxidation at 3' overhang)
+    // Symmetric to Channel B3' (G→A stops at 3') but for G→T transversions.
+    // GAG/GAA/GGA near 3' end → TAG/TAA/TGA if G→T oxidation occurred.
+    // Position p = nucleotide distance of codon start from the 3' terminus.
+    std::array<double, 15> convertible_gag_3prime = {};
+    std::array<double, 15> convertible_tag_ox_3prime = {};
+    std::array<double, 15> convertible_gaa_3prime = {};
+    std::array<double, 15> convertible_taa_ox_3prime = {};
+    std::array<double, 15> convertible_gga_3prime = {};
+    std::array<double, 15> convertible_tga_ox_3prime = {};
+
+    float ox_stop_rate_terminal_3prime = 0.0f;
+    float ox_stop_rate_interior_3prime = 0.0f;
+    float ox_stop_baseline_3prime = 0.0f;
+    float ox_uniformity_ratio_3prime = 0.0f;
+    bool  channel_c3_valid = false;
+
+
+    // Channel F: C→A oxidation stop codon tracking (complement-strand G→T).
+    // Precursors where C→A at codon pos 1 or pos 2 creates a stop:
+    //   TCA→TAA (Ser→Ochre, pos1), TCG→TAG (Ser→Amber, pos1)
+    //   TAC→TAA (Tyr→Ochre, pos2), TGC→TGA (Cys→Opal,  pos2)
+    // The Channel F/C ratio is a reference-free symmetric oxidation test.
+    std::array<double, 15> convertible_tca_5prime = {};     // TCA (Ser) precursor
+    std::array<double, 15> convertible_tcg_5prime = {};     // TCG (Ser) precursor
+    std::array<double, 15> convertible_tac_5prime = {};     // TAC (Tyr) precursor
+    std::array<double, 15> convertible_tgc_5prime = {};     // TGC (Cys) precursor
+    std::array<double, 15> convertible_taa_ca_5prime = {};  // TAA stop from C→A
+    std::array<double, 15> convertible_tag_ca_5prime = {};  // TAG stop from C→A
+    std::array<double, 15> convertible_tga_ca_5prime = {};  // TGA stop from C→A
+
+    uint64_t convertible_tca_interior = 0.0;
+    uint64_t convertible_tcg_interior = 0.0;
+    uint64_t convertible_tac_interior = 0.0;
+    uint64_t convertible_tgc_interior = 0.0;
+    uint64_t convertible_taa_ca_interior = 0.0;
+    uint64_t convertible_tag_ca_interior = 0.0;
+    uint64_t convertible_tga_ca_interior = 0.0;
+
+    // Channel F 3' end
+    std::array<double, 15> convertible_tca_3prime = {};
+    std::array<double, 15> convertible_tcg_3prime = {};
+    std::array<double, 15> convertible_tac_3prime = {};
+    std::array<double, 15> convertible_tgc_3prime = {};
+    std::array<double, 15> convertible_taa_ca_3prime = {};
+    std::array<double, 15> convertible_tag_ca_3prime = {};
+    std::array<double, 15> convertible_tga_ca_3prime = {};
+
+    float ca_stop_rate_baseline     = 0.0f;
+    float ca_stop_rate_terminal     = 0.0f;
+    float ca_stop_rate_interior     = 0.0f;
+    float channel_f_z               = 0.0f;
+    float ca_uniformity_ratio       = 0.0f;
+    float ca_stop_baseline_3prime   = 0.0f;
+    float ca_stop_rate_terminal_3prime = 0.0f;
+    float ca_stop_rate_interior_3prime = 0.0f;
+    float ca_uniformity_ratio_3prime   = 0.0f;
+    bool  channel_f_valid           = false;
+    bool  channel_f3_valid          = false;
+
+    // Channel G: C→G stop codon conversion (hydantoin-class advanced oxidation)
+    // TCA (Ser) → TGA via C→G at codon pos 2
+    // TAC (Tyr) → TAG via C→G at codon pos 3
+    std::array<double, 15> convertible_tca_cg_5prime = {};
+    std::array<double, 15> convertible_tac_cg_5prime = {};
+    std::array<double, 15> convertible_tga_cg_5prime = {};
+    std::array<double, 15> convertible_tag_cg_5prime = {};
+    std::array<double, 15> convertible_tca_cg_3prime = {};
+    std::array<double, 15> convertible_tac_cg_3prime = {};
+    std::array<double, 15> convertible_tga_cg_3prime = {};
+    std::array<double, 15> convertible_tag_cg_3prime = {};
+
+    float cg_stop_rate_terminal    = 0.0f;
+    float cg_stop_rate_interior    = 0.0f;
+    float cg_stop_rate_baseline    = 0.0f;
+    float channel_g_z              = 0.0f;
+    float cg_uniformity_ratio      = 0.0f;
+    float cg_stop_rate_terminal_3prime = 0.0f;
+    float cg_stop_rate_interior_3prime = 0.0f;
+    float cg_stop_rate_baseline_3prime = 0.0f;
+    float cg_uniformity_ratio_3prime   = 0.0f;
+    bool  channel_g_valid          = false;
+    bool  channel_g3_valid         = false;
+
+    // Channel H: A→T stop codon conversion (adenine oxidation / trans-lesion artifact)
+    // AAA (Lys) → TAA via A→T at codon pos 1
+    // AAG (Lys) → TAG via A→T at codon pos 1
+    // AGA (Arg) → TGA via A→T at codon pos 1
+    std::array<double, 15> convertible_aaa_h_5prime = {};
+    std::array<double, 15> convertible_aag_h_5prime = {};
+    std::array<double, 15> convertible_aga_h_5prime = {};
+    std::array<double, 15> convertible_taa_at_5prime = {};
+    std::array<double, 15> convertible_tag_at_5prime = {};
+    std::array<double, 15> convertible_tga_at_5prime = {};
+    std::array<double, 15> convertible_aaa_h_3prime = {};
+    std::array<double, 15> convertible_aag_h_3prime = {};
+    std::array<double, 15> convertible_aga_h_3prime = {};
+    std::array<double, 15> convertible_taa_at_3prime = {};
+    std::array<double, 15> convertible_tag_at_3prime = {};
+    std::array<double, 15> convertible_tga_at_3prime = {};
+
+    float at_stop_rate_terminal    = 0.0f;
+    float at_stop_rate_interior    = 0.0f;
+    float at_stop_rate_baseline    = 0.0f;
+    float channel_h_z              = 0.0f;
+    float channel_h_z_p2plus       = 0.0f;
+    float at_uniformity_ratio      = 0.0f;
+    float at_stop_rate_terminal_3prime = 0.0f;
+    float at_stop_rate_interior_3prime = 0.0f;
+    float at_stop_rate_baseline_3prime = 0.0f;
+    float at_uniformity_ratio_3prime   = 0.0f;
+    bool  channel_h_valid          = false;
+    bool  channel_h3_valid         = false;
+
+    uint64_t cg_pre_interior  = 0.0;
+    uint64_t cg_stop_interior = 0.0;
+    uint64_t at_pre_interior  = 0.0;
+    uint64_t at_stop_interior = 0.0;
+
+
 
     // Channel D: G→T / C→A transversion tracking (8-oxoG, uniform across read)
     std::array<double, 15> g_count_5prime = {};     // G count at each 5' position
@@ -617,12 +778,40 @@ struct SampleDamageProfile {
     bool ox_damage_detected = false;
     bool ox_is_artifact = false;
 
+    // Two-marker oxidation bins: s1 (C→T 5' pos 1-3) × s2 (G→A 3' pos 1-3) × GC × length.
+    // Used for the deamination-coupled G→T regression (β₁ and β₂ consistency check).
+    struct OxoTwoMarkerBins {
+        static constexpr int N_S  = 4;   // 0,1,2,3 bases matching marker at pos 1-3
+        static constexpr int N_GC = 4;   // GC bins: 0-25%, 25-50%, 50-75%, 75-100%
+        static constexpr int N_L  = 4;   // length bins: <45, 45-70, 70-110, 110+
+        static constexpr int TOTAL = N_S * N_S * N_GC * N_L;  // 256
+
+        struct Cell {
+            uint32_t n_reads = 0;
+            uint32_t sum_nGT = 0;  // interior T+G count
+            uint32_t sum_T   = 0;  // interior T count  (T→T+G numerator)
+            uint32_t sum_nAC = 0;  // interior A+C count
+            uint32_t sum_A   = 0;  // interior A count  (A→A+C numerator)
+        };
+
+        std::array<Cell, TOTAL> cells = {};
+
+        static int idx(int s1, int s2, int gc, int l) {
+            return s1 * (N_S * N_GC * N_L) + s2 * (N_GC * N_L) + gc * N_L + l;
+        }
+    };
+    OxoTwoMarkerBins oxo_two_marker;
+
     // GT exponential-background fit: GT(p) = A*exp(-mu*p) + B
     // B = uniform background (8-oxoG estimate); A = terminal excess (artifact)
-    float g_bg_fitted  = 0.0f;   // B: uniform G→T background
-    float g_term_fitted = 0.0f;  // A: terminal excess
-    float g_decay_fitted = 0.0f; // mu: terminal decay rate
-    float s_gt = 0.0f;           // B - ox_ca_baseline: Chargaff contrast (signal for SS; ~0 for DS)
+    float g_bg_fitted        = 0.0f;  // B: uniform G→T background
+    float g_term_fitted      = 0.0f;  // A: terminal excess
+    float g_decay_fitted     = 0.0f;  // mu: terminal decay rate
+    float g_bg_fitted_ci_lo  = 0.0f;  // WLS CI95 lower bound on B
+    float g_bg_fitted_ci_hi  = 0.0f;  // WLS CI95 upper bound on B
+    float g_bg_interior_mean = 0.0f;  // interior-mean G→T (positions 5-14, fallback when degenerate)
+    bool  g_fit_degenerate   = false; // true when best_mu <= 0.10 (flat model preferred)
+    float s_gt = 0.0f;               // B - ox_ca_baseline: Chargaff contrast (signal for SS; ~0 for DS)
 
     // Channel E: depurination (purine loss at strand breaks)
     float purine_rate_terminal_5prime = 0.0f;

@@ -459,6 +459,129 @@ void FrameSelector::update_sample_profile(
         }
     }
 
+    // Reference-free oxidation-like contrast. During the streaming pass we do
+    // not assign ancient/background weights directly. Instead, each read is
+    // placed into a terminal-deamination-excess stratum using its own interior
+    // composition as a null. Finalization calibrates the strata within length
+    // x GC bins and only then compares high-deamination to low-deamination
+    // strata. This avoids treating raw terminal T-richness as an ancestry score.
+    if (interior_safe) {
+        double term_t5 = 0.0, term_tc5 = 0.0;
+        for (size_t p = 0; p < std::min<size_t>(5, len); ++p) {
+            const char b = fast_upper(seq[p]);
+            if (b == 'T') { term_t5 += 1.0; term_tc5 += 1.0; }
+            else if (b == 'C') { term_tc5 += 1.0; }
+        }
+
+        // 3' position 0 is skipped: SS prep can create a ligation artifact at
+        // the final base. Positions 1..4 carry the useful G->A deamination axis.
+        double term_a3 = 0.0, term_ag3 = 0.0;
+        for (size_t off = 1; off < std::min<size_t>(5, len); ++off) {
+            const char b = fast_upper(seq[len - 1 - off]);
+            if (b == 'A') { term_a3 += 1.0; term_ag3 += 1.0; }
+            else if (b == 'G') { term_ag3 += 1.0; }
+        }
+
+        double mid_t = 0.0, mid_c = 0.0, mid_a = 0.0, mid_g = 0.0;
+        for (size_t i = mid_start; i < mid_end; ++i) {
+            const char b = fast_upper(seq[i]);
+            if (b == 'T') ++mid_t;
+            else if (b == 'C') ++mid_c;
+            else if (b == 'A') ++mid_a;
+            else if (b == 'G') ++mid_g;
+        }
+
+        const double mid_tc = mid_t + mid_c;
+        const double mid_ag = mid_a + mid_g;
+        const double mid_total = mid_t + mid_c + mid_a + mid_g;
+        if (mid_total > 0.0) {
+            double score_num = 0.0, score_den = 0.0;
+            if (term_tc5 > 0.0 && mid_tc > 0.0) {
+                const double term = (term_t5 + 0.5) / (term_tc5 + 1.0);
+                const double base = (mid_t + 0.5) / (mid_tc + 1.0);
+                score_num += std::max(0.0, term - base) * term_tc5;
+                score_den += term_tc5;
+            }
+            if (term_ag3 > 0.0 && mid_ag > 0.0) {
+                const double term = (term_a3 + 0.5) / (term_ag3 + 1.0);
+                const double base = (mid_a + 0.5) / (mid_ag + 1.0);
+                score_num += std::max(0.0, term - base) * term_ag3;
+                score_den += term_ag3;
+            }
+
+            const double deam_score = score_den > 0.0 ? score_num / score_den : 0.0;
+            int deam_bin = 0;
+            if (deam_score > 0.40) deam_bin = 4;
+            else if (deam_score > 0.20) deam_bin = 3;
+            else if (deam_score > 0.08) deam_bin = 2;
+            else if (deam_score > 0.00) deam_bin = 1;
+
+            const double gc_frac = (mid_g + mid_c) / mid_total;
+            const int gc_bin = std::clamp(
+                static_cast<int>(gc_frac * SampleDamageProfile::N_OX_GC_BINS),
+                0, SampleDamageProfile::N_OX_GC_BINS - 1);
+            int len_bin = 3;
+            if (len <= 50) len_bin = 0;
+            else if (len <= 75) len_bin = 1;
+            else if (len <= 100) len_bin = 2;
+
+            auto& oxs = profile.oxidation_like_bins[
+                len_bin * SampleDamageProfile::N_OX_GC_BINS + gc_bin].strata[deam_bin];
+            ++oxs.reads;
+            oxs.term_t5 += term_t5; oxs.term_tc5 += term_tc5;
+            oxs.term_a3 += term_a3; oxs.term_ag3 += term_ag3;
+            oxs.int_t += mid_t; oxs.int_tc += mid_tc;
+            oxs.int_a += mid_a; oxs.int_ag += mid_ag;
+
+            for (size_t i = mid_start; i < mid_end; ++i) {
+                const char b = fast_upper(seq[i]);
+                if (b == 'T' || b == 'G') {
+                    oxs.sig_tg += 1.0;
+                    if (b == 'T') oxs.sig_t += 1.0;
+                }
+                if (b == 'A' || b == 'C') {
+                    oxs.sig_ac += 1.0;
+                    if (b == 'A') oxs.sig_a += 1.0;
+                }
+                if (b == 'A' || b == 'T') {
+                    oxs.ctrl_at += 1.0;
+                    if (b == 'A') oxs.ctrl_a += 1.0;
+                }
+                if (b == 'C' || b == 'G') {
+                    oxs.ctrl_cg += 1.0;
+                    if (b == 'C') oxs.ctrl_c += 1.0;
+                }
+            }
+
+            // Two-marker bins: s1 = T count at 5' pos 1-3 (C→T proxy),
+            //                  s2 = A count at 3' pos 1-3 (G→A proxy, DS marker).
+            // Both are reference-free: we observe the base directly.
+            {
+                int s1 = 0;
+                for (int p = 1; p <= 3 && static_cast<size_t>(p) < len; ++p) {
+                    if (fast_upper(seq[p]) == 'T') ++s1;
+                }
+                int s2 = 0;
+                for (int p = 1; p <= 3 && static_cast<size_t>(p) < len; ++p) {
+                    if (fast_upper(seq[len - 1 - p]) == 'A') ++s2;
+                }
+                s1 = std::min(s1, 3);
+                s2 = std::min(s2, 3);
+                int gc_b = (mid_total > 0)
+                    ? std::min(3, static_cast<int>((mid_g + mid_c) * 4.0 / mid_total))
+                    : 1;
+                int len_b = (len < 45) ? 0 : (len < 70) ? 1 : (len < 110) ? 2 : 3;
+                auto& cell = profile.oxo_two_marker.cells[
+                    SampleDamageProfile::OxoTwoMarkerBins::idx(s1, s2, gc_b, len_b)];
+                ++cell.n_reads;
+                cell.sum_nGT += static_cast<uint32_t>(mid_t + mid_g);
+                cell.sum_T   += static_cast<uint32_t>(mid_t);
+                cell.sum_nAC += static_cast<uint32_t>(mid_a + mid_c);
+                cell.sum_A   += static_cast<uint32_t>(mid_a);
+            }
+        }
+    }
+
     // Codon-position-aware counting at 5' end (first 15 bases)
     for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
         int codon_pos = i % 3;  // 0, 1, 2
@@ -697,19 +820,17 @@ void FrameSelector::update_sample_profile(
         }
     }
 
-    // Channel C: oxidative G→T stop codon tracking (GAG→TAG, GAA→TAA, GGA→TGA)
+    // Fused 5' terminal codon scan: Channels C + F + G + H
     if (len >= 18) {
         for (int frame = 0; frame < 3; ++frame) {
             for (size_t k = 0; ; ++k) {
                 size_t codon_start = frame + 3 * k;
                 if (codon_start + 3 > len || codon_start > 14) break;
-
                 size_t p = codon_start;
-                if (p >= 15) break;
 
-                char b0 = fast_upper(seq[codon_start]);
-                char b1 = fast_upper(seq[codon_start + 1]);
-                char b2 = fast_upper(seq[codon_start + 2]);
+                const char b0 = static_cast<char>(static_cast<unsigned char>(seq[codon_start])     & ~0x20u);
+                const char b1 = static_cast<char>(static_cast<unsigned char>(seq[codon_start + 1]) & ~0x20u);
+                const char b2 = static_cast<char>(static_cast<unsigned char>(seq[codon_start + 2]) & ~0x20u);
 
                 if ((b0 != 'A' && b0 != 'C' && b0 != 'G' && b0 != 'T') ||
                     (b1 != 'A' && b1 != 'C' && b1 != 'G' && b1 != 'T') ||
@@ -717,6 +838,7 @@ void FrameSelector::update_sample_profile(
                     continue;
                 }
 
+                // Channel C: G→T oxidative stop codons
                 if (b1 == 'A' && b2 == 'G') {
                     if (b0 == 'G') profile.convertible_gag_5prime[p]++;
                     else if (b0 == 'T') profile.convertible_tag_ox_5prime[p]++;
@@ -729,46 +851,182 @@ void FrameSelector::update_sample_profile(
                     if (b0 == 'G') profile.convertible_gga_5prime[p]++;
                     else if (b0 == 'T') profile.convertible_tga_ox_5prime[p]++;
                 }
-            }
-        }
-
-        // Track interior oxidative convertible codons (positions 30+)
-        constexpr size_t INTERIOR_MIN_LEN_OX = 63;
-        if (len >= INTERIOR_MIN_LEN_OX) {
-            for (int frame = 0; frame < 3; ++frame) {
-                for (size_t k = 0; ; ++k) {
-                    size_t codon_start = frame + 3 * k;
-                    if (codon_start < 30 || codon_start + 3 > len - 30) {
-                        if (codon_start + 3 > len - 30) break;
-                        continue;
-                    }
-
-                    char b0 = fast_upper(seq[codon_start]);
-                    char b1 = fast_upper(seq[codon_start + 1]);
-                    char b2 = fast_upper(seq[codon_start + 2]);
-
-                    if ((b0 != 'A' && b0 != 'C' && b0 != 'G' && b0 != 'T') ||
-                        (b1 != 'A' && b1 != 'C' && b1 != 'G' && b1 != 'T') ||
-                        (b2 != 'A' && b2 != 'C' && b2 != 'G' && b2 != 'T')) {
-                        continue;
-                    }
-
-                    if (b1 == 'A' && b2 == 'G') {
-                        if (b0 == 'G') profile.convertible_gag_interior++;
-                        else if (b0 == 'T') profile.convertible_tag_ox_interior++;
-                    }
-                    if (b1 == 'A' && b2 == 'A') {
-                        if (b0 == 'G') profile.convertible_gaa_interior++;
-                        else if (b0 == 'T') profile.convertible_taa_ox_interior++;
-                    }
-                    if (b1 == 'G' && b2 == 'A') {
-                        if (b0 == 'G') profile.convertible_gga_interior++;
-                        else if (b0 == 'T') profile.convertible_tga_ox_interior++;
-                    }
+                // Channel F: C→A oxidative stop codons
+                if (b0 == 'T' && b2 == 'A') {
+                    if (b1 == 'C') profile.convertible_tca_5prime[p]++;
+                    else if (b1 == 'A') profile.convertible_taa_ca_5prime[p]++;
+                }
+                if (b0 == 'T' && b2 == 'G') {
+                    if (b1 == 'C') profile.convertible_tcg_5prime[p]++;
+                    else if (b1 == 'A') profile.convertible_tag_ca_5prime[p]++;
+                }
+                if (b0 == 'T' && b1 == 'A') {
+                    if (b2 == 'C') profile.convertible_tac_5prime[p]++;
+                }
+                if (b0 == 'T' && b1 == 'G') {
+                    if (b2 == 'C') profile.convertible_tgc_5prime[p]++;
+                    else if (b2 == 'A') profile.convertible_tga_ca_5prime[p]++;
+                }
+                // Channel G: C→G oxidative stop codons
+                if (b0 == 'T' && b2 == 'A') {
+                    if (b1 == 'C') profile.convertible_tca_cg_5prime[p]++;
+                    else if (b1 == 'G') profile.convertible_tga_cg_5prime[p]++;
+                }
+                if (b0 == 'T' && b1 == 'A') {
+                    if (b2 == 'C') profile.convertible_tac_cg_5prime[p]++;
+                    else if (b2 == 'G') profile.convertible_tag_cg_5prime[p]++;
+                }
+                // Channel H: A→T oxidative stop codons
+                if (b1 == 'A' && b2 == 'A') {
+                    if (b0 == 'A') profile.convertible_aaa_h_5prime[p]++;
+                    else if (b0 == 'T') profile.convertible_taa_at_5prime[p]++;
+                }
+                if (b1 == 'A' && b2 == 'G') {
+                    if (b0 == 'A') profile.convertible_aag_h_5prime[p]++;
+                    else if (b0 == 'T') profile.convertible_tag_at_5prime[p]++;
+                }
+                if (b1 == 'G' && b2 == 'A') {
+                    if (b0 == 'A') profile.convertible_aga_h_5prime[p]++;
+                    else if (b0 == 'T') profile.convertible_tga_at_5prime[p]++;
                 }
             }
         }
     }
+
+    // Fused 3' terminal codon scan: Channels C + F + G + H
+    if (len >= 18) {
+        for (int frame = 0; frame < 3; ++frame) {
+            for (size_t k = 0; ; ++k) {
+                size_t p = k * 3 + frame;
+                if (p >= 15) break;
+                if (len < 3 + k * 3 + frame) break;
+                size_t codon_start = len - 3 - k * 3 - frame;
+                if (codon_start + 3 > len) break;
+
+                const char b0 = static_cast<char>(static_cast<unsigned char>(seq[codon_start])     & ~0x20u);
+                const char b1 = static_cast<char>(static_cast<unsigned char>(seq[codon_start + 1]) & ~0x20u);
+                const char b2 = static_cast<char>(static_cast<unsigned char>(seq[codon_start + 2]) & ~0x20u);
+
+                // Channel C
+                if (b1 == 'A' && b2 == 'G') {
+                    if (b0 == 'G') profile.convertible_gag_3prime[p]++;
+                    else if (b0 == 'T') profile.convertible_tag_ox_3prime[p]++;
+                }
+                if (b1 == 'A' && b2 == 'A') {
+                    if (b0 == 'G') profile.convertible_gaa_3prime[p]++;
+                    else if (b0 == 'T') profile.convertible_taa_ox_3prime[p]++;
+                }
+                if (b1 == 'G' && b2 == 'A') {
+                    if (b0 == 'G') profile.convertible_gga_3prime[p]++;
+                    else if (b0 == 'T') profile.convertible_tga_ox_3prime[p]++;
+                }
+                // Channel F
+                if (b0 == 'T' && b2 == 'A') {
+                    if (b1 == 'C') profile.convertible_tca_3prime[p]++;
+                    else if (b1 == 'A') profile.convertible_taa_ca_3prime[p]++;
+                }
+                if (b0 == 'T' && b2 == 'G') {
+                    if (b1 == 'C') profile.convertible_tcg_3prime[p]++;
+                    else if (b1 == 'A') profile.convertible_tag_ca_3prime[p]++;
+                }
+                if (b0 == 'T' && b1 == 'A') {
+                    if (b2 == 'C') profile.convertible_tac_3prime[p]++;
+                }
+                if (b0 == 'T' && b1 == 'G') {
+                    if (b2 == 'C') profile.convertible_tgc_3prime[p]++;
+                    else if (b2 == 'A') profile.convertible_tga_ca_3prime[p]++;
+                }
+                // Channel G
+                if (b0 == 'T' && b2 == 'A') {
+                    if (b1 == 'C') profile.convertible_tca_cg_3prime[p]++;
+                    else if (b1 == 'G') profile.convertible_tga_cg_3prime[p]++;
+                }
+                if (b0 == 'T' && b1 == 'A') {
+                    if (b2 == 'C') profile.convertible_tac_cg_3prime[p]++;
+                    else if (b2 == 'G') profile.convertible_tag_cg_3prime[p]++;
+                }
+                // Channel H
+                if (b1 == 'A' && b2 == 'A') {
+                    if (b0 == 'A') profile.convertible_aaa_h_3prime[p]++;
+                    else if (b0 == 'T') profile.convertible_taa_at_3prime[p]++;
+                }
+                if (b1 == 'A' && b2 == 'G') {
+                    if (b0 == 'A') profile.convertible_aag_h_3prime[p]++;
+                    else if (b0 == 'T') profile.convertible_tag_at_3prime[p]++;
+                }
+                if (b1 == 'G' && b2 == 'A') {
+                    if (b0 == 'A') profile.convertible_aga_h_3prime[p]++;
+                    else if (b0 == 'T') profile.convertible_tga_at_3prime[p]++;
+                }
+            }
+        }
+    }
+
+    // Fused interior baseline: Channels C + F + G + H (positions 30 to len-30)
+    if (len >= 63) {
+        for (int frame = 0; frame < 3; ++frame) {
+            for (size_t k = 0; ; ++k) {
+                size_t codon_start = frame + 3 * k;
+                if (codon_start + 3 > len - 30) break;
+                if (codon_start < 30) continue;
+
+                const char b0 = static_cast<char>(static_cast<unsigned char>(seq[codon_start])     & ~0x20u);
+                const char b1 = static_cast<char>(static_cast<unsigned char>(seq[codon_start + 1]) & ~0x20u);
+                const char b2 = static_cast<char>(static_cast<unsigned char>(seq[codon_start + 2]) & ~0x20u);
+
+                // Channel C interior
+                if (b1 == 'A' && b2 == 'G') {
+                    if (b0 == 'G') profile.convertible_gag_interior++;
+                    else if (b0 == 'T') profile.convertible_tag_ox_interior++;
+                }
+                if (b1 == 'A' && b2 == 'A') {
+                    if (b0 == 'G') profile.convertible_gaa_interior++;
+                    else if (b0 == 'T') profile.convertible_taa_ox_interior++;
+                }
+                if (b1 == 'G' && b2 == 'A') {
+                    if (b0 == 'G') profile.convertible_gga_interior++;
+                    else if (b0 == 'T') profile.convertible_tga_ox_interior++;
+                }
+                // Channel F interior
+                if (b0 == 'T' && b2 == 'A') {
+                    if      (b1 == 'C') profile.convertible_tca_interior++;
+                    else if (b1 == 'A') profile.convertible_taa_ca_interior++;
+                }
+                if (b0 == 'T' && b2 == 'G') {
+                    if      (b1 == 'C') profile.convertible_tcg_interior++;
+                    else if (b1 == 'A') profile.convertible_tag_ca_interior++;
+                }
+                if (b0 == 'T' && b1 == 'A' && b2 == 'C') profile.convertible_tac_interior++;
+                if (b0 == 'T' && b1 == 'G') {
+                    if      (b2 == 'C') profile.convertible_tgc_interior++;
+                    else if (b2 == 'A') profile.convertible_tga_ca_interior++;
+                }
+                // Channel G interior
+                if (b0 == 'T' && b2 == 'A') {
+                    if      (b1 == 'C') profile.cg_pre_interior++;
+                    else if (b1 == 'G') profile.cg_stop_interior++;
+                }
+                if (b0 == 'T' && b1 == 'A') {
+                    if      (b2 == 'C') profile.cg_pre_interior++;
+                    else if (b2 == 'G') profile.cg_stop_interior++;
+                }
+                // Channel H interior
+                if (b1 == 'A' && b2 == 'A') {
+                    if      (b0 == 'A') profile.at_pre_interior++;
+                    else if (b0 == 'T') profile.at_stop_interior++;
+                }
+                if (b1 == 'A' && b2 == 'G') {
+                    if      (b0 == 'A') profile.at_pre_interior++;
+                    else if (b0 == 'T') profile.at_stop_interior++;
+                }
+                if (b1 == 'G' && b2 == 'A') {
+                    if      (b0 == 'A') profile.at_pre_interior++;
+                    else if (b0 == 'T') profile.at_stop_interior++;
+                }
+            }
+        }
+    }
+
 
     // Channel D: G→T and C→A transversion tracking (8-oxoG, Chargaff-balance cross-check).
     // Accumulate raw G, T, C, A counts at 5' terminal positions (0-14).
@@ -1654,6 +1912,39 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         }
     }
 
+    // Channel C3': oxidative G→T stop codon analysis at 3' end.
+    {
+        double ox_pre_3p = 0, ox_stop_3p = 0;
+        double ox_pre_term3 = 0, ox_stop_term3 = 0;
+        double ox_pre_mid3  = 0, ox_stop_mid3  = 0;
+        for (int p = 0; p < 15; ++p) {
+            double pre  = profile.convertible_gag_3prime[p] +
+                          profile.convertible_gaa_3prime[p] +
+                          profile.convertible_gga_3prime[p];
+            double stop = profile.convertible_tag_ox_3prime[p] +
+                          profile.convertible_taa_ox_3prime[p] +
+                          profile.convertible_tga_ox_3prime[p];
+            ox_pre_3p  += pre;  ox_stop_3p  += stop;
+            if (p < 5)  { ox_pre_term3 += pre; ox_stop_term3 += stop; }
+            else        { ox_pre_mid3  += pre; ox_stop_mid3  += stop; }
+        }
+        double total_3p = ox_pre_3p + ox_stop_3p;
+        if (total_3p >= 200.0) {
+            profile.channel_c3_valid = true;
+            profile.ox_stop_baseline_3prime = static_cast<float>(ox_stop_3p / total_3p);
+        }
+        if (ox_pre_term3 + ox_stop_term3 > 50)
+            profile.ox_stop_rate_terminal_3prime = static_cast<float>(
+                ox_stop_term3 / (ox_pre_term3 + ox_stop_term3));
+        if (ox_pre_mid3 + ox_stop_mid3 > 50) {
+            profile.ox_stop_rate_interior_3prime = static_cast<float>(
+                ox_stop_mid3 / (ox_pre_mid3 + ox_stop_mid3));
+            if (profile.ox_stop_rate_interior_3prime > 1e-6f && profile.ox_stop_rate_terminal_3prime > 0.0f)
+                profile.ox_uniformity_ratio_3prime =
+                    profile.ox_stop_rate_terminal_3prime / profile.ox_stop_rate_interior_3prime;
+        }
+    }
+
     // Channel D: Chargaff-balance G→T / C→A oxidation estimate.
     // Reference-free: under no damage, T/(T+G) ≈ A/(A+C) (Chargaff) and terminal ≈ interior.
     // 8-oxoG converts G→T uniformly, raising T/(T+G) above A/(A+C) throughout reads.
@@ -1693,6 +1984,164 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         // Chargaff asymmetry: excess T/(T+G) over A/(A+C) at interior (= Chargaff deviation)
         if (gt_base_total >= 500.0 && ca_base_total >= 500.0)
             profile.ox_gt_asymmetry = profile.ox_gt_baseline - profile.ox_ca_baseline;
+    }
+
+    // Pre-compute hexamer_excess_tc early so Channel F/G/H adapter skip can use it.
+    // Full hexamer analysis runs later; this is just the TC-ratio summary.
+    if (profile.hexamer_excess_tc == 0.0f &&
+        profile.n_hexamers_5prime >= 1000 && profile.n_hexamers_interior >= 1000) {
+        double tt = 0, tc = 0, it = 0, ic = 0;
+        for (uint32_t b = 0; b < 1024; ++b) {
+            uint32_t c_hex = 0x400 | b, t_hex = 0xC00 | b;
+            tc += profile.hexamer_count_5prime[c_hex];
+            tt += profile.hexamer_count_5prime[t_hex];
+            ic += profile.hexamer_count_interior[c_hex];
+            it += profile.hexamer_count_interior[t_hex];
+        }
+        profile.hexamer_excess_tc = static_cast<float>(
+            tt / (tt + tc + 1e-10) - it / (it + ic + 1e-10));
+    }
+
+    // Binomial z-score: terminal stop rate vs resolved interior reference.
+    // Caller must resolve far-interior vs mid-read fallback before calling.
+    auto binom_z = [](double k_t, double n_t, double k_i, double n_i) -> float {
+        if (n_t < 10.0 || n_i < 10.0) return 0.0f;
+        double p_pool = (k_t + k_i) / (n_t + n_i);
+        double var = p_pool * (1.0 - p_pool) * (1.0/n_t + 1.0/n_i);
+        if (var < 1e-12) return 0.0f;
+        return static_cast<float>(((k_t/n_t) - (k_i/n_i)) / std::sqrt(var));
+    };
+
+    // Shared finalization: fills baseline, terminal rate, interior rate, uniformity.
+    // pre_i/stop_i is the already-resolved interior reference (far or mid-read).
+    auto fin_oxog = [](double pre_tot, double stop_tot,
+                       double pre_t,   double stop_t,
+                       double pre_i,   double stop_i,
+                       float& baseline, float& term_r, float& int_r, float& unif, bool& valid) {
+        double total = pre_tot + stop_tot;
+        if (total >= 200.0) { valid = true; baseline = static_cast<float>(stop_tot / total); }
+        if (pre_t  + stop_t  > 50) term_r = static_cast<float>(stop_t  / (pre_t  + stop_t));
+        if (pre_i  + stop_i  > 50) {
+            int_r = static_cast<float>(stop_i / (pre_i + stop_i));
+            if (int_r > 1e-6f && term_r > 0.0f) unif = term_r / int_r;
+        }
+    };
+
+    // Channels F, G, H: resolve interior reference (far-interior pos 30+ if ≥50 counts,
+    // else mid-read pos 5-14), then compute z and fill profile fields.
+    // Adapter skip: p0=1 when position_0 artifact or hexamer bias detected (5' end),
+    //               p0=1 when position_0 artifact detected (3' end).
+    const int p0_5 = (profile.position_0_artifact_5prime
+                      || profile.hexamer_excess_tc < -0.02f) ? 1 : 0;
+    const int p0_3 = profile.position_0_artifact_3prime ? 1 : 0;
+
+    // Channel F: C→A oxidation (bottom-strand 8-oxoG)
+    {
+        double pre5 = 0, stop5 = 0, pre_t = 0, stop_t = 0, pre_m = 0, stop_m = 0;
+        for (int p = 0; p < 15; ++p) {
+            double pre  = profile.convertible_tca_5prime[p] + profile.convertible_tcg_5prime[p] +
+                          profile.convertible_tac_5prime[p] + profile.convertible_tgc_5prime[p];
+            double stop = profile.convertible_taa_ca_5prime[p] + profile.convertible_tag_ca_5prime[p] +
+                          profile.convertible_tga_ca_5prime[p];
+            pre5 += pre; stop5 += stop;
+            if (p >= p0_5 && p < 5) { pre_t += pre; stop_t += stop; }
+            else if (p >= 5)        { pre_m += pre; stop_m += stop; }
+        }
+        double pre_far  = profile.convertible_tca_interior + profile.convertible_tcg_interior +
+                          profile.convertible_tac_interior + profile.convertible_tgc_interior;
+        double stop_far = profile.convertible_taa_ca_interior + profile.convertible_tag_ca_interior +
+                          profile.convertible_tga_ca_interior;
+        double pre_i  = (pre_far + stop_far >= 50) ? pre_far  : pre_m;
+        double stop_i = (pre_far + stop_far >= 50) ? stop_far : stop_m;
+        profile.channel_f_z = binom_z(stop_t, pre_t + stop_t, stop_i, pre_i + stop_i);
+        fin_oxog(pre5, stop5, pre_t, stop_t, pre_i, stop_i,
+                 profile.ca_stop_rate_baseline, profile.ca_stop_rate_terminal,
+                 profile.ca_stop_rate_interior, profile.ca_uniformity_ratio, profile.channel_f_valid);
+
+        double pre3 = 0, stop3 = 0, pre_t3 = 0, stop_t3 = 0, pre_m3 = 0, stop_m3 = 0;
+        for (int p = 0; p < 15; ++p) {
+            double pre  = profile.convertible_tca_3prime[p] + profile.convertible_tcg_3prime[p] +
+                          profile.convertible_tac_3prime[p] + profile.convertible_tgc_3prime[p];
+            double stop = profile.convertible_taa_ca_3prime[p] + profile.convertible_tag_ca_3prime[p] +
+                          profile.convertible_tga_ca_3prime[p];
+            pre3 += pre; stop3 += stop;
+            if (p >= p0_3 && p < 5) { pre_t3 += pre; stop_t3 += stop; }
+            else if (p >= 5)        { pre_m3 += pre; stop_m3 += stop; }
+        }
+        fin_oxog(pre3, stop3, pre_t3, stop_t3, pre_m3, stop_m3,
+                 profile.ca_stop_baseline_3prime, profile.ca_stop_rate_terminal_3prime,
+                 profile.ca_stop_rate_interior_3prime, profile.ca_uniformity_ratio_3prime, profile.channel_f3_valid);
+    }
+
+    // Channel G: C→G oxidation (hydantoin-class)
+    {
+        double pre5 = 0, stop5 = 0, pre_t = 0, stop_t = 0, pre_m = 0, stop_m = 0;
+        for (int p = 0; p < 15; ++p) {
+            double pre  = profile.convertible_tca_cg_5prime[p] + profile.convertible_tac_cg_5prime[p];
+            double stop = profile.convertible_tga_cg_5prime[p] + profile.convertible_tag_cg_5prime[p];
+            pre5 += pre; stop5 += stop;
+            if (p >= p0_5 && p < 5) { pre_t += pre; stop_t += stop; }
+            else if (p >= 5)        { pre_m += pre; stop_m += stop; }
+        }
+        double pre_far  = (double)profile.cg_pre_interior;
+        double stop_far = (double)profile.cg_stop_interior;
+        double pre_i  = (pre_far + stop_far >= 50) ? pre_far  : pre_m;
+        double stop_i = (pre_far + stop_far >= 50) ? stop_far : stop_m;
+        profile.channel_g_z = binom_z(stop_t, pre_t + stop_t, stop_i, pre_i + stop_i);
+        fin_oxog(pre5, stop5, pre_t, stop_t, pre_i, stop_i,
+                 profile.cg_stop_rate_baseline, profile.cg_stop_rate_terminal,
+                 profile.cg_stop_rate_interior, profile.cg_uniformity_ratio, profile.channel_g_valid);
+
+        double pre3 = 0, stop3 = 0, pre_t3 = 0, stop_t3 = 0, pre_m3 = 0, stop_m3 = 0;
+        for (int p = 0; p < 15; ++p) {
+            double pre  = profile.convertible_tca_cg_3prime[p] + profile.convertible_tac_cg_3prime[p];
+            double stop = profile.convertible_tga_cg_3prime[p] + profile.convertible_tag_cg_3prime[p];
+            pre3 += pre; stop3 += stop;
+            if (p >= p0_3 && p < 5) { pre_t3 += pre; stop_t3 += stop; }
+            else if (p >= 5)        { pre_m3 += pre; stop_m3 += stop; }
+        }
+        fin_oxog(pre3, stop3, pre_t3, stop_t3, pre_m3, stop_m3,
+                 profile.cg_stop_rate_baseline_3prime, profile.cg_stop_rate_terminal_3prime,
+                 profile.cg_stop_rate_interior_3prime, profile.cg_uniformity_ratio_3prime, profile.channel_g3_valid);
+    }
+
+    // Channel H: A→T oxidation; z_p2plus excludes p=0 and p=1 as sensitivity check
+    {
+        double pre5 = 0, stop5 = 0, pre_t = 0, stop_t = 0, pre_m = 0, stop_m = 0;
+        double pre_t2 = 0, stop_t2 = 0;
+        for (int p = 0; p < 15; ++p) {
+            double pre  = profile.convertible_aaa_h_5prime[p] + profile.convertible_aag_h_5prime[p] +
+                          profile.convertible_aga_h_5prime[p];
+            double stop = profile.convertible_taa_at_5prime[p] + profile.convertible_tag_at_5prime[p] +
+                          profile.convertible_tga_at_5prime[p];
+            pre5 += pre; stop5 += stop;
+            if (p >= p0_5 && p < 5) { pre_t += pre; stop_t += stop; }
+            else if (p >= 5)        { pre_m += pre; stop_m += stop; }
+            if (p >= 2 && p < 5)    { pre_t2 += pre; stop_t2 += stop; }
+        }
+        double pre_far  = (double)profile.at_pre_interior;
+        double stop_far = (double)profile.at_stop_interior;
+        double pre_i  = (pre_far + stop_far >= 50) ? pre_far  : pre_m;
+        double stop_i = (pre_far + stop_far >= 50) ? stop_far : stop_m;
+        profile.channel_h_z        = binom_z(stop_t,  pre_t  + stop_t,  stop_i, pre_i + stop_i);
+        profile.channel_h_z_p2plus = binom_z(stop_t2, pre_t2 + stop_t2, stop_i, pre_i + stop_i);
+        fin_oxog(pre5, stop5, pre_t, stop_t, pre_i, stop_i,
+                 profile.at_stop_rate_baseline, profile.at_stop_rate_terminal,
+                 profile.at_stop_rate_interior, profile.at_uniformity_ratio, profile.channel_h_valid);
+
+        double pre3 = 0, stop3 = 0, pre_t3 = 0, stop_t3 = 0, pre_m3 = 0, stop_m3 = 0;
+        for (int p = 0; p < 15; ++p) {
+            double pre  = profile.convertible_aaa_h_3prime[p] + profile.convertible_aag_h_3prime[p] +
+                          profile.convertible_aga_h_3prime[p];
+            double stop = profile.convertible_taa_at_3prime[p] + profile.convertible_tag_at_3prime[p] +
+                          profile.convertible_tga_at_3prime[p];
+            pre3 += pre; stop3 += stop;
+            if (p >= p0_3 && p < 5) { pre_t3 += pre; stop_t3 += stop; }
+            else if (p >= 5)        { pre_m3 += pre; stop_m3 += stop; }
+        }
+        fin_oxog(pre3, stop3, pre_t3, stop_t3, pre_m3, stop_m3,
+                 profile.at_stop_rate_baseline_3prime, profile.at_stop_rate_terminal_3prime,
+                 profile.at_stop_rate_interior_3prime, profile.at_uniformity_ratio_3prime, profile.channel_h3_valid);
     }
 
     // GT exponential-background fit: GT(p) = A*exp(-mu*p) + B
@@ -1754,6 +2203,51 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             if (profile.ox_ca_baseline > 0.0f)
                 profile.s_gt = best_B - profile.ox_ca_baseline;
 
+            // Interior-mean fallback (positions 5-14)
+            {
+                float ym = 0.0f, wm = 0.0f;
+                for (int p = 5; p < 15; ++p) {
+                    if (w[p] > 0) { ym += w[p] * y[p]; wm += w[p]; }
+                }
+                profile.g_bg_interior_mean = (wm > 0) ? ym / wm : 0.0f;
+            }
+
+            profile.g_fit_degenerate = (best_mu <= 0.10f);
+
+            // WLS CI95 on B at fixed best_mu.
+            // Linear model: y_p = A*x_p + B, x_p = exp(-best_mu*p).
+            // Var(B) = sigma2 * sx2 / det  where det = sx2*sw - sx^2.
+            {
+                float sx2 = 0, sx = 0, sxy = 0, sy = 0, sw2 = 0;
+                int   np = 0;
+                for (int p = 0; p < 15; ++p) {
+                    if (w[p] == 0) continue;
+                    float x = std::exp(-best_mu * p);
+                    sx2 += w[p] * x * x;
+                    sx  += w[p] * x;
+                    sxy += w[p] * x * y[p];
+                    sy  += w[p] * y[p];
+                    sw2 += w[p];
+                    ++np;
+                }
+                float det = sx2 * sw2 - sx * sx;
+                if (np > 2 && std::abs(det) > 1e-12f) {
+                    float A_hat = (sxy * sw2 - sy * sx) / det;
+                    float B_hat = (sx2 * sy - sx * sxy) / det;
+                    float sse_ci = 0.0f;
+                    for (int p = 0; p < 15; ++p) {
+                        if (w[p] == 0) continue;
+                        float res = y[p] - A_hat * std::exp(-best_mu * p) - B_hat;
+                        sse_ci += w[p] * res * res;
+                    }
+                    float sigma2 = sse_ci / static_cast<float>(np - 2);
+                    float var_B  = sigma2 * sx2 / det;
+                    float se_B   = std::sqrt(std::max(0.0f, var_B));
+                    profile.g_bg_fitted_ci_lo = std::max(0.0f, best_B - 1.96f * se_B);
+                    profile.g_bg_fitted_ci_hi = std::min(0.5f, best_B + 1.96f * se_B);
+                }
+            }
+
             // Update detection: model-based uniform G→T signal replaces codon-based Channel C.
             // For SS: s_gt > threshold (Chargaff contrast valid because no complementary strand).
             // For DS: B elevated above ca_baseline indicates library-level oxidation.
@@ -1770,6 +2264,216 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             bool not_inverted = best_A_raw >= 0.0f;
 
             profile.ox_damage_detected = has_data && elevated && not_inverted;
+        }
+    }
+
+    // Reference-free oxidation-like signal. Within each length x GC bin, terminal
+    // deamination strata are calibrated against the same bin's interior base
+    // composition. High-deamination strata are compared to low-deamination strata;
+    // a bin contributes only when signal and matched negative-control coverage are
+    // both available. The same interior bases never enter both arms.
+    {
+        struct Arm {
+            double sig_t = 0.0, sig_tg = 0.0;
+            double sig_a = 0.0, sig_ac = 0.0;
+            double ctrl_a = 0.0, ctrl_at = 0.0;
+            double ctrl_c = 0.0, ctrl_cg = 0.0;
+            double deam_score_reads = 0.0;
+            double reads = 0.0;
+        };
+        struct StratumScore {
+            double score = 0.0;
+            double z = 0.0;
+            bool usable = false;
+        };
+        struct BinResult {
+            double signal = 0.0, signal_var = 0.0;
+            double control = 0.0, control_var = 0.0;
+            double delta = 0.0, delta_var = 0.0;
+        };
+
+        const auto binom_var = [](double p, double n) {
+            return (n > 0.0) ? p * (1.0 - p) / n : std::numeric_limits<double>::infinity();
+        };
+        const auto add_stratum_to_arm = [](Arm& a,
+                                           const SampleDamageProfile::OxidationLikeBin::Stratum& s,
+                                           double deam_score) {
+            a.sig_t += s.sig_t; a.sig_tg += s.sig_tg;
+            a.sig_a += s.sig_a; a.sig_ac += s.sig_ac;
+            a.ctrl_a += s.ctrl_a; a.ctrl_at += s.ctrl_at;
+            a.ctrl_c += s.ctrl_c; a.ctrl_cg += s.ctrl_cg;
+            a.deam_score_reads += deam_score * static_cast<double>(s.reads);
+            a.reads += static_cast<double>(s.reads);
+        };
+
+        std::vector<BinResult> bin_results;
+        bin_results.reserve(SampleDamageProfile::N_OX_BINS);
+        const bool use_3prime_deam =
+            profile.library_type != SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+
+        for (const auto& b : profile.oxidation_like_bins) {
+            double bin_int_t = 0.0, bin_int_tc = 0.0;
+            double bin_int_a = 0.0, bin_int_ag = 0.0;
+            for (const auto& s : b.strata) {
+                bin_int_t += s.int_t; bin_int_tc += s.int_tc;
+                bin_int_a += s.int_a; bin_int_ag += s.int_ag;
+            }
+            if (bin_int_tc < 500.0 || bin_int_ag < 500.0) continue;
+
+            std::array<StratumScore, SampleDamageProfile::N_OX_DEAM_STRATA> scores = {};
+            double max_score = -std::numeric_limits<double>::infinity();
+            for (int i = 0; i < SampleDamageProfile::N_OX_DEAM_STRATA; ++i) {
+                const auto& s = b.strata[i];
+                double sw = 0.0, sx = 0.0;
+
+                if (s.term_tc5 >= 20.0) {
+                    const double p = s.term_t5 / s.term_tc5;
+                    const double q = bin_int_t / bin_int_tc;
+                    const double var = binom_var(p, s.term_tc5) + binom_var(q, bin_int_tc);
+                    if (var > 0.0 && std::isfinite(var)) {
+                        const double w = 1.0 / var;
+                        sw += w;
+                        sx += w * (p - q);
+                    }
+                }
+                if (use_3prime_deam && s.term_ag3 >= 20.0) {
+                    const double p = s.term_a3 / s.term_ag3;
+                    const double q = bin_int_a / bin_int_ag;
+                    const double var = binom_var(p, s.term_ag3) + binom_var(q, bin_int_ag);
+                    if (var > 0.0 && std::isfinite(var)) {
+                        const double w = 1.0 / var;
+                        sw += w;
+                        sx += w * (p - q);
+                    }
+                }
+
+                if (sw > 0.0) {
+                    scores[i].score = sx / sw;
+                    scores[i].z = scores[i].score / std::sqrt(1.0 / sw);
+                    scores[i].usable = true;
+                    max_score = std::max(max_score, scores[i].score);
+                }
+            }
+            if (!(max_score > 0.015)) continue;
+
+            Arm anc, bg;
+            const double ancient_cut = std::max(0.02, 0.5 * max_score);
+            const double bg_cut = std::max(0.005, 0.15 * max_score);
+            for (int i = 0; i < SampleDamageProfile::N_OX_DEAM_STRATA; ++i) {
+                if (!scores[i].usable) continue;
+                const auto& s = b.strata[i];
+                if (scores[i].score >= ancient_cut && scores[i].z > 0.5) {
+                    add_stratum_to_arm(anc, s, scores[i].score);
+                } else if (scores[i].score <= bg_cut || scores[i].z <= 0.0) {
+                    add_stratum_to_arm(bg, s, scores[i].score);
+                }
+            }
+
+            if (anc.reads < 10.0 || bg.reads < 10.0) continue;
+            const double anc_deam = anc.deam_score_reads / anc.reads;
+            const double bg_deam = bg.deam_score_reads / bg.reads;
+            if ((anc_deam - bg_deam) < 0.01) continue;
+
+            if (anc.sig_tg < 100.0 || bg.sig_tg < 100.0 ||
+                anc.sig_ac < 100.0 || bg.sig_ac < 100.0 ||
+                anc.ctrl_at < 100.0 || bg.ctrl_at < 100.0 ||
+                anc.ctrl_cg < 100.0 || bg.ctrl_cg < 100.0) {
+                continue;
+            }
+
+            const double p_at = anc.sig_t / anc.sig_tg;
+            const double p_bt = bg.sig_t / bg.sig_tg;
+            const double p_aa = anc.sig_a / anc.sig_ac;
+            const double p_ba = bg.sig_a / bg.sig_ac;
+            const double gt_delta = p_at - p_bt;
+            const double ca_delta = p_aa - p_ba;
+            const double signal = 0.5 * (gt_delta + ca_delta);
+            const double signal_var = 0.25 * (
+                binom_var(p_at, anc.sig_tg) + binom_var(p_bt, bg.sig_tg) +
+                binom_var(p_aa, anc.sig_ac) + binom_var(p_ba, bg.sig_ac));
+
+            const double p_ac1 = anc.ctrl_a / anc.ctrl_at;
+            const double p_bc1 = bg.ctrl_a / bg.ctrl_at;
+            const double p_ac2 = anc.ctrl_c / anc.ctrl_cg;
+            const double p_bc2 = bg.ctrl_c / bg.ctrl_cg;
+            const double ctrl_1 = p_ac1 - p_bc1;
+            const double ctrl_2 = p_ac2 - p_bc2;
+            const double control = 0.5 * (std::abs(ctrl_1) + std::abs(ctrl_2));
+            const double control_var = 0.25 * (
+                binom_var(p_ac1, anc.ctrl_at) + binom_var(p_bc1, bg.ctrl_at) +
+                binom_var(p_ac2, anc.ctrl_cg) + binom_var(p_bc2, bg.ctrl_cg));
+            const double delta_var = signal_var + control_var;
+            if (!(delta_var > 0.0) || !std::isfinite(delta_var)) continue;
+            bin_results.push_back({signal, signal_var, control, control_var,
+                                   signal - control, delta_var});
+        }
+
+        if (!bin_results.empty()) {
+            double total_w0 = 0.0;
+            for (const auto& r : bin_results) total_w0 += 1.0 / r.delta_var;
+            const double cap = total_w0 * 0.25;  // no bin can dominate the meta-estimate
+
+            double sw = 0.0, sw2 = 0.0;
+            double signal = 0.0, control = 0.0, delta = 0.0;
+            std::vector<double> weights;
+            weights.reserve(bin_results.size());
+            for (const auto& r : bin_results) {
+                const double w = std::min(1.0 / r.delta_var, cap);
+                weights.push_back(w);
+                sw += w;
+                sw2 += w * w;
+                signal += w * r.signal;
+                control += w * r.control;
+                delta += w * r.delta;
+            }
+            if (sw > 0.0) {
+            signal /= sw;
+            control /= sw;
+            delta /= sw;
+
+            double signal_var = 0.0, control_var = 0.0, delta_var = 0.0;
+            double q = 0.0;
+            for (size_t i = 0; i < bin_results.size(); ++i) {
+                const double a = weights[i] / sw;
+                signal_var += a * a * bin_results[i].signal_var;
+                control_var += a * a * bin_results[i].control_var;
+                delta_var += a * a * bin_results[i].delta_var;
+                q += weights[i] * (bin_results[i].delta - delta) *
+                     (bin_results[i].delta - delta);
+            }
+            const double signal_se = std::sqrt(std::max(0.0, signal_var));
+            const double control_se = std::sqrt(std::max(0.0, control_var));
+            const double delta_se = std::sqrt(std::max(0.0, delta_var));
+            const double excess = std::max(0.0, delta);
+            const double z = delta_se > 0.0 ? delta / delta_se : 0.0;
+            const double effective_bins = sw2 > 0.0 ? (sw * sw) / sw2 : 0.0;
+            const double df = static_cast<double>(bin_results.size() > 0 ? bin_results.size() - 1 : 0);
+            const double heterogeneity = (df > 0.0 && q > 0.0)
+                ? std::clamp((q - df) / q, 0.0, 1.0)
+                : 0.0;
+
+            profile.oxidation_like_signal = static_cast<float>(signal);
+            profile.oxidation_like_signal_se = static_cast<float>(signal_se);
+            profile.oxidation_like_control = static_cast<float>(control);
+            profile.oxidation_like_control_se = static_cast<float>(control_se);
+            profile.oxidation_like_adjusted = static_cast<float>(delta);
+            profile.oxidation_like_excess = static_cast<float>(excess);
+            profile.oxidation_like_se = static_cast<float>(delta_se);
+            profile.oxidation_like_z = static_cast<float>(z);
+            profile.oxidation_like_bins_used = static_cast<int>(bin_results.size());
+            profile.oxidation_like_effective_bins = static_cast<float>(effective_bins);
+            profile.oxidation_like_heterogeneity = static_cast<float>(heterogeneity);
+            profile.oxidation_like_artifact_suspect =
+                control > std::max(0.002, std::abs(signal) * 0.75);
+
+            const double z_score = 1.0 - std::exp(-std::max(0.0, z) / 5.0);
+            const double bin_score = std::min(1.0, effective_bins / 6.0);
+            const double het_penalty = 1.0 - 0.5 * heterogeneity;
+            const double artifact_penalty = profile.oxidation_like_artifact_suspect ? 0.5 : 1.0;
+            profile.oxidation_like_reliability =
+                static_cast<float>(std::clamp(z_score * bin_score * het_penalty *
+                                              artifact_penalty, 0.0, 1.0));
+            }
         }
     }
 
@@ -3894,6 +4598,54 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
 
     for (int i = 0; i < 15; ++i) {
         dst.convertible_gag_5prime[i] += src.convertible_gag_5prime[i];
+        dst.convertible_tca_5prime[i]    += src.convertible_tca_5prime[i];
+        dst.convertible_tcg_5prime[i]    += src.convertible_tcg_5prime[i];
+        dst.convertible_tac_5prime[i]    += src.convertible_tac_5prime[i];
+        dst.convertible_tgc_5prime[i]    += src.convertible_tgc_5prime[i];
+        dst.convertible_taa_ca_5prime[i] += src.convertible_taa_ca_5prime[i];
+        dst.convertible_tag_ca_5prime[i] += src.convertible_tag_ca_5prime[i];
+        dst.convertible_tga_ca_5prime[i] += src.convertible_tga_ca_5prime[i];
+        dst.convertible_tca_3prime[i]    += src.convertible_tca_3prime[i];
+        dst.convertible_tcg_3prime[i]    += src.convertible_tcg_3prime[i];
+        dst.convertible_tac_3prime[i]    += src.convertible_tac_3prime[i];
+        dst.convertible_tgc_3prime[i]    += src.convertible_tgc_3prime[i];
+        dst.convertible_taa_ca_3prime[i] += src.convertible_taa_ca_3prime[i];
+        dst.convertible_tag_ca_3prime[i] += src.convertible_tag_ca_3prime[i];
+        dst.convertible_tga_ca_3prime[i] += src.convertible_tga_ca_3prime[i];
+        dst.convertible_tca_cg_5prime[i]  += src.convertible_tca_cg_5prime[i];
+        dst.convertible_tac_cg_5prime[i]  += src.convertible_tac_cg_5prime[i];
+        dst.convertible_tga_cg_5prime[i]  += src.convertible_tga_cg_5prime[i];
+        dst.convertible_tag_cg_5prime[i]  += src.convertible_tag_cg_5prime[i];
+        dst.convertible_tca_cg_3prime[i]  += src.convertible_tca_cg_3prime[i];
+        dst.convertible_tac_cg_3prime[i]  += src.convertible_tac_cg_3prime[i];
+        dst.convertible_tga_cg_3prime[i]  += src.convertible_tga_cg_3prime[i];
+        dst.convertible_tag_cg_3prime[i]  += src.convertible_tag_cg_3prime[i];
+        dst.convertible_aaa_h_5prime[i]   += src.convertible_aaa_h_5prime[i];
+        dst.convertible_aag_h_5prime[i]   += src.convertible_aag_h_5prime[i];
+        dst.convertible_aga_h_5prime[i]   += src.convertible_aga_h_5prime[i];
+        dst.convertible_taa_at_5prime[i]  += src.convertible_taa_at_5prime[i];
+        dst.convertible_tag_at_5prime[i]  += src.convertible_tag_at_5prime[i];
+        dst.convertible_tga_at_5prime[i]  += src.convertible_tga_at_5prime[i];
+        dst.convertible_aaa_h_3prime[i]   += src.convertible_aaa_h_3prime[i];
+        dst.convertible_aag_h_3prime[i]   += src.convertible_aag_h_3prime[i];
+        dst.convertible_aga_h_3prime[i]   += src.convertible_aga_h_3prime[i];
+        dst.convertible_taa_at_3prime[i]  += src.convertible_taa_at_3prime[i];
+        dst.convertible_tag_at_3prime[i]  += src.convertible_tag_at_3prime[i];
+        dst.convertible_tga_at_3prime[i]  += src.convertible_tga_at_3prime[i];
+        dst.cg_pre_interior  += src.cg_pre_interior;
+        dst.cg_stop_interior += src.cg_stop_interior;
+        dst.at_pre_interior  += src.at_pre_interior;
+        dst.at_stop_interior += src.at_stop_interior;
+
+
+
+        dst.convertible_gag_3prime[i]    += src.convertible_gag_3prime[i];
+        dst.convertible_tag_ox_3prime[i] += src.convertible_tag_ox_3prime[i];
+        dst.convertible_gaa_3prime[i]    += src.convertible_gaa_3prime[i];
+        dst.convertible_taa_ox_3prime[i] += src.convertible_taa_ox_3prime[i];
+        dst.convertible_gga_3prime[i]    += src.convertible_gga_3prime[i];
+        dst.convertible_tga_ox_3prime[i] += src.convertible_tga_ox_3prime[i];
+
         dst.convertible_tag_ox_5prime[i] += src.convertible_tag_ox_5prime[i];
         dst.convertible_gaa_5prime[i] += src.convertible_gaa_5prime[i];
         dst.convertible_taa_ox_5prime[i] += src.convertible_taa_ox_5prime[i];
@@ -3910,11 +4662,48 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
     dst.baseline_c_ox_total    += src.baseline_c_ox_total;
 
     dst.convertible_gag_interior += src.convertible_gag_interior;
+    dst.convertible_tca_interior    += src.convertible_tca_interior;
+    dst.convertible_tcg_interior    += src.convertible_tcg_interior;
+    dst.convertible_tac_interior    += src.convertible_tac_interior;
+    dst.convertible_tgc_interior    += src.convertible_tgc_interior;
+    dst.convertible_taa_ca_interior += src.convertible_taa_ca_interior;
+    dst.convertible_tag_ca_interior += src.convertible_tag_ca_interior;
+    dst.convertible_tga_ca_interior += src.convertible_tga_ca_interior;
+
     dst.convertible_tag_ox_interior += src.convertible_tag_ox_interior;
     dst.convertible_gaa_interior += src.convertible_gaa_interior;
     dst.convertible_taa_ox_interior += src.convertible_taa_ox_interior;
     dst.convertible_gga_interior += src.convertible_gga_interior;
     dst.convertible_tga_ox_interior += src.convertible_tga_ox_interior;
+
+
+    for (int i = 0; i < SampleDamageProfile::OxoTwoMarkerBins::TOTAL; ++i) {
+        auto& dc = dst.oxo_two_marker.cells[i];
+        const auto& sc = src.oxo_two_marker.cells[i];
+        dc.n_reads += sc.n_reads;
+        dc.sum_nGT += sc.sum_nGT;
+        dc.sum_T   += sc.sum_T;
+        dc.sum_nAC += sc.sum_nAC;
+        dc.sum_A   += sc.sum_A;
+    }
+
+    for (int i = 0; i < SampleDamageProfile::N_OX_BINS; ++i) {
+        auto& d = dst.oxidation_like_bins[i];
+        const auto& s = src.oxidation_like_bins[i];
+        for (int j = 0; j < SampleDamageProfile::N_OX_DEAM_STRATA; ++j) {
+            auto& ds = d.strata[j];
+            const auto& ss = s.strata[j];
+            ds.term_t5 += ss.term_t5; ds.term_tc5 += ss.term_tc5;
+            ds.term_a3 += ss.term_a3; ds.term_ag3 += ss.term_ag3;
+            ds.int_t += ss.int_t; ds.int_tc += ss.int_tc;
+            ds.int_a += ss.int_a; ds.int_ag += ss.int_ag;
+            ds.sig_t += ss.sig_t; ds.sig_tg += ss.sig_tg;
+            ds.sig_a += ss.sig_a; ds.sig_ac += ss.sig_ac;
+            ds.ctrl_a += ss.ctrl_a; ds.ctrl_at += ss.ctrl_at;
+            ds.ctrl_c += ss.ctrl_c; ds.ctrl_cg += ss.ctrl_cg;
+            ds.reads += ss.reads;
+        }
+    }
 
     for (int bin = 0; bin < SampleDamageProfile::N_GC_BINS; ++bin) {
         auto& db = dst.gc_bins[bin];
@@ -4347,10 +5136,10 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.oxog16_a_rc.fill(0.0f);
     profile.s_oxog_16ctx.fill(0.0f);
     profile.cov_oxog_16ctx.fill(0.0f);
-    profile.tri_5prime_terminal.fill(0);
-    profile.tri_5prime_interior.fill(0);
-    profile.tri_3prime_terminal.fill(0);
-    profile.tri_3prime_interior.fill(0);
+    profile.tri_5prime_terminal.fill(0.0);
+    profile.tri_5prime_interior.fill(0.0);
+    profile.tri_3prime_terminal.fill(0.0);
+    profile.tri_3prime_interior.fill(0.0);
 
     profile.max_damage_5prime = 0.0f;
     profile.max_damage_3prime = 0.0f;
@@ -4412,7 +5201,7 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.mixture_bic = 0.0f;
     profile.mixture_converged = false;
     profile.mixture_identifiable = false;
-    profile.gc_histogram.fill(0);
+    profile.gc_histogram.fill(0.0);
     profile.adaptive_gc_threshold = 0.0f;
     profile.gc_threshold_computed = false;
     profile.gc_bins = {};
@@ -4441,6 +5230,99 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.baseline_c_to_a_count = 0.0;
     profile.baseline_c_ox_total = 0.0;
     profile.convertible_gag_5prime.fill(0.0);
+    profile.convertible_tca_5prime.fill(0.0);
+    profile.convertible_tcg_5prime.fill(0.0);
+    profile.convertible_tac_5prime.fill(0.0);
+    profile.convertible_tgc_5prime.fill(0.0);
+    profile.convertible_taa_ca_5prime.fill(0.0);
+    profile.convertible_tag_ca_5prime.fill(0.0);
+    profile.convertible_tga_ca_5prime.fill(0.0);
+    profile.convertible_tca_3prime.fill(0.0);
+    profile.convertible_tcg_3prime.fill(0.0);
+    profile.convertible_tac_3prime.fill(0.0);
+    profile.convertible_tgc_3prime.fill(0.0);
+    profile.convertible_taa_ca_3prime.fill(0.0);
+    profile.convertible_tag_ca_3prime.fill(0.0);
+    profile.convertible_tga_ca_3prime.fill(0.0);
+    profile.ca_stop_rate_baseline          = 0.0f;
+    profile.ca_stop_rate_terminal          = 0.0f;
+    profile.ca_stop_rate_interior          = 0.0f;
+    profile.channel_f_z                    = 0.0f;
+    profile.ca_uniformity_ratio            = 0.0f;
+    profile.ca_stop_baseline_3prime        = 0.0f;
+    profile.ca_stop_rate_terminal_3prime   = 0.0f;
+    profile.ca_stop_rate_interior_3prime   = 0.0f;
+    profile.ca_uniformity_ratio_3prime     = 0.0f;
+    profile.channel_f_valid                = false;
+    profile.channel_f3_valid               = false;
+    profile.convertible_tca_cg_5prime.fill(0.0);
+    profile.convertible_tac_cg_5prime.fill(0.0);
+    profile.convertible_tga_cg_5prime.fill(0.0);
+    profile.convertible_tag_cg_5prime.fill(0.0);
+    profile.convertible_tca_cg_3prime.fill(0.0);
+    profile.convertible_tac_cg_3prime.fill(0.0);
+    profile.convertible_tga_cg_3prime.fill(0.0);
+    profile.convertible_tag_cg_3prime.fill(0.0);
+    profile.cg_stop_rate_terminal          = 0.0f;
+    profile.cg_stop_rate_interior          = 0.0f;
+    profile.cg_stop_rate_baseline          = 0.0f;
+    profile.channel_g_z                    = 0.0f;
+    profile.cg_uniformity_ratio            = 0.0f;
+    profile.cg_stop_rate_terminal_3prime   = 0.0f;
+    profile.cg_stop_rate_interior_3prime   = 0.0f;
+    profile.cg_stop_rate_baseline_3prime   = 0.0f;
+    profile.cg_uniformity_ratio_3prime     = 0.0f;
+    profile.channel_g_valid                = false;
+    profile.channel_g3_valid               = false;
+    profile.convertible_aaa_h_5prime.fill(0.0);
+    profile.convertible_aag_h_5prime.fill(0.0);
+    profile.convertible_aga_h_5prime.fill(0.0);
+    profile.convertible_taa_at_5prime.fill(0.0);
+    profile.convertible_tag_at_5prime.fill(0.0);
+    profile.convertible_tga_at_5prime.fill(0.0);
+    profile.convertible_aaa_h_3prime.fill(0.0);
+    profile.convertible_aag_h_3prime.fill(0.0);
+    profile.convertible_aga_h_3prime.fill(0.0);
+    profile.convertible_taa_at_3prime.fill(0.0);
+    profile.convertible_tag_at_3prime.fill(0.0);
+    profile.convertible_tga_at_3prime.fill(0.0);
+    profile.at_stop_rate_terminal          = 0.0f;
+    profile.at_stop_rate_interior          = 0.0f;
+    profile.at_stop_rate_baseline          = 0.0f;
+    profile.channel_h_z                    = 0.0f;
+    profile.at_uniformity_ratio            = 0.0f;
+    profile.at_stop_rate_terminal_3prime   = 0.0f;
+    profile.at_stop_rate_interior_3prime   = 0.0f;
+    profile.at_stop_rate_baseline_3prime   = 0.0f;
+    profile.at_uniformity_ratio_3prime     = 0.0f;
+    profile.channel_h_valid                = false;
+    profile.channel_h3_valid               = false;
+    profile.cg_pre_interior = 0;
+    profile.cg_stop_interior = 0;
+    profile.at_pre_interior = 0;
+    profile.at_stop_interior = 0;
+
+
+    profile.convertible_tca_interior = 0;
+    profile.convertible_tcg_interior = 0;
+    profile.convertible_tac_interior = 0;
+    profile.convertible_tgc_interior = 0;
+    profile.convertible_taa_ca_interior = 0;
+    profile.convertible_tag_ca_interior = 0;
+    profile.convertible_tga_ca_interior = 0;
+
+    profile.convertible_gag_3prime.fill(0.0);
+    profile.convertible_tag_ox_3prime.fill(0.0);
+    profile.convertible_gaa_3prime.fill(0.0);
+    profile.convertible_taa_ox_3prime.fill(0.0);
+    profile.convertible_gga_3prime.fill(0.0);
+    profile.convertible_tga_ox_3prime.fill(0.0);
+    profile.ox_stop_rate_terminal_3prime = 0.0f;
+    profile.ox_stop_rate_interior_3prime = 0.0f;
+    profile.ox_stop_baseline_3prime      = 0.0f;
+    profile.ox_uniformity_ratio_3prime   = 0.0f;
+    profile.channel_c3_valid             = false;
+
     profile.convertible_gaa_5prime.fill(0.0);
     profile.convertible_gga_5prime.fill(0.0);
     profile.convertible_tag_ox_5prime.fill(0.0);
@@ -4448,14 +5330,29 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.convertible_tga_ox_5prime.fill(0.0);
     profile.c_count_ox_5prime.fill(0.0);
     profile.a_from_c_5prime.fill(0.0);
+    profile.oxidation_like_bins = {};
+    profile.oxo_two_marker = {};
+    profile.oxidation_like_signal = 0.0f;
+    profile.oxidation_like_signal_se = 0.0f;
+    profile.oxidation_like_control = 0.0f;
+    profile.oxidation_like_control_se = 0.0f;
+    profile.oxidation_like_adjusted = 0.0f;
+    profile.oxidation_like_excess = 0.0f;
+    profile.oxidation_like_se = 0.0f;
+    profile.oxidation_like_z = 0.0f;
+    profile.oxidation_like_reliability = 0.0f;
+    profile.oxidation_like_bins_used = 0;
+    profile.oxidation_like_effective_bins = 0.0f;
+    profile.oxidation_like_heterogeneity = 0.0f;
+    profile.oxidation_like_artifact_suspect = false;
 
     // Interior oxoG codon accumulators (merged in merge_sample_profiles)
-    profile.convertible_gag_interior = 0.0;
-    profile.convertible_gaa_interior = 0.0;
-    profile.convertible_gga_interior = 0.0;
-    profile.convertible_tag_ox_interior = 0.0;
-    profile.convertible_taa_ox_interior = 0.0;
-    profile.convertible_tga_ox_interior = 0.0;
+    profile.convertible_gag_interior = 0;
+    profile.convertible_gaa_interior = 0;
+    profile.convertible_gga_interior = 0;
+    profile.convertible_tag_ox_interior = 0;
+    profile.convertible_taa_ox_interior = 0;
+    profile.convertible_tga_ox_interior = 0;
 
     profile.ox_is_artifact = false;
     profile.ox_d_max = 0.0f;
