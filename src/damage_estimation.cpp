@@ -2039,9 +2039,11 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     // else mid-read pos 5-14), then compute z and fill profile fields.
     // Adapter skip: p0=1 when position_0 artifact or hexamer bias detected (5' end),
     //               p0=1 when position_0 artifact detected (3' end).
-    const int p0_5 = (profile.position_0_artifact_5prime
-                      || profile.hexamer_excess_tc < -0.02f) ? 1 : 0;
-    const int p0_3 = profile.position_0_artifact_3prime ? 1 : 0;
+    // p0_h5: hexamer_excess_tc is TC-specific; Channel H (A→T) must not inherit it.
+    const int p0_5  = (profile.position_0_artifact_5prime
+                       || profile.hexamer_excess_tc < -0.02f) ? 1 : 0;
+    const int p0_h5 = profile.position_0_artifact_5prime ? 1 : 0;
+    const int p0_3  = profile.position_0_artifact_3prime ? 1 : 0;
 
     // Channel F: C→A oxidation (bottom-strand 8-oxoG)
     {
@@ -2121,7 +2123,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             double stop = profile.convertible_taa_at_5prime[p] + profile.convertible_tag_at_5prime[p] +
                           profile.convertible_tga_at_5prime[p];
             pre5 += pre; stop5 += stop;
-            if (p >= p0_5 && p < 5) { pre_t += pre; stop_t += stop; }
+            if (p >= p0_h5 && p < 5) { pre_t += pre; stop_t += stop; }
             else if (p >= 5)        { pre_m += pre; stop_m += stop; }
             if (p >= 2 && p < 5)    { pre_t2 += pre; stop_t2 += stop; }
         }
