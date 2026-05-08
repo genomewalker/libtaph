@@ -150,11 +150,35 @@ LibraryQcFlags compute_library_qc_flags(
 // ── Preservation / authenticity ───────────────────────────────────────────────
 
 struct PreservationSummary {
+    struct OxidationInterval {
+        double estimate = 0.0;
+        double ci95_low = 0.0;
+        double ci95_high = 0.0;
+    };
+
+    struct OxidationAssessment {
+        // Reference-free estimands. raw_rate is the ancient-like vs background-like
+        // oxidation-compatible composition contrast; control_rate is matched
+        // negative-control movement; excess_rate is max(0, raw_rate - control_rate).
+        OxidationInterval raw_rate;
+        OxidationInterval control_rate;
+        OxidationInterval excess_rate;
+        double z_score = 0.0;      // control-adjusted: (raw_rate - control_rate) / SE
+        double bins_used = 0.0;
+        double effective_bins = 0.0;
+        double heterogeneity = 0.0;
+
+        // Reliability diagnostics
+        double reliability_score = 0.0;     // [0,1]
+        const char* reliability = "fail";   // pass|warning|fail
+    };
+
     double      authenticity_eff      = 0.0;
     double      authenticity_evidence = 0.0;
     double      d5_raw                = 0.0;
     double      d5_hexamer_corrected  = 0.0;
     bool        d5_was_corrected      = false;
+    OxidationAssessment oxidation;
     double      oxidation_eff         = 0.0;
     double      oxidation_evidence    = 0.0;
     double      qc_risk_eff           = 0.0;
@@ -243,5 +267,65 @@ DamageContextProfile compute_damage_context_profile(
     bool   adapter_clipped,
     bool   adapter3_clipped,
     bool   flag_hex_artifact);
+
+// ── OxoG unified estimate ────────────────────────────────────────────────────
+//
+// Combines the two orthogonal oxidation estimators (exponential-fit B and
+// length×GC-stratified composition contrast) with a WLS CI, uniformity check,
+// and control-mode annotation.  Designed as the canonical JSON-output struct.
+struct OxoGEstimate {
+    static constexpr int oxo_schema = 1;
+
+    // B estimator — exponential fit, position-based
+    double ox_theta          = 0.0;   // best-fit uniform G→T background (g_bg_fitted)
+    double ox_theta_ci_lo    = 0.0;   // WLS CI95 lower bound
+    double ox_theta_ci_hi    = 0.0;   // WLS CI95 upper bound
+    double ox_theta_interior = 0.0;   // interior-mean G→T (fallback when fit_degenerate)
+    bool   fit_degenerate    = false; // mu ≤ 0.10; constant model indistinguishable from decay
+
+    // Stratum-based orthogonal estimator (length×GC contrast)
+    double ox_like_excess  = 0.0;  // = oxidation_like_excess
+    double ox_like_z       = 0.0;  // z-score
+    double ox_like_ci_lo   = 0.0;  // CI95 lower
+    double ox_like_ci_hi   = 0.0;  // CI95 upper
+
+    // Uniformity check: ≈1.0 = G→T rate uniform across read (consistent with 8-oxoG)
+    double ox_uniformity_ratio = 1.0;
+
+    // Control mode for the stratum contrast
+    const char* control_mode = "auto"; // "chargaff" | "trinuc" | "auto"
+
+    // GC-skew warning: large Chargaff asymmetry without an oxidation explanation
+    bool gc_skew_warning = false;
+};
+
+OxoGEstimate compute_oxog_estimate(const SampleDamageProfile& dp, bool is_ss);
+
+// ── Two-marker oxidation regression ──────────────────────────────────────────
+//
+// Regresses per-bin interior Chargaff asymmetry D = T/(T+G) - A/(A+C) against
+// two independent ssDNA-overhang markers:
+//   beta1: coupled to s1 = T count at 5' positions 1-3  (C→T deamination proxy)
+//   beta2: coupled to s2 = A count at 3' positions 1-3  (G→A deamination proxy, DS)
+//
+// If beta1 ≈ beta2 > 0, burial-accumulated G→T excess is plausible.
+// If only beta1 fires, suspect deamination/sequencing artefact.
+// For SS libraries beta2 measures 3' G-richness (not G→A), so use only beta1.
+struct OxoTwoMarkerResult {
+    double beta1          = 0.0;  // s1-coupled D slope (C→T 5' marker)
+    double beta2          = 0.0;  // s2-coupled D slope (G→A 3' marker)
+    double beta1_se       = 0.0;
+    double beta2_se       = 0.0;
+    double beta1_z        = 0.0;  // beta1 / beta1_se
+    double beta2_z        = 0.0;  // beta2 / beta2_se
+    double alpha          = 0.0;  // intercept (global D floor = prep artifact)
+    double sigma2         = 0.0;  // residual variance
+    bool   markers_consistent = false;  // |beta1-beta2| < 2*sqrt(se1²+se2²)
+    double delta_beta     = 0.0;  // beta1 - beta2 (0 if perfectly consistent)
+    int    n_cells_used   = 0;
+    bool   valid          = false; // false if fit failed (too few cells)
+};
+
+OxoTwoMarkerResult compute_oxo_two_marker(const SampleDamageProfile& dp, bool is_ss);
 
 } // namespace taph

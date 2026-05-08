@@ -401,6 +401,9 @@ PreservationSummary compute_preservation_summary(
         double oxog_trinuc_cosine,
         double hex_shift_p) {
 
+    (void)oxog_score_z;
+    (void)oxog_trinuc_cosine;
+
     PreservationSummary r;
 
     auto clamp01 = [](double x) -> double { return std::clamp(x, 0.0, 1.0); };
@@ -446,11 +449,10 @@ PreservationSummary compute_preservation_summary(
     r.authenticity_eff = authenticity_eff;
 
     // authenticity_evidence
-    double mix_term = 0.0, wmix = 0.0;
+    double mix_term = 0.0;
     if (dp.mixture_converged && dp.mixture_identifiable) {
         mix_term = sat(static_cast<double>(dp.mixture_d_ancient), 0.05) *
                    clamp01(static_cast<double>(dp.mixture_pi_ancient));
-        wmix = 1.0;
     }
     double cpg_cov = static_cast<double>(dp.effcov_ct5_cpg_like_terminal) +
                      static_cast<double>(dp.effcov_ct5_noncpg_like_terminal);
@@ -473,18 +475,49 @@ PreservationSummary compute_preservation_summary(
         ? clamp01((z5e + z3e + mix_e + cpg_e) / auth_n_terms)
         : 0.0;
 
-    // oxidation_eff / oxidation_evidence
-    bool has_trinuc = !std::isnan(oxog_trinuc_cosine);
-    double ox_shape = has_trinuc
-        ? clamp01((oxog_trinuc_cosine - 0.65) / 0.20)
-        : 0.0;
-    r.oxidation_eff = clamp01(
-        sat(static_cast<double>(dp.ox_d_max), 0.02) *
-        (has_trinuc ? ox_shape : 1.0));
-    double oz = (!is_ss && static_cast<double>(dp.ox_d_max) > 0.01) ? oxog_score_z : 0.0;
-    r.oxidation_evidence = has_trinuc
-        ? clamp01(ox_shape * 0.5 * (z_evidence(oz) + 1.0))
-        : clamp01(z_evidence(oz));
+    // Oxidation-like signal: reference-free, length/GC-stratified composition
+    // contrast between deamination-weighted ancient-like and background-like reads.
+    {
+        const double signal = static_cast<double>(dp.oxidation_like_signal);
+        const double control = static_cast<double>(dp.oxidation_like_control);
+        const double adjusted = static_cast<double>(dp.oxidation_like_adjusted);
+        const double excess = static_cast<double>(dp.oxidation_like_excess);
+        const double signal_se = std::max(0.0, static_cast<double>(dp.oxidation_like_signal_se));
+        const double control_se = std::max(0.0, static_cast<double>(dp.oxidation_like_control_se));
+        const double adjusted_se = std::max(0.0, static_cast<double>(dp.oxidation_like_se));
+
+        r.oxidation.raw_rate = {
+            signal,
+            signal - 1.96 * signal_se,
+            signal + 1.96 * signal_se
+        };
+        r.oxidation.control_rate = {
+            control,
+            std::max(0.0, control - 1.96 * control_se),
+            control + 1.96 * control_se
+        };
+        r.oxidation.excess_rate = {
+            excess,
+            std::max(0.0, adjusted - 1.96 * adjusted_se),
+            std::max(0.0, adjusted + 1.96 * adjusted_se)
+        };
+        r.oxidation.z_score = static_cast<double>(dp.oxidation_like_z);
+        r.oxidation.bins_used = static_cast<double>(dp.oxidation_like_bins_used);
+        r.oxidation.effective_bins = static_cast<double>(dp.oxidation_like_effective_bins);
+        r.oxidation.heterogeneity = static_cast<double>(dp.oxidation_like_heterogeneity);
+        r.oxidation.reliability_score = static_cast<double>(dp.oxidation_like_reliability);
+
+        if (dp.oxidation_like_bins_used >= 6 && dp.oxidation_like_effective_bins >= 4.0f &&
+            !dp.oxidation_like_artifact_suspect)
+            r.oxidation.reliability = "pass";
+        else if (dp.oxidation_like_bins_used >= 2 && dp.oxidation_like_effective_bins >= 1.5f)
+            r.oxidation.reliability = "warning";
+        else
+            r.oxidation.reliability = "fail";
+
+        r.oxidation_eff = r.oxidation.excess_rate.estimate;
+        r.oxidation_evidence = r.oxidation.reliability_score;
+    }
 
     // qc_risk_eff / qc_evidence
     double d5_eff = static_cast<double>(dp.d_max_5prime);
@@ -663,7 +696,6 @@ DamageContextProfile compute_damage_context_profile(
     float dip = r.dipyrimidine_context_score;
     float ox  = r.oxidative_context_score;
     float fr  = r.fragmentation_context_score;
-    float art = r.library_artifact_score;
     auto gt = [](float x, float t){ return std::isfinite(x) && x >  t; };
     auto lt = [](float x, float t){ return std::isfinite(x) && x <  t; };
 
@@ -709,6 +741,155 @@ DamageContextProfile compute_damage_context_profile(
         r.interpretation = "terminal C->T / G->A enrichment consistent with post-mortem cytosine deamination";
     }
     r.dominant_process_str = to_string(r.dominant_process);
+    return r;
+}
+
+
+OxoGEstimate compute_oxog_estimate(const SampleDamageProfile& dp, bool is_ss) {
+    OxoGEstimate r;
+
+    r.ox_theta          = static_cast<double>(dp.g_bg_fitted);
+    r.ox_theta_ci_lo    = static_cast<double>(dp.g_bg_fitted_ci_lo);
+    r.ox_theta_ci_hi    = static_cast<double>(dp.g_bg_fitted_ci_hi);
+    r.ox_theta_interior = static_cast<double>(dp.g_bg_interior_mean);
+    r.fit_degenerate    = dp.g_fit_degenerate;
+
+    r.ox_like_excess = static_cast<double>(dp.oxidation_like_excess);
+    r.ox_like_z      = static_cast<double>(dp.oxidation_like_z);
+    const double ox_se = std::max(0.0, static_cast<double>(dp.oxidation_like_se));
+    const double ex    = std::max(0.0, static_cast<double>(dp.oxidation_like_adjusted));
+    r.ox_like_ci_lo  = std::max(0.0, ex - 1.96 * ox_se);
+    r.ox_like_ci_hi  = ex + 1.96 * ox_se;
+
+    r.ox_uniformity_ratio = static_cast<double>(dp.ox_uniformity_ratio);
+
+    if (!is_ss) {
+        r.control_mode = "chargaff";
+    } else if (dp.oxidation_like_bins_used >= 4 && dp.oxidation_like_effective_bins >= 3.0f) {
+        r.control_mode = "trinuc";
+    } else {
+        r.control_mode = "auto";
+    }
+
+    const double asym = std::abs(static_cast<double>(dp.ox_gt_asymmetry));
+    r.gc_skew_warning = (asym > 0.05 && dp.ox_gt_baseline < 0.01);
+
+    return r;
+}
+
+
+// WLS regression helper: solve 5x5 system A*x = b via Gaussian elimination.
+// Returns false if matrix is singular.
+static bool solve5x5(double A[5][5], double b[5], double x[5]) {
+    double M[5][6];
+    for (int i = 0; i < 5; ++i) {
+        for (int j = 0; j < 5; ++j) M[i][j] = A[i][j];
+        M[i][5] = b[i];
+    }
+    for (int col = 0; col < 5; ++col) {
+        int piv = col;
+        for (int row = col + 1; row < 5; ++row)
+            if (std::abs(M[row][col]) > std::abs(M[piv][col])) piv = row;
+        if (std::abs(M[piv][col]) < 1e-14) return false;
+        for (int j = 0; j <= 5; ++j) std::swap(M[col][j], M[piv][j]);
+        for (int row = col + 1; row < 5; ++row) {
+            double f = M[row][col] / M[col][col];
+            for (int j = col; j <= 5; ++j) M[row][j] -= f * M[col][j];
+        }
+    }
+    for (int row = 4; row >= 0; --row) {
+        x[row] = M[row][5];
+        for (int col = row + 1; col < 5; ++col) x[row] -= M[row][col] * x[col];
+        x[row] /= M[row][row];
+    }
+    return true;
+}
+
+OxoTwoMarkerResult compute_oxo_two_marker(const SampleDamageProfile& dp, bool is_ss) {
+    using Bins = SampleDamageProfile::OxoTwoMarkerBins;
+    OxoTwoMarkerResult r;
+
+    // Bin midpoints for predictors
+    // s1/s2: bins 0-3 → normalised rate 0/3, 1/3, 2/3, 3/3
+    // GC bins: 0-3 → mid 12.5%, 37.5%, 62.5%, 87.5%
+    // len bins: 0-3 → mid 37.5, 57.5, 90, 130
+    static const double s_mid[4]   = {0.0, 1.0/3, 2.0/3, 1.0};
+    static const double gc_mid[4]  = {0.125, 0.375, 0.625, 0.875};
+    static const double len_mid[4] = {37.5,  57.5,  90.0, 130.0};
+
+    // Accumulate WLS sufficient statistics
+    double XtWX[5][5] = {};
+    double XtWy[5]    = {};
+    int    n_cells    = 0;
+
+    for (int s1 = 0; s1 < Bins::N_S; ++s1) {
+    for (int s2 = 0; s2 < Bins::N_S; ++s2) {
+    for (int gc = 0; gc < Bins::N_GC; ++gc) {
+    for (int l  = 0; l  < Bins::N_L;  ++l) {
+        const auto& c = dp.oxo_two_marker.cells[Bins::idx(s1, s2, gc, l)];
+        if (c.sum_nGT < 200 || c.sum_nAC < 200) continue;
+
+        const double D = static_cast<double>(c.sum_T)   / c.sum_nGT
+                       - static_cast<double>(c.sum_A)   / c.sum_nAC;
+        // Harmonic-mean weight (effective sample size)
+        const double w = 2.0 * c.sum_nGT * c.sum_nAC
+                       / static_cast<double>(c.sum_nGT + c.sum_nAC);
+
+        const double x[5] = {1.0, s_mid[s1], s_mid[s2], gc_mid[gc], len_mid[l]};
+        for (int i = 0; i < 5; ++i) {
+            XtWy[i] += w * x[i] * D;
+            for (int j = 0; j < 5; ++j)
+                XtWX[i][j] += w * x[i] * x[j];
+        }
+        ++n_cells;
+    }}}}
+
+    r.n_cells_used = n_cells;
+    if (n_cells < 6) return r;  // under-determined
+
+    double beta[5] = {};
+    if (!solve5x5(XtWX, XtWy, beta)) return r;
+
+    r.alpha  = beta[0];
+    r.beta1  = beta[1];
+    r.beta2  = beta[2];
+
+    // Residual variance
+    double sse = 0.0, sw = 0.0;
+    for (int s1 = 0; s1 < Bins::N_S; ++s1) {
+    for (int s2 = 0; s2 < Bins::N_S; ++s2) {
+    for (int gc = 0; gc < Bins::N_GC; ++gc) {
+    for (int l  = 0; l  < Bins::N_L;  ++l) {
+        const auto& c = dp.oxo_two_marker.cells[Bins::idx(s1, s2, gc, l)];
+        if (c.sum_nGT < 200 || c.sum_nAC < 200) continue;
+        const double D = static_cast<double>(c.sum_T) / c.sum_nGT
+                       - static_cast<double>(c.sum_A) / c.sum_nAC;
+        const double w = 2.0 * c.sum_nGT * c.sum_nAC
+                       / static_cast<double>(c.sum_nGT + c.sum_nAC);
+        const double x[5] = {1.0, s_mid[s1], s_mid[s2], gc_mid[gc], len_mid[l]};
+        double pred = 0.0;
+        for (int i = 0; i < 5; ++i) pred += beta[i] * x[i];
+        sse += w * (D - pred) * (D - pred);
+        sw  += w;
+    }}}}
+    r.sigma2 = (n_cells > 5) ? sse / (n_cells - 5) : 0.0;
+
+    // SE of beta1 and beta2: solve XtWX * v = e_j; SE²(j) = sigma2 * v[j]
+    for (int j = 1; j <= 2; ++j) {
+        double ej[5] = {}, vj[5] = {};
+        ej[j] = 1.0;
+        if (solve5x5(XtWX, ej, vj)) {
+            double se = std::sqrt(std::max(0.0, r.sigma2 * vj[j]));
+            if (j == 1) { r.beta1_se = se; r.beta1_z = (se > 0) ? r.beta1 / se : 0.0; }
+            else        { r.beta2_se = se; r.beta2_z = (se > 0) ? r.beta2 / se : 0.0; }
+        }
+    }
+
+    r.delta_beta = r.beta1 - r.beta2;
+    double se_delta = std::sqrt(r.beta1_se * r.beta1_se + r.beta2_se * r.beta2_se);
+    r.markers_consistent = (se_delta > 0 && std::abs(r.delta_beta) < 2.0 * se_delta);
+    r.valid = true;
+    (void)is_ss;  // reserved: SS adjustments applied at JSON layer
     return r;
 }
 

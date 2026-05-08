@@ -11,10 +11,9 @@ namespace taph {
  * Using lookup tables instead of branches/function calls
  */
 
-// Fast uppercase - branchless lookup table
+// Fast uppercase — branchless for DNA bases (A/T/G/C/N and lowercase equivalents)
 inline char fast_upper(char c) {
-    // Uppercase offset: 'a'-'A' = 32
-    return (c >= 'a' && c <= 'z') ? (c - 32) : c;
+    return static_cast<char>(static_cast<unsigned char>(c) & ~0x20u);
 }
 
 // Fast complement - direct lookup
