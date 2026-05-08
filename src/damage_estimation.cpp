@@ -1001,6 +1001,14 @@ void FrameSelector::update_sample_profile(
                     if      (b2 == 'C') profile.convertible_tgc_interior++;
                     else if (b2 == 'A') profile.convertible_tga_ca_interior++;
                 }
+                // Channel F far-interior (mirrors convertible_tc*/taa_ca/tag_ca/tga_ca)
+                if (b0 == 'T') {
+                    bool is_pre  = (b1=='C'&&b2=='A') || (b1=='C'&&b2=='G') ||
+                                   (b1=='A'&&b2=='C') || (b1=='G'&&b2=='C');
+                    bool is_stop = (b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A');
+                    if      (is_pre)  profile.ca_pre_interior++;
+                    else if (is_stop) profile.ca_stop_interior++;
+                }
                 // Channel G interior
                 if (b0 == 'T' && b2 == 'A') {
                     if      (b1 == 'C') profile.cg_pre_interior++;
@@ -2047,10 +2055,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             if (p >= p0_5 && p < 5) { pre_t += pre; stop_t += stop; }
             else if (p >= 5)        { pre_m += pre; stop_m += stop; }
         }
-        double pre_far  = profile.convertible_tca_interior + profile.convertible_tcg_interior +
-                          profile.convertible_tac_interior + profile.convertible_tgc_interior;
-        double stop_far = profile.convertible_taa_ca_interior + profile.convertible_tag_ca_interior +
-                          profile.convertible_tga_ca_interior;
+        double pre_far  = (double)profile.ca_pre_interior;
+        double stop_far = (double)profile.ca_stop_interior;
         double pre_i  = (pre_far + stop_far >= 50) ? pre_far  : pre_m;
         double stop_i = (pre_far + stop_far >= 50) ? stop_far : stop_m;
         profile.channel_f_z = binom_z(stop_t, pre_t + stop_t, stop_i, pre_i + stop_i);
@@ -2069,7 +2075,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             else if (p >= 5)        { pre_m3 += pre; stop_m3 += stop; }
         }
         fin_oxog(pre3, stop3, pre_t3, stop_t3, pre_m3, stop_m3,
-                 profile.ca_stop_baseline_3prime, profile.ca_stop_rate_terminal_3prime,
+                 profile.ca_stop_rate_baseline_3prime, profile.ca_stop_rate_terminal_3prime,
                  profile.ca_stop_rate_interior_3prime, profile.ca_uniformity_ratio_3prime, profile.channel_f3_valid);
     }
 
@@ -4632,6 +4638,8 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         dst.convertible_taa_at_3prime[i]  += src.convertible_taa_at_3prime[i];
         dst.convertible_tag_at_3prime[i]  += src.convertible_tag_at_3prime[i];
         dst.convertible_tga_at_3prime[i]  += src.convertible_tga_at_3prime[i];
+        dst.ca_pre_interior  += src.ca_pre_interior;
+        dst.ca_stop_interior += src.ca_stop_interior;
         dst.cg_pre_interior  += src.cg_pre_interior;
         dst.cg_stop_interior += src.cg_stop_interior;
         dst.at_pre_interior  += src.at_pre_interior;
@@ -5249,7 +5257,7 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.ca_stop_rate_interior          = 0.0f;
     profile.channel_f_z                    = 0.0f;
     profile.ca_uniformity_ratio            = 0.0f;
-    profile.ca_stop_baseline_3prime        = 0.0f;
+    profile.ca_stop_rate_baseline_3prime        = 0.0f;
     profile.ca_stop_rate_terminal_3prime   = 0.0f;
     profile.ca_stop_rate_interior_3prime   = 0.0f;
     profile.ca_uniformity_ratio_3prime     = 0.0f;
@@ -5297,9 +5305,11 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.at_uniformity_ratio_3prime     = 0.0f;
     profile.channel_h_valid                = false;
     profile.channel_h3_valid               = false;
-    profile.cg_pre_interior = 0;
+    profile.ca_pre_interior  = 0;
+    profile.ca_stop_interior = 0;
+    profile.cg_pre_interior  = 0;
     profile.cg_stop_interior = 0;
-    profile.at_pre_interior = 0;
+    profile.at_pre_interior  = 0;
     profile.at_stop_interior = 0;
 
 

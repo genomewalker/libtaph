@@ -618,12 +618,12 @@ struct SampleDamageProfile {
     std::array<double, 15> convertible_gga_5prime = {};      // GGA (Gly) codons at 5'
     std::array<double, 15> convertible_tga_ox_5prime = {};   // TGA (Stop) from G→T at 5'
 
-    uint64_t convertible_gag_interior = 0.0;
-    uint64_t convertible_tag_ox_interior = 0.0;
-    uint64_t convertible_gaa_interior = 0.0;
-    uint64_t convertible_taa_ox_interior = 0.0;
-    uint64_t convertible_gga_interior = 0.0;
-    uint64_t convertible_tga_ox_interior = 0.0;
+    uint64_t convertible_gag_interior = 0;
+    uint64_t convertible_tag_ox_interior = 0;
+    uint64_t convertible_gaa_interior = 0;
+    uint64_t convertible_taa_ox_interior = 0;
+    uint64_t convertible_gga_interior = 0;
+    uint64_t convertible_tga_ox_interior = 0;
 
     float ox_stop_conversion_rate_baseline = 0.0f;
     float ox_stop_rate_terminal = 0.0f;
@@ -662,13 +662,13 @@ struct SampleDamageProfile {
     std::array<double, 15> convertible_tag_ca_5prime = {};  // TAG stop from C→A
     std::array<double, 15> convertible_tga_ca_5prime = {};  // TGA stop from C→A
 
-    uint64_t convertible_tca_interior = 0.0;
-    uint64_t convertible_tcg_interior = 0.0;
-    uint64_t convertible_tac_interior = 0.0;
-    uint64_t convertible_tgc_interior = 0.0;
-    uint64_t convertible_taa_ca_interior = 0.0;
-    uint64_t convertible_tag_ca_interior = 0.0;
-    uint64_t convertible_tga_ca_interior = 0.0;
+    uint64_t convertible_tca_interior = 0;
+    uint64_t convertible_tcg_interior = 0;
+    uint64_t convertible_tac_interior = 0;
+    uint64_t convertible_tgc_interior = 0;
+    uint64_t convertible_taa_ca_interior = 0;
+    uint64_t convertible_tag_ca_interior = 0;
+    uint64_t convertible_tga_ca_interior = 0;
 
     // Channel F 3' end
     std::array<double, 15> convertible_tca_3prime = {};
@@ -684,7 +684,7 @@ struct SampleDamageProfile {
     float ca_stop_rate_interior     = 0.0f;
     float channel_f_z               = 0.0f;
     float ca_uniformity_ratio       = 0.0f;
-    float ca_stop_baseline_3prime   = 0.0f;
+    float ca_stop_rate_baseline_3prime = 0.0f;
     float ca_stop_rate_terminal_3prime = 0.0f;
     float ca_stop_rate_interior_3prime = 0.0f;
     float ca_uniformity_ratio_3prime   = 0.0f;
@@ -745,10 +745,12 @@ struct SampleDamageProfile {
     bool  channel_h_valid          = false;
     bool  channel_h3_valid         = false;
 
-    uint64_t cg_pre_interior  = 0.0;
-    uint64_t cg_stop_interior = 0.0;
-    uint64_t at_pre_interior  = 0.0;
-    uint64_t at_stop_interior = 0.0;
+    uint64_t ca_pre_interior  = 0;  // Channel F far-interior (pos 30+)
+    uint64_t ca_stop_interior = 0;
+    uint64_t cg_pre_interior  = 0;  // Channel G far-interior
+    uint64_t cg_stop_interior = 0;
+    uint64_t at_pre_interior  = 0;  // Channel H far-interior
+    uint64_t at_stop_interior = 0;
 
 
 
