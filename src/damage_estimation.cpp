@@ -820,6 +820,24 @@ void FrameSelector::update_sample_profile(
         }
     }
 
+    // Prefix hexamer codes for adapter-aware F/G/H terminal bucketing.
+    // pfx5 = first 6 bases; pfx3 = last 6 bases.  UINT32_MAX when invalid.
+    uint32_t pfx5 = UINT32_MAX, pfx3 = UINT32_MAX;
+    if (len >= 6) {
+        char hbuf[7]; bool ok = true;
+        for (int i = 0; i < 6 && ok; ++i) {
+            hbuf[i] = static_cast<char>(static_cast<unsigned char>(seq[i]) & ~0x20u);
+            if (hbuf[i]!='A'&&hbuf[i]!='C'&&hbuf[i]!='G'&&hbuf[i]!='T') ok = false;
+        }
+        if (ok) { hbuf[6]='\0'; pfx5 = encode_hexamer(hbuf); }
+        ok = true;
+        for (int i = 0; i < 6 && ok; ++i) {
+            hbuf[i] = static_cast<char>(static_cast<unsigned char>(seq[len-6+i]) & ~0x20u);
+            if (hbuf[i]!='A'&&hbuf[i]!='C'&&hbuf[i]!='G'&&hbuf[i]!='T') ok = false;
+        }
+        if (ok) { hbuf[6]='\0'; pfx3 = encode_hexamer(hbuf); }
+    }
+
     // Fused 5' terminal codon scan: Channels C + F + G + H
     if (len >= 18) {
         for (int frame = 0; frame < 3; ++frame) {
@@ -889,6 +907,25 @@ void FrameSelector::update_sample_profile(
                     if (b0 == 'A') profile.convertible_aga_h_5prime[p]++;
                     else if (b0 == 'T') profile.convertible_tga_at_5prime[p]++;
                 }
+                // Prefix-conditioned F/G/H terminal sums (p < 5, keyed by first hexamer)
+                if (p < 5 && pfx5 < 4096) {
+                    const bool t0 = (b0 == 'T'), a0 = (b0 == 'A');
+                    // Channel F (C→A): pre = TCA|TCG|TAC|TGC; stop = TAA|TAG|TGA
+                    profile.ca_pre_terminal_by_pfx[pfx5] +=
+                        t0 && ((b1=='C'&&(b2=='A'||b2=='G')) || (b1=='A'&&b2=='C') || (b1=='G'&&b2=='C'));
+                    profile.ca_stop_terminal_by_pfx[pfx5] +=
+                        t0 && ((b2=='A'&&b1=='A') || (b2=='G'&&b1=='A') || (b1=='G'&&b2=='A'));
+                    // Channel G (C→G): pre = TCA|TAC; stop = TGA|TAG
+                    profile.cg_pre_terminal_by_pfx[pfx5] +=
+                        t0 && ((b1=='C'&&b2=='A') || (b1=='A'&&b2=='C'));
+                    profile.cg_stop_terminal_by_pfx[pfx5] +=
+                        t0 && ((b1=='G'&&b2=='A') || (b1=='A'&&b2=='G'));
+                    // Channel H (A→T): pre = AAA|AAG|AGA; stop = TAA|TAG|TGA
+                    profile.at_pre_terminal_by_pfx[pfx5] +=
+                        a0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
+                    profile.at_stop_terminal_by_pfx[pfx5] +=
+                        t0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
+                }
             }
         }
     }
@@ -957,6 +994,22 @@ void FrameSelector::update_sample_profile(
                 if (b1 == 'G' && b2 == 'A') {
                     if (b0 == 'A') profile.convertible_aga_h_3prime[p]++;
                     else if (b0 == 'T') profile.convertible_tga_at_3prime[p]++;
+                }
+                // Prefix-conditioned F/G/H terminal sums (p < 5, keyed by last hexamer)
+                if (p < 5 && pfx3 < 4096) {
+                    const bool t0 = (b0 == 'T'), a0 = (b0 == 'A');
+                    profile.ca_pre_terminal_3p_by_pfx[pfx3] +=
+                        t0 && ((b1=='C'&&(b2=='A'||b2=='G')) || (b1=='A'&&b2=='C') || (b1=='G'&&b2=='C'));
+                    profile.ca_stop_terminal_3p_by_pfx[pfx3] +=
+                        t0 && ((b2=='A'&&b1=='A') || (b2=='G'&&b1=='A') || (b1=='G'&&b2=='A'));
+                    profile.cg_pre_terminal_3p_by_pfx[pfx3] +=
+                        t0 && ((b1=='C'&&b2=='A') || (b1=='A'&&b2=='C'));
+                    profile.cg_stop_terminal_3p_by_pfx[pfx3] +=
+                        t0 && ((b1=='G'&&b2=='A') || (b1=='A'&&b2=='G'));
+                    profile.at_pre_terminal_3p_by_pfx[pfx3] +=
+                        a0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
+                    profile.at_stop_terminal_3p_by_pfx[pfx3] +=
+                        t0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
                 }
             }
         }
@@ -4585,6 +4638,18 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
     for (uint32_t i = 0; i < 4096; ++i) {
         dst.hexamer_count_5prime[i] += src.hexamer_count_5prime[i];
         dst.hexamer_count_interior[i] += src.hexamer_count_interior[i];
+        dst.ca_pre_terminal_by_pfx[i]    += src.ca_pre_terminal_by_pfx[i];
+        dst.ca_stop_terminal_by_pfx[i]   += src.ca_stop_terminal_by_pfx[i];
+        dst.cg_pre_terminal_by_pfx[i]    += src.cg_pre_terminal_by_pfx[i];
+        dst.cg_stop_terminal_by_pfx[i]   += src.cg_stop_terminal_by_pfx[i];
+        dst.at_pre_terminal_by_pfx[i]    += src.at_pre_terminal_by_pfx[i];
+        dst.at_stop_terminal_by_pfx[i]   += src.at_stop_terminal_by_pfx[i];
+        dst.ca_pre_terminal_3p_by_pfx[i]  += src.ca_pre_terminal_3p_by_pfx[i];
+        dst.ca_stop_terminal_3p_by_pfx[i] += src.ca_stop_terminal_3p_by_pfx[i];
+        dst.cg_pre_terminal_3p_by_pfx[i]  += src.cg_pre_terminal_3p_by_pfx[i];
+        dst.cg_stop_terminal_3p_by_pfx[i] += src.cg_stop_terminal_3p_by_pfx[i];
+        dst.at_pre_terminal_3p_by_pfx[i]  += src.at_pre_terminal_3p_by_pfx[i];
+        dst.at_stop_terminal_3p_by_pfx[i] += src.at_stop_terminal_3p_by_pfx[i];
     }
     dst.n_hexamers_5prime += src.n_hexamers_5prime;
     dst.n_hexamers_interior += src.n_hexamers_interior;
@@ -5060,6 +5125,90 @@ void FrameSelector::update_sample_profile_weighted(
     }
 
     profile.n_reads++;
+}
+
+void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
+    SampleDamageProfile& profile,
+    const std::vector<uint32_t>& excl_5p,
+    const std::vector<uint32_t>& excl_3p)
+{
+    if (excl_5p.empty() && excl_3p.empty()) return;
+
+    bool skip5[4096] = {}, skip3[4096] = {};
+    for (auto c : excl_5p) if (c < 4096) skip5[c] = true;
+    for (auto c : excl_3p) if (c < 4096) skip3[c] = true;
+
+    // Helper: resum prefix-binned arrays excluding flagged codes, then recompute
+    // binom_z and fin_oxog-style rate fields.
+    auto resum = [](const std::array<double,4096>& pre_arr,
+                    const std::array<double,4096>& stop_arr,
+                    const bool skip[4096]) -> std::pair<double,double> {
+        double pre = 0, stop = 0;
+        for (uint32_t i = 0; i < 4096; ++i) {
+            if (!skip[i]) { pre += pre_arr[i]; stop += stop_arr[i]; }
+        }
+        return {pre, stop};
+    };
+
+    // Interior baselines are not prefix-split; reuse existing values.
+    // binom_z recomputes z from new terminal counts vs unchanged interior.
+    auto binom_z_f = [](double k_t, double n_t, double k_i, double n_i) -> float {
+        if (n_t < 10.0 || n_i < 10.0) return 0.0f;
+        double p_pool = (k_t + k_i) / (n_t + n_i);
+        double var = p_pool * (1.0 - p_pool) * (1.0/n_t + 1.0/n_i);
+        if (var < 1e-12) return 0.0f;
+        return static_cast<float>(((k_t/n_t) - (k_i/n_i)) / std::sqrt(var));
+    };
+
+    uint32_t n_excl = 0;
+
+    if (!excl_5p.empty()) {
+        // Channel F 5'
+        auto [pf, sf] = resum(profile.ca_pre_terminal_by_pfx,
+                               profile.ca_stop_terminal_by_pfx, skip5);
+        double ni_f = profile.ca_pre_interior + profile.ca_stop_interior;
+        profile.channel_f_z = binom_z_f(sf, pf+sf,
+                                         profile.ca_stop_interior, ni_f);
+        profile.ca_stop_rate_terminal = (pf+sf > 0) ? sf/(pf+sf) : 0.0;
+        profile.channel_f_valid = (pf+sf >= 10 && ni_f >= 10);
+        // Channel G 5'
+        auto [pg, sg] = resum(profile.cg_pre_terminal_by_pfx,
+                               profile.cg_stop_terminal_by_pfx, skip5);
+        double ni_g = profile.cg_pre_interior + profile.cg_stop_interior;
+        profile.channel_g_z = binom_z_f(sg, pg+sg,
+                                         profile.cg_stop_interior, ni_g);
+        profile.cg_stop_rate_terminal = (pg+sg > 0) ? sg/(pg+sg) : 0.0;
+        profile.channel_g_valid = (pg+sg >= 10 && ni_g >= 10);
+        // Channel H 5'
+        auto [ph, sh] = resum(profile.at_pre_terminal_by_pfx,
+                               profile.at_stop_terminal_by_pfx, skip5);
+        double ni_h = profile.at_pre_interior + profile.at_stop_interior;
+        profile.channel_h_z = binom_z_f(sh, ph+sh,
+                                          profile.at_stop_interior, ni_h);
+        profile.at_stop_rate_terminal = (ph+sh > 0) ? sh/(ph+sh) : 0.0;
+        profile.channel_h_valid = (ph+sh >= 10 && ni_h >= 10);
+        for (auto c : excl_5p) if (c < 4096) ++n_excl;
+    }
+
+    if (!excl_3p.empty()) {
+        // 3' side: channels F/G/H have no separate z-score fields; update rate
+        // fields so JSON output reflects the adapter-excluded terminal window.
+        auto [pf3, sf3] = resum(profile.ca_pre_terminal_3p_by_pfx,
+                                 profile.ca_stop_terminal_3p_by_pfx, skip3);
+        profile.ca_stop_rate_terminal_3prime = (pf3+sf3 > 0) ? sf3/(pf3+sf3) : 0.0;
+        profile.channel_f3_valid = (pf3+sf3 >= 10);
+        auto [pg3, sg3] = resum(profile.cg_pre_terminal_3p_by_pfx,
+                                 profile.cg_stop_terminal_3p_by_pfx, skip3);
+        profile.cg_stop_rate_terminal_3prime = (pg3+sg3 > 0) ? sg3/(pg3+sg3) : 0.0;
+        profile.channel_g3_valid = (pg3+sg3 >= 10);
+        auto [ph3, sh3] = resum(profile.at_pre_terminal_3p_by_pfx,
+                                 profile.at_stop_terminal_3p_by_pfx, skip3);
+        profile.at_stop_rate_terminal_3prime = (ph3+sh3 > 0) ? sh3/(ph3+sh3) : 0.0;
+        profile.channel_h3_valid = (ph3+sh3 >= 10);
+        for (auto c : excl_3p) if (c < 4096) ++n_excl;
+    }
+
+    profile.fgh_adapter_prefixes_excluded = n_excl;
 }
 
 void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {

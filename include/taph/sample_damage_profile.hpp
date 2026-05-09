@@ -535,6 +535,24 @@ struct SampleDamageProfile {
     float hexamer_interior_tc = 0.0f;   // T/(T+C) at interior from hexamer analysis
     float hexamer_excess_tc = 0.0f;     // Terminal - interior (negative = inverted)
 
+    // Prefix-conditioned F/G/H terminal sums (positions 0–4 aggregated, keyed by
+    // first-hexamer code at 5' end and last-hexamer code at 3' end).
+    // Populated during update_sample_profile; consumed by
+    // recompute_fgh_excluding_adapter_prefixes() to exclude adapter-matching reads.
+    std::array<double, 4096> ca_pre_terminal_by_pfx   = {};  // Channel F 5' pre
+    std::array<double, 4096> ca_stop_terminal_by_pfx  = {};  // Channel F 5' stop
+    std::array<double, 4096> cg_pre_terminal_by_pfx   = {};  // Channel G 5' pre
+    std::array<double, 4096> cg_stop_terminal_by_pfx  = {};  // Channel G 5' stop
+    std::array<double, 4096> at_pre_terminal_by_pfx   = {};  // Channel H 5' pre
+    std::array<double, 4096> at_stop_terminal_by_pfx  = {};  // Channel H 5' stop
+    std::array<double, 4096> ca_pre_terminal_3p_by_pfx  = {};  // Channel F 3' pre
+    std::array<double, 4096> ca_stop_terminal_3p_by_pfx = {};  // Channel F 3' stop
+    std::array<double, 4096> cg_pre_terminal_3p_by_pfx  = {};  // Channel G 3' pre
+    std::array<double, 4096> cg_stop_terminal_3p_by_pfx = {};  // Channel G 3' stop
+    std::array<double, 4096> at_pre_terminal_3p_by_pfx  = {};  // Channel H 3' pre
+    std::array<double, 4096> at_stop_terminal_3p_by_pfx = {};  // Channel H 3' stop
+    uint32_t fgh_adapter_prefixes_excluded = 0; // set by recompute_fgh_excluding_adapter_prefixes
+
     // Likelihood-based model comparison (exponential decay vs constant)
     // Positive LLR = exponential fits better (real decay pattern)
     // Negative/zero LLR = constant fits better (no decay, likely composition bias)

@@ -38,6 +38,15 @@ public:
 
     static void reset_sample_profile(SampleDamageProfile& profile);
 
+    // After finalize_sample_profile and detect_adapter_stubs, recompute channel
+    // F/G/H terminal sums and z-scores excluding reads whose 5' (or 3') first
+    // hexamer is in the supplied adapter-stub code sets.  Updates channel_f/g/h_z
+    // and associated rate fields in-place; sets fgh_adapter_prefixes_excluded.
+    static void recompute_fgh_excluding_adapter_prefixes(
+        SampleDamageProfile& profile,
+        const std::vector<uint32_t>& excl_5p,
+        const std::vector<uint32_t>& excl_3p);
+
     static int get_gc_bin(const std::string& seq) {
         return SampleDamageProfile::get_gc_bin(seq);
     }
