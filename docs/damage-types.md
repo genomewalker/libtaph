@@ -289,16 +289,13 @@ near zero is more consistent with GC-rich bacterial contamination (e.g. *Burkhol
 | `channel_f_valid` | `true` when ≥ 200 total trinucleotide counts for baseline |
 | `channel_f_z` | Binomial z-score, 5′ C→A terminal vs interior; negative = depletion |
 | `channel_f3_valid` | `true` when 3′ end has sufficient counts |
-| `channel_f_z_3prime` | Binomial z-score, 3′ C→A terminal vs interior |
 | `channel_g_valid` | `true` when ≥ 200 total counts for G baseline |
 | `channel_g_z` | Binomial z-score, 5′ C→G terminal vs interior |
 | `channel_g3_valid` | `true` when 3′ end has sufficient counts |
-| `channel_g_z_3prime` | Binomial z-score, 3′ C→G terminal vs interior |
 | `channel_h_valid` | `true` when ≥ 200 total counts for H baseline |
 | `channel_h_z` | Binomial z-score, 5′ A→T terminal (positions p0_h5–4) vs interior |
 | `channel_h_z_p2plus` | Same as `channel_h_z` but terminal window restricted to positions 2–4; more robust when TC hexamer bias is present without a position-0 artifact |
 | `channel_h3_valid` | `true` when 3′ end has sufficient counts |
-| `channel_h_z_3prime` | Binomial z-score, 3′ A→T terminal vs interior |
 
 Detection threshold: z > 3.0 (`kOxChannelZDetect`). Channel H is detected when
 `channel_h_z > 3.0 OR channel_h_z_p2plus > 3.0`.
