@@ -278,9 +278,17 @@ gate: its A/T-context trinucleotides are unaffected by TC-specific hexamer enric
 
 | Variable | Trigger condition | Channels affected |
 |----------|-------------------|-------------------|
-| `p0_tc_5` | `position_0_artifact_5prime OR hexamer_excess_tc < −0.02` | F, G (C-context) |
-| `p0_h5`   | `position_0_artifact_5prime` only | H (A/T-context) |
+| `p0_tc_5` | `position_0_artifact_5prime` | F, G (C-context) |
+| `p0_h5`   | `position_0_artifact_5prime` | H (A/T-context) |
 | `p0_3`    | `position_0_artifact_3prime` | F, G, H (3′ end) |
+
+**TC hexamer bias and F/G z-scores.** TC hexamer priming (`hexamer_excess_tc < 0`)
+enriches C-context trinucleotides (TCA/TCG/TAC/TGC) across the full terminal window
+(positions 0–4), increasing the pre-context denominator without a proportional increase
+in stop contexts. This suppresses the terminal stop rate relative to interior, driving
+F and G z-scores **negative**. TC hexamer bias therefore cannot produce false-positive
+F/G signals; it suppresses genuine signal. Excluding p=0 alone does not correct this
+bias, so the TC hexamer gate previously applied at p=0 was removed.
 
 **Channel F — C→A terminal enrichment (8-oxoG bottom-strand complement).** Pre-contexts
 are TCA/TCG/TAC/TGC; stop contexts are TAA/TAG/TGA. Elevated terminal C→A rate indicates

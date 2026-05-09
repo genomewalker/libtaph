@@ -95,8 +95,10 @@ Channel H provides two scores: `channel_h_z` (full terminal window) and
 `channel_h_z_p2plus` (positions 2–4 only), the latter more robust because
 position 0 carries a lower background A→T rate that dilutes the signal.
 libtaph stores raw z-scores; threshold interpretation is left to the consumer.
-Channels F and G apply a TC-hexamer adapter gate (`p0_tc_5`); Channel H does
-not — its A/T-context trinucleotides are unaffected by TC-specific enrichment.
+All three channels apply the same `position_0_artifact_5prime` gate. Note:
+TC hexamer bias (`hexamer_excess_tc < 0`) suppresses F and G z-scores across
+the full terminal window — it cannot produce false positives, but genuine
+ancient signal may be attenuated in TC-hexamer-biased libraries.
 
 Genuine ancient oxidative damage co-elevates all three channels. F+/G+ with
 H near zero is a characteristic signature of GC-rich bacterial contamination

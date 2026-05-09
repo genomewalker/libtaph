@@ -2037,12 +2037,13 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
     // Channels F, G, H: resolve interior reference (far-interior pos 30+ if ≥50 counts,
     // else mid-read pos 5-14), then compute z and fill profile fields.
-    // Adapter skip: set to 1 to exclude p=0 from terminal accumulation.
-    // p0_tc_5: TC hexamer bias (hexamer_excess_tc) can corrupt C-context p=0 counts;
-    //          used for channels F and G (C-anchored contexts).
-    // p0_h5:   A→T channel has no C in its contexts; TC hexamer gate must not apply.
-    const int p0_tc_5 = (profile.position_0_artifact_5prime
-                         || profile.hexamer_excess_tc < -0.02f) ? 1 : 0;
+    // Adapter skip: set to 1 to exclude p=0 from terminal accumulation when a
+    // position-0 composition artifact is flagged at either end.
+    // TC hexamer bias was previously also gated here for channels F and G, but
+    // empirical validation showed TC hexamer drives F/G z-scores *negative* across
+    // the full terminal window — excluding p=0 does not prevent this, and the gate
+    // removes genuine signal in ancient TC-hexamer libraries. Gate removed.
+    const int p0_tc_5 = profile.position_0_artifact_5prime ? 1 : 0;
     const int p0_h5   = profile.position_0_artifact_5prime ? 1 : 0;
     const int p0_3    = profile.position_0_artifact_3prime ? 1 : 0;
 
