@@ -2,7 +2,7 @@
 
 Reference-free ancient DNA damage estimation and library-type classification from raw FASTQ reads.
 
-libtaph scans raw FASTQ reads for six independent damage and fragmentation channels, estimates terminal deamination, cross-validates C→T damage with composition-robust stop-codon signals, and classifies each library as double-stranded (DS), single-stranded (SS), or UNKNOWN. No reference genome or read alignment required.
+libtaph scans raw FASTQ reads for nine independent damage and fragmentation channels, estimates terminal deamination, cross-validates C→T damage with composition-robust stop-codon signals, and classifies each library as double-stranded (DS), single-stranded (SS), or UNKNOWN. No reference genome or read alignment required.
 
 ---
 
@@ -88,12 +88,13 @@ trinucleotide-context enrichment (binomial z-score, terminal positions 0–4
 vs far-interior baseline):
 
 - **Channel F** — C→A enrichment (8-oxoG on the opposite strand, read as C→A)
-- **Channel G** — C→G enrichment (hydantoin/spiroiminodihydantoin guanine products)
-- **Channel H** — A→T enrichment (8-oxoadenine / adenine oxidation)
+- **Channel G** — C→G enrichment (further-oxidized guanine products: Gh/Sp)
+- **Channel H** — A→T enrichment (empirical; mechanism uncertain)
 
 Channel H provides two scores: `channel_h_z` (full terminal window) and
-`channel_h_z_p2plus` (positions 2–4 only), the latter more robust under TC
-hexamer priming bias. Detection fires when either exceeds the threshold.
+`channel_h_z_p2plus` (positions 2–4 only), the latter more robust because
+position 0 carries a lower background A→T rate that dilutes the signal.
+libtaph stores raw z-scores; threshold interpretation is left to the consumer.
 Channels F and G apply a TC-hexamer adapter gate (`p0_tc_5`); Channel H does
 not — its A/T-context trinucleotides are unaffected by TC-specific enrichment.
 

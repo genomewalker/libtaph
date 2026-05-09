@@ -1,6 +1,6 @@
 # Damage types and channels
 
-libtaph scans raw FASTQ reads for six biochemical damage channels and writes a
+libtaph scans raw FASTQ reads for nine biochemical damage channels and writes a
 structured JSON report. Damage values are fractions in [0, 1]; multiply by 100 for
 percentages.
 
@@ -286,7 +286,7 @@ are TCA/TCG/TAC/TGC; stop contexts are TAA/TAG/TGA. Elevated terminal C→A rate
 8-oxoG on the opposite strand read as C→A in the sequenced strand.
 
 **Channel G — C→G terminal enrichment (further-oxidized guanine products).**
-Pre-contexts are TCA/TCG; stop contexts are TCG-derived. 8-oxoG is a kinetically
+Pre-contexts are TCA/TAC; stop contexts are TGA (from TCA) and TAG (from TAC). 8-oxoG is a kinetically
 accessible substrate for further one-electron oxidation. The two principal products are
 guanidinohydantoin (Gh) and spiroiminodihydantoin (Sp, two diastereomers). Both lesions
 preferentially template cytosine incorporation opposite the damaged base, causing C→G
@@ -328,8 +328,9 @@ H remains near zero.
 | `channel_h_z_p2plus` | Same as `channel_h_z` but terminal window restricted to positions 2–4; more robust because position 0 carries a lower background A→T rate that dilutes the signal when included |
 | `channel_h3_valid` | `true` when 3′ end has sufficient counts |
 
-Detection threshold: z > 3.0 (`kOxChannelZDetect`). Channel H is detected when
-`channel_h_z > 3.0 OR channel_h_z_p2plus > 3.0`.
+libtaph stores the raw z-scores; it does not apply a detection threshold internally.
+Downstream consumers commonly use z > 3.0 as a heuristic. For Channel H, take
+`max(channel_h_z, channel_h_z_p2plus)` to avoid the position-0 dilution effect.
 
 ---
 

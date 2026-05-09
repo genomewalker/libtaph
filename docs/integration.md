@@ -1,6 +1,6 @@
 # Classifier Integration Guide
 
-libtaph ships a C-compatible API (`dart/damage_c_api.h`) that lets any
+libtaph ships a C-compatible API (`taph/damage_c_api.h`) that lets any
 classifier link the library regardless of its own C++ standard.  The
 implementation compiles at C++17; the header is plain C and can be included
 from C, C++14, or any later standard.
@@ -27,7 +27,7 @@ target's standard.
 Feed all reads through the accumulator before classification begins.
 
 ```c
-#include <taph/damage_c_api.h"
+#include <taph/damage_c_api.h>
 
 taph_profile_t *profile = taph_profile_create();
 if (!profile) { /* OOM */ }
@@ -110,7 +110,7 @@ taph_profile_destroy(profile);
 create one profile per thread and merge before finalizing:
 
 ```cpp
-#include <taph/frame_selector_decl.hpp"
+#include <taph/frame_selector_decl.hpp>
 
 std::vector<taph_profile_t *> per_thread(n_threads);
 for (auto &p : per_thread) p = taph_profile_create();
