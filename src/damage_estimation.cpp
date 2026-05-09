@@ -5185,6 +5185,7 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
         double ni_h = profile.at_pre_interior + profile.at_stop_interior;
         profile.channel_h_z = binom_z_f(sh, ph+sh,
                                           profile.at_stop_interior, ni_h);
+        profile.channel_h_z_p2plus = profile.channel_h_z; // p2+ not split by prefix; use full-window value
         profile.at_stop_rate_terminal = (ph+sh > 0) ? sh/(ph+sh) : 0.0;
         profile.channel_h_valid = (ph+sh >= 10 && ni_h >= 10);
         for (auto c : excl_5p) if (c < 4096) ++n_excl;
