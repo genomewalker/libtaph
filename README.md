@@ -14,7 +14,7 @@ Reference-based damage estimation (mapDamage, metaDMG) requires a mapped BAM fil
 
 ## What it measures
 
-Six biochemical damage channels plus three context-sensitive metrics, together
+Nine biochemical damage channels plus three context-sensitive metrics, together
 covering all reference-free FASTQ-detectable aDNA damage types:
 
 ### Channel A: Cytosine deamination (primary damage signal)
@@ -80,6 +80,26 @@ Channel E measures this purine enrichment at 5' terminal positions versus
 the interior baseline. High enrichment confirms that fragmentation occurred
 at AP sites, independent evidence of genuine ancient origin even when
 deamination is low.
+
+### Channels F, G, H: Complement-asymmetry oxidative channels
+
+Three additional channels detect oxidative damage through terminal
+trinucleotide-context enrichment (binomial z-score, terminal positions 0–4
+vs far-interior baseline):
+
+- **Channel F** — C→A enrichment (8-oxoG on the opposite strand, read as C→A)
+- **Channel G** — C→G enrichment (hydantoin/spiroiminodihydantoin guanine products)
+- **Channel H** — A→T enrichment (8-oxoadenine / adenine oxidation)
+
+Channel H provides two scores: `channel_h_z` (full terminal window) and
+`channel_h_z_p2plus` (positions 2–4 only), the latter more robust under TC
+hexamer priming bias. Detection fires when either exceeds the threshold.
+Channels F and G apply a TC-hexamer adapter gate (`p0_tc_5`); Channel H does
+not — its A/T-context trinucleotides are unaffected by TC-specific enrichment.
+
+Genuine ancient oxidative damage co-elevates all three channels. F+/G+ with
+H near zero is a characteristic signature of GC-rich bacterial contamination
+rather than aDNA oxidation.
 
 ---
 
