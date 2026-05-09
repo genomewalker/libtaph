@@ -50,6 +50,7 @@ nav:
   - Home: index.md
   - Methods: methods.md
   - Damage types: damage-types.md
+  - Interpretation guide: interpretation.md
   - API Reference: api.md
   - Classifier Integration: integration.md
   - Changelog: changelog.md

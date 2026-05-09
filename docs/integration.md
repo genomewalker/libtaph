@@ -109,20 +109,22 @@ taph_profile_destroy(profile);
 `taph_profile_add_read` is **not thread-safe**.  For multi-threaded Pass 1,
 create one profile per thread and merge before finalizing:
 
+The C API (`taph_profile_t *`) exposes no merge function; use the C++ API
+directly for multi-threaded accumulation:
+
 ```cpp
 #include <taph/frame_selector_decl.hpp>
 
-std::vector<taph_profile_t *> per_thread(n_threads);
-for (auto &p : per_thread) p = taph_profile_create();
+std::vector<taph::SampleDamageProfile> per_thread(n_threads);
+for (auto &p : per_thread) taph::FrameSelector::reset_sample_profile(p);
 
-/* ... fill per_thread[tid] from each thread's reads ... */
+/* ... each thread calls taph::FrameSelector::update_sample_profile(per_thread[tid], ...) ... */
 
-/* Merge into thread 0's profile (single-threaded): */
+/* Merge all into thread 0 (single-threaded): */
 for (int i = 1; i < n_threads; ++i)
-    taph::FrameSelector::merge_sample_profiles(
-        per_thread[0]->profile, per_thread[i]->profile);
+    taph::FrameSelector::merge_sample_profiles(per_thread[0], per_thread[i]);
 
-taph_profile_finalize(per_thread[0]);
+taph::FrameSelector::finalize_sample_profile(per_thread[0]);
 /* use per_thread[0] for Pass 2 */
 ```
 
