@@ -4,6 +4,8 @@ Reference-free ancient DNA damage estimation and library-type classification fro
 
 libtaph scans raw FASTQ reads for nine independent damage and fragmentation channels, estimates terminal deamination, cross-validates C→T damage with composition-robust stop-codon signals, and classifies each library as double-stranded (DS), single-stranded (SS), or UNKNOWN. No reference genome or read alignment required.
 
+**Documentation:** [Methods](https://genomewalker.github.io/libtaph/methods/) · [API Reference](https://genomewalker.github.io/libtaph/api/) · [Changelog](https://genomewalker.github.io/libtaph/changelog/) · [Full site](https://genomewalker.github.io/libtaph)
+
 ---
 
 ## Why reference-free?
@@ -95,10 +97,15 @@ Channel H provides two scores: `channel_h_z` (full terminal window) and
 `channel_h_z_p2plus` (positions 2–4 only), the latter more robust because
 position 0 carries a lower background A→T rate that dilutes the signal.
 libtaph stores raw z-scores; threshold interpretation is left to the consumer.
-All three channels apply the same `position_0_artifact_5prime` gate. Note:
-TC hexamer bias (`hexamer_excess_tc < 0`) suppresses F and G z-scores across
-the full terminal window — it cannot produce false positives, but genuine
-ancient signal may be attenuated in TC-hexamer-biased libraries.
+All three channels apply the same `position_0_artifact_5prime` gate. TC hexamer
+bias (`hexamer_excess_tc < 0`) suppresses F and G z-scores across the full
+terminal window — it cannot produce false positives, but genuine signal may be
+attenuated in TC-hexamer-biased libraries.
+
+When adapter stubs are detected (`detect_adapter_stubs`), all three z-scores
+are recomputed excluding reads whose first hexamer matches an identified adapter
+prefix (`recompute_fgh_excluding_adapter_prefixes`). The number of excluded
+prefixes is reported as `fgh_adapter_prefixes_excluded` in the JSON output.
 
 Genuine ancient oxidative damage co-elevates all three channels. F+/G+ with
 H near zero is a characteristic signature of GC-rich bacterial contamination

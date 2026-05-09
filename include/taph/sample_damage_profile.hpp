@@ -543,8 +543,10 @@ struct SampleDamageProfile {
     std::array<double, 4096> ca_stop_terminal_by_pfx  = {};  // Channel F 5' stop
     std::array<double, 4096> cg_pre_terminal_by_pfx   = {};  // Channel G 5' pre
     std::array<double, 4096> cg_stop_terminal_by_pfx  = {};  // Channel G 5' stop
-    std::array<double, 4096> at_pre_terminal_by_pfx   = {};  // Channel H 5' pre
-    std::array<double, 4096> at_stop_terminal_by_pfx  = {};  // Channel H 5' stop
+    std::array<double, 4096> at_pre_terminal_by_pfx        = {};  // Channel H 5' pre  (pos 0-4)
+    std::array<double, 4096> at_stop_terminal_by_pfx       = {};  // Channel H 5' stop (pos 0-4)
+    std::array<double, 4096> at_pre_terminal_p2plus_by_pfx  = {};  // Channel H 5' pre  (pos 2-4)
+    std::array<double, 4096> at_stop_terminal_p2plus_by_pfx = {};  // Channel H 5' stop (pos 2-4)
     std::array<double, 4096> ca_pre_terminal_3p_by_pfx  = {};  // Channel F 3' pre
     std::array<double, 4096> ca_stop_terminal_3p_by_pfx = {};  // Channel F 3' stop
     std::array<double, 4096> cg_pre_terminal_3p_by_pfx  = {};  // Channel G 3' pre

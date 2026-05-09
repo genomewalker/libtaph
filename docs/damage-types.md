@@ -355,10 +355,22 @@ H remains near zero.
 | `channel_h_z` | Binomial z-score, 5′ A→T terminal (positions p0_h5–4) vs interior |
 | `channel_h_z_p2plus` | Same as `channel_h_z` but terminal window restricted to positions 2–4; more robust because position 0 carries a lower background A→T rate that dilutes the signal when included |
 | `channel_h3_valid` | `true` when 3′ end has sufficient counts |
+| `fgh_adapter_prefixes_excluded` | Number of 5′ hexamer prefixes excluded from the F/G/H terminal counts (set by `recompute_fgh_excluding_adapter_prefixes`; 0 if no adapter stubs were detected) |
 
 libtaph stores the raw z-scores; it does not apply a detection threshold internally.
 Downstream consumers commonly use z > 3.0 as a heuristic. For Channel H, take
 `max(channel_h_z, channel_h_z_p2plus)` to avoid the position-0 dilution effect.
+
+**Adapter prefix exclusion.** During read accumulation each terminal F/G/H codon count
+is bucketed by the read's first hexamer (4096 bins). After `detect_adapter_stubs`
+identifies enriched adapter hexamers, `recompute_fgh_excluding_adapter_prefixes` re-sums
+all terminal counts omitting those bins and recomputes all three z-scores (including
+`channel_h_z_p2plus`) from the clean subset. This corrects for adapter remnants whose
+sequence happens to contain stop codons (e.g. TGA/TAA/TAG) within the first five
+nucleotides of the read, which would otherwise inflate F/G/H z-scores. T-starting
+hexamers are never flagged as adapters — genuine aDNA C→T damage naturally produces
+T-starting read starts. `fgh_adapter_prefixes_excluded` records how many prefixes were
+excluded; 0 means the pre-scan found no non-T-starting enriched stubs.
 
 ---
 

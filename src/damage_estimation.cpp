@@ -925,6 +925,12 @@ void FrameSelector::update_sample_profile(
                         a0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
                     profile.at_stop_terminal_by_pfx[pfx5] +=
                         t0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
+                    if (p >= 2) {
+                        profile.at_pre_terminal_p2plus_by_pfx[pfx5] +=
+                            a0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
+                        profile.at_stop_terminal_p2plus_by_pfx[pfx5] +=
+                            t0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
+                    }
                 }
             }
         }
@@ -4642,8 +4648,10 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         dst.ca_stop_terminal_by_pfx[i]   += src.ca_stop_terminal_by_pfx[i];
         dst.cg_pre_terminal_by_pfx[i]    += src.cg_pre_terminal_by_pfx[i];
         dst.cg_stop_terminal_by_pfx[i]   += src.cg_stop_terminal_by_pfx[i];
-        dst.at_pre_terminal_by_pfx[i]    += src.at_pre_terminal_by_pfx[i];
-        dst.at_stop_terminal_by_pfx[i]   += src.at_stop_terminal_by_pfx[i];
+        dst.at_pre_terminal_by_pfx[i]         += src.at_pre_terminal_by_pfx[i];
+        dst.at_stop_terminal_by_pfx[i]        += src.at_stop_terminal_by_pfx[i];
+        dst.at_pre_terminal_p2plus_by_pfx[i]  += src.at_pre_terminal_p2plus_by_pfx[i];
+        dst.at_stop_terminal_p2plus_by_pfx[i] += src.at_stop_terminal_p2plus_by_pfx[i];
         dst.ca_pre_terminal_3p_by_pfx[i]  += src.ca_pre_terminal_3p_by_pfx[i];
         dst.ca_stop_terminal_3p_by_pfx[i] += src.ca_stop_terminal_3p_by_pfx[i];
         dst.cg_pre_terminal_3p_by_pfx[i]  += src.cg_pre_terminal_3p_by_pfx[i];
@@ -5185,7 +5193,10 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
         double ni_h = profile.at_pre_interior + profile.at_stop_interior;
         profile.channel_h_z = binom_z_f(sh, ph+sh,
                                           profile.at_stop_interior, ni_h);
-        profile.channel_h_z_p2plus = profile.channel_h_z; // p2+ not split by prefix; use full-window value
+        auto [ph2, sh2] = resum(profile.at_pre_terminal_p2plus_by_pfx,
+                                 profile.at_stop_terminal_p2plus_by_pfx, skip5);
+        profile.channel_h_z_p2plus = binom_z_f(sh2, ph2+sh2,
+                                                 profile.at_stop_interior, ni_h);
         profile.at_stop_rate_terminal = (ph+sh > 0) ? sh/(ph+sh) : 0.0;
         profile.channel_h_valid = (ph+sh >= 10 && ni_h >= 10);
         for (auto c : excl_5p) if (c < 4096) ++n_excl;

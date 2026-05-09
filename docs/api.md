@@ -307,6 +307,7 @@ Pre-contexts: AAA/AAG/AGA. Stop contexts: TAA/TAG/TGA.
 | `channel_h_valid` | `bool` | ≥ 200 total counts |
 | `channel_h_z` | `float` | Binomial z-score, 5′ terminal (positions p0_h5–4) vs interior |
 | `channel_h_z_p2plus` | `float` | Same but terminal window restricted to positions 2–4; more robust because position 0 carries a lower background A→T rate |
+| `fgh_adapter_prefixes_excluded` | `uint32_t` | Number of 5′ hexamer prefix bins excluded from F/G/H terminal counts; 0 = no adapter stubs detected |
 | `at_stop_rate_terminal` | `float` | Terminal stop rate |
 | `at_stop_rate_interior` | `float` | Interior stop rate |
 | `at_stop_rate_baseline` | `float` | Far-interior baseline |
@@ -380,6 +381,21 @@ taph::AdapterStubs taph::detect_adapter_stubs(
 Detects 5' and 3' adapter remnants from hexamer enrichment.  Pass the 4096-element terminal hexamer histogram (`hex3_terminal`) from a pre-scan pass alongside `n_hex3` (total counts).  Returns `AdapterStubs` with `stubs5`/`stubs3` (up to 5 each), `adapter_clipped`, `adapter3_clipped`, and `flag_hex_artifact`.
 
 3' detection is gated on `adapter_clipped` (5' stubs must be present first).
+
+```cpp
+void taph::FrameSelector::recompute_fgh_excluding_adapter_prefixes(
+    SampleDamageProfile& dp,
+    const std::vector<uint32_t>& excl5,
+    const std::vector<uint32_t>& excl3);
+```
+
+Re-sums all F/G/H terminal counts excluding reads whose first hexamer code is in `excl5`
+(5′ end) or last hexamer code is in `excl3` (3′ end), then recomputes `channel_f_z`,
+`channel_g_z`, `channel_h_z`, and `channel_h_z_p2plus` from the filtered counts. Must
+be called after `finalize_sample_profile`. Sets `fgh_adapter_prefixes_excluded` to
+`excl5.size()`. Hexamer codes come from `taph::encode_hex_at` or `taph::encode_hexamer`.
+Pass empty vectors to recompute with no exclusion (useful for testing the unfiltered
+baseline).
 
 ### Hexamer statistics
 
