@@ -245,13 +245,24 @@ Channels F, G, and H detect oxidative damage through **terminal trinucleotide-co
 enrichment**: the rate of a substitution type at the 5′ or 3′ terminal window (positions
 0–4, adapter-adjusted) is compared to an interior reference using a binomial z-score.
 
-**Detection statistic.** For a terminal window of `n_t` observations with `k_t` events
-and an interior reference of `n_i` observations with `k_i` events:
+**Counting model.** For each channel, reads at each position are classified into
+two mutually exclusive categories: `stop` (the trinucleotide represents the substituted
+outcome, e.g. TAA/TAG/TGA for C→A in Channel F) and `pre` (convertible source contexts
+that would produce `stop` under the target substitution, e.g. TCA/TCG/TAC/TGC for
+Channel F). The event rate in any window is `stop / (pre + stop)`.
+
+**Detection statistic.** For a terminal window accumulating `k_t` stop events out of
+`n_t = pre_t + stop_t` total, and an interior reference with `k_i` out of `n_i`:
 
 ```
 p_pool = (k_t + k_i) / (n_t + n_i)
 z = (k_t/n_t − k_i/n_i) / sqrt(p_pool·(1−p_pool)·(1/n_t + 1/n_i))
 ```
+
+This is a descriptive two-proportion z-statistic, not a fully calibrated hypothesis
+test. Read counts within a sample are correlated (duplicate molecules, taxon admixture,
+trinucleotide composition biases), so z-scores of 100+ are possible in heavily damaged or
+contaminated samples and should not be interpreted as independent-site p-values.
 
 **Interior reference resolution.** The far-interior region (position ≥ 30, minimum 50
 counts) is preferred; when insufficient, the mid-read region (positions 5–14) is used
@@ -264,25 +275,45 @@ and G additionally exclude position 0 when TC-hexamer priming bias is elevated
 trinucleotides at position 0. Channel H (A→T) is **not** subject to the TC hexamer
 gate: its A/T-context trinucleotides are unaffected by TC-specific hexamer enrichment.
 
+| Variable | Trigger condition | Channels affected |
+|----------|-------------------|-------------------|
+| `p0_tc_5` | `position_0_artifact_5prime OR hexamer_excess_tc < −0.02` | F, G (C-context) |
+| `p0_h5`   | `position_0_artifact_5prime` only | H (A/T-context) |
+| `p0_3`    | `position_0_artifact_3prime` | F, G, H (3′ end) |
+
 **Channel F — C→A terminal enrichment (8-oxoG bottom-strand complement).** Pre-contexts
 are TCA/TCG/TAC/TGC; stop contexts are TAA/TAG/TGA. Elevated terminal C→A rate indicates
 8-oxoG on the opposite strand read as C→A in the sequenced strand.
 
-**Channel G — C→G terminal enrichment (hydantoin/spiroiminodihydantoin products).**
-Pre-contexts are TCA/TCG; stop contexts are TCG-derived. Guanine oxidation beyond
-8-oxoG can form stable ring-opened products (hydantoin, spiroiminodihydantoin) that
-template C→G misincorporation.
+**Channel G — C→G terminal enrichment (further-oxidized guanine products).**
+Pre-contexts are TCA/TCG; stop contexts are TCG-derived. 8-oxoG is a kinetically
+accessible substrate for further one-electron oxidation. The two principal products are
+guanidinohydantoin (Gh) and spiroiminodihydantoin (Sp, two diastereomers). Both lesions
+preferentially template cytosine incorporation opposite the damaged base, causing C→G
+transversions in the sequenced strand [[Henderson et al. 2002](#references);
+[Neeley & Essigmann 2006](#references)].
 
-**Channel H — A→T terminal enrichment (8-oxoadenine / adenine oxidation).** Pre-contexts
-are AAA/AAG/AGA; stop contexts are TAA/TAG/TGA. Because positions 0 and 1 can be
-suppressed by priming-related composition effects even without a formal artifact flag,
-a secondary score `channel_h_z_p2plus` is computed from positions 2–4 only. Detection
-fires when either score exceeds the threshold.
+**Channel H — A→T terminal enrichment (empirical; mechanism uncertain).** Pre-contexts
+are AAA/AAG/AGA; stop contexts are TAA/TAG/TGA. The biological basis has not been
+conclusively established: 8-oxoadenine (8-oxoA), the most studied adenine oxidation
+product, primarily causes A→C rather than A→T transversions [[Kamiya & Kasai 2003](#references)],
+so the lesion driving the observed terminal A→T enrichment in ancient DNA remains to be
+identified. Position 0 carries a lower background A→T rate than positions 2–4
+independently of any artifact flag; accordingly a secondary score `channel_h_z_p2plus`
+is computed from positions 2–4 only. Detection fires when either score exceeds the
+threshold.
 
 **Distinguishing genuine aDNA oxidation from composition bias.** Genuine ancient
 oxidative damage produces co-elevation of F, G, and H. A sample showing F+/G+ with H
 near zero is more consistent with GC-rich bacterial contamination (e.g. *Burkholderia*,
 *Pseudomonas*) driving composition asymmetry than with authentic oxidative aDNA damage.
+The mechanism is sequence-compositional: reads from high-GC organisms carry a higher
+density of C-context trinucleotides (TCA/TCG/TAC/TGC), which are the pre- and
+stop-contexts for channels F and G. When reads are fragmented preferentially at certain
+positions, the terminal trinucleotide composition differs from the interior in a way that
+cannot be normalised away by the binomial test, inflating z-scores for F and G. A/T
+context trinucleotides (AAA/AAG/AGA) are unaffected by GC-content asymmetry, so Channel
+H remains near zero.
 
 | Field | Description |
 |-------|-------------|
@@ -294,7 +325,7 @@ near zero is more consistent with GC-rich bacterial contamination (e.g. *Burkhol
 | `channel_g3_valid` | `true` when 3′ end has sufficient counts |
 | `channel_h_valid` | `true` when ≥ 200 total counts for H baseline |
 | `channel_h_z` | Binomial z-score, 5′ A→T terminal (positions p0_h5–4) vs interior |
-| `channel_h_z_p2plus` | Same as `channel_h_z` but terminal window restricted to positions 2–4; more robust when TC hexamer bias is present without a position-0 artifact |
+| `channel_h_z_p2plus` | Same as `channel_h_z` but terminal window restricted to positions 2–4; more robust because position 0 carries a lower background A→T rate that dilutes the signal when included |
 | `channel_h3_valid` | `true` when 3′ end has sufficient counts |
 
 Detection threshold: z > 3.0 (`kOxChannelZDetect`). Channel H is detected when
@@ -406,8 +437,8 @@ near zero.
 | D | G→T and C→A transversion rates | 8-oxoG oxidation | `complement_asymmetry` |
 | E | Purine 5′ enrichment | AP-site fragmentation | `depurination` |
 | F | C→A terminal enrichment (bottom-strand 8-oxoG) | 8-oxoG complement | `complement_asymmetry` |
-| G | C→G terminal enrichment (hydantoin/spiroiminodihydantoin) | Guanine oxidation products | `complement_asymmetry` |
-| H | A→T terminal enrichment (8-oxoadenine) | Adenine oxidation | `complement_asymmetry` |
+| G | C→G terminal enrichment (Gh/Sp further-oxidized guanine) | Further guanine oxidation products | `complement_asymmetry` |
+| H | A→T terminal enrichment (empirical; mechanism uncertain) | Adenine oxidation | `complement_asymmetry` |
 | CpG split | C→T amplitude by CpG / non-CpG context | Methylation-enhanced deamination | `cpg_like` |
 | Interior clustering | Adjacent CT co-occurrence in read interior | Clustered interior deamination | `interior_ct_cluster` |
 | 8-oxoG 16-ctx | G→T asymmetry by trinucleotide context | 8-oxoG context specificity | `s_oxog_16ctx` |
@@ -484,6 +515,11 @@ Briggs AW, Stenzel U, Johnson PLF, et al. (2007) Patterns of damage in genomic D
 sequences from a Neandertal. *Proc Natl Acad Sci USA* 104:14616–14621.
 [DOI: 10.1073/pnas.0704665104](https://doi.org/10.1073/pnas.0704665104)
 
+Costello M, Pugh TJ, Fennell TJ, et al. (2013) Discovery and characterization of
+artifactual mutations in deep coverage targeted capture sequencing data due to oxidative
+DNA damage during sample preparation. *Nucleic Acids Res* 41:e67.
+[DOI: 10.1093/nar/gks1443](https://doi.org/10.1093/nar/gks1443)
+
 Cadet J, Douki T, Ravanat J-L (2010) Oxidatively generated base damage to cellular DNA.
 *Free Radic Biol Med* 49:9–21.
 [DOI: 10.1016/j.freeradbiomed.2010.03.025](https://doi.org/10.1016/j.freeradbiomed.2010.03.025)
@@ -497,6 +533,11 @@ Middle Pleistocene cave bear reconstructed from ultrashort DNA fragments. *Proc 
 Sci USA* 110:15758–15763.
 [DOI: 10.1073/pnas.1314445110](https://doi.org/10.1073/pnas.1314445110)
 
+Henderson PT, Delaney JC, Gu F, Tannenbaum SR, Essigmann JM (2002) Oxidation of
+7,8-dihydro-8-oxoguanine affords lesions that are potent sources of replication errors
+in vivo. *Biochemistry* 41:914–921.
+[DOI: 10.1021/bi0156355](https://doi.org/10.1021/bi0156355)
+
 Gansauge M-T, Meyer M (2013) Single-stranded DNA library preparation for the sequencing
 of ancient or damaged DNA. *Nat Protoc* 8:737–748.
 [DOI: 10.1038/nprot.2013.038](https://doi.org/10.1038/nprot.2013.038)
@@ -504,6 +545,10 @@ of ancient or damaged DNA. *Nat Protoc* 8:737–748.
 Gansauge M-T, Gerber T, Glocke I, et al. (2017) Single-stranded DNA library preparation
 from highly degraded DNA using T4 DNA ligase. *Nucleic Acids Res* 45:e79.
 [DOI: 10.1093/nar/gkx033](https://doi.org/10.1093/nar/gkx033)
+
+Kamiya H, Kasai H (2003) 2-Hydroxyadenine in DNA: significance and repair.
+*Genes Environ* 25:103–108.
+[DOI: 10.3123/jemsge.25.103](https://doi.org/10.3123/jemsge.25.103)
 
 Jónsson H, Ginolhac A, Schubert M, Johnson PLF, Orlando L (2013) mapDamage2.0: fast
 approximate Bayesian estimates of ancient DNA damage parameters. *Bioinformatics*
@@ -529,6 +574,10 @@ Lindahl T, Nyberg B (1972) Rate of depurination of native deoxyribonucleic acid.
 Meyer M, Kircher M (2010) Illumina sequencing library preparation for highly multiplexed
 target capture and sequencing. *Cold Spring Harb Protoc* 2010:pdb.prot5448.
 [DOI: 10.1101/pdb.prot5448](https://doi.org/10.1101/pdb.prot5448)
+
+Neeley WL, Essigmann JM (2006) Mechanisms of formation, genotoxicity, and mutation of
+guanine oxidation products. *Chem Res Toxicol* 19:491–505.
+[DOI: 10.1021/tx0600043](https://doi.org/10.1021/tx0600043)
 
 Mitchell D, Bridge R (2006) A test of Chargaff's second rule. *Biochem Biophys Res
 Commun* 340:90–94.
