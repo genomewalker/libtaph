@@ -296,7 +296,7 @@ transversions in the sequenced strand [[Henderson et al. 2002](#references);
 **Channel H — A→T terminal enrichment (empirical; mechanism uncertain).** Pre-contexts
 are AAA/AAG/AGA; stop contexts are TAA/TAG/TGA. The biological basis has not been
 conclusively established: 8-oxoadenine (8-oxoA), the most studied adenine oxidation
-product, primarily causes A→C rather than A→T transversions [[Kamiya & Kasai 2003](#references)],
+product, primarily causes A→C rather than A→T transversions [[Kamiya et al. 1995](#references)],
 so the lesion driving the observed terminal A→T enrichment in ancient DNA remains to be
 identified. Position 0 carries a lower background A→T rate than positions 2–4
 independently of any artifact flag; accordingly a secondary score `channel_h_z_p2plus`
@@ -546,9 +546,10 @@ Gansauge M-T, Gerber T, Glocke I, et al. (2017) Single-stranded DNA library prep
 from highly degraded DNA using T4 DNA ligase. *Nucleic Acids Res* 45:e79.
 [DOI: 10.1093/nar/gkx033](https://doi.org/10.1093/nar/gkx033)
 
-Kamiya H, Kasai H (2003) 2-Hydroxyadenine in DNA: significance and repair.
-*Genes Environ* 25:103–108.
-[DOI: 10.3123/jemsge.25.103](https://doi.org/10.3123/jemsge.25.103)
+Kamiya H, Miura H, Murata-Kamiya N, et al. (1995) 8-Hydroxyadenine (7,8-dihydro-8-oxoadenine)
+induces misincorporation in in vitro DNA synthesis and mutations in NIH 3T3 cells.
+*Nucleic Acids Res* 23:2893–2899.
+[DOI: 10.1093/nar/23.15.2893](https://doi.org/10.1093/nar/23.15.2893)
 
 Jónsson H, Ginolhac A, Schubert M, Johnson PLF, Orlando L (2013) mapDamage2.0: fast
 approximate Bayesian estimates of ancient DNA damage parameters. *Bioinformatics*
