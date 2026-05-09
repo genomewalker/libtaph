@@ -179,7 +179,7 @@ Lower BIC = better fit. `library_type` is `"double-stranded"` when `ds < ss`,
 
 ---
 
-### `complement_asymmetry` block — oxidative damage (Channels C and D)
+### `complement_asymmetry` block — oxidative damage (Channels C, D, F, G, and H)
 
 Guanine is the most easily oxidised DNA base owing to its low one-electron reduction
 potential [[Steenken & Jovanovic 1997](#references)]. Reactive oxygen species — primarily hydroxyl radical (•OH) and singlet oxygen (¹O₂) —
@@ -236,6 +236,72 @@ preferentially favoured [[Cadet et al. 2010](#references)]. A single-context spi
 confined to one or two bins is more consistent with a preparation artefact than with
 the broad multi-context enrichment expected from genuine oxidative damage. A spike confined to one or two contexts is more consistent with an
 oxidation artefact introduced during library preparation.
+
+---
+
+### Channels F, G, and H — complement-asymmetry oxidative channels
+
+Channels F, G, and H detect oxidative damage through **terminal trinucleotide-context
+enrichment**: the rate of a substitution type at the 5′ or 3′ terminal window (positions
+0–4, adapter-adjusted) is compared to an interior reference using a binomial z-score.
+
+**Detection statistic.** For a terminal window of `n_t` observations with `k_t` events
+and an interior reference of `n_i` observations with `k_i` events:
+
+```
+p_pool = (k_t + k_i) / (n_t + n_i)
+z = (k_t/n_t − k_i/n_i) / sqrt(p_pool·(1−p_pool)·(1/n_t + 1/n_i))
+```
+
+**Interior reference resolution.** The far-interior region (position ≥ 30, minimum 50
+counts) is preferred; when insufficient, the mid-read region (positions 5–14) is used
+as fallback. This avoids leakage of terminal damage signal into the baseline.
+
+**Adapter skip (p0 gate).** Position 0 is excluded from the terminal window when a
+position-0 composition artifact is detected at either end. At the 5′ end, channels F
+and G additionally exclude position 0 when TC-hexamer priming bias is elevated
+(`hexamer_excess_tc < −0.02`), because TC-bias shifts the composition of C-context
+trinucleotides at position 0. Channel H (A→T) is **not** subject to the TC hexamer
+gate: its A/T-context trinucleotides are unaffected by TC-specific hexamer enrichment.
+
+**Channel F — C→A terminal enrichment (8-oxoG bottom-strand complement).** Pre-contexts
+are TCA/TCG/TAC/TGC; stop contexts are TAA/TAG/TGA. Elevated terminal C→A rate indicates
+8-oxoG on the opposite strand read as C→A in the sequenced strand.
+
+**Channel G — C→G terminal enrichment (hydantoin/spiroiminodihydantoin products).**
+Pre-contexts are TCA/TCG; stop contexts are TCG-derived. Guanine oxidation beyond
+8-oxoG can form stable ring-opened products (hydantoin, spiroiminodihydantoin) that
+template C→G misincorporation.
+
+**Channel H — A→T terminal enrichment (8-oxoadenine / adenine oxidation).** Pre-contexts
+are AAA/AAG/AGA; stop contexts are TAA/TAG/TGA. Because positions 0 and 1 can be
+suppressed by priming-related composition effects even without a formal artifact flag,
+a secondary score `channel_h_z_p2plus` is computed from positions 2–4 only. Detection
+fires when either score exceeds the threshold.
+
+**Distinguishing genuine aDNA oxidation from composition bias.** Genuine ancient
+oxidative damage produces co-elevation of F, G, and H. A sample showing F+/G+ with H
+near zero is more consistent with GC-rich bacterial contamination (e.g. *Burkholderia*,
+*Pseudomonas*) driving composition asymmetry than with authentic oxidative aDNA damage.
+
+| Field | Description |
+|-------|-------------|
+| `channel_f_valid` | `true` when ≥ 200 total trinucleotide counts for baseline |
+| `channel_f_z` | Binomial z-score, 5′ C→A terminal vs interior; negative = depletion |
+| `channel_f3_valid` | `true` when 3′ end has sufficient counts |
+| `channel_f_z_3prime` | Binomial z-score, 3′ C→A terminal vs interior |
+| `channel_g_valid` | `true` when ≥ 200 total counts for G baseline |
+| `channel_g_z` | Binomial z-score, 5′ C→G terminal vs interior |
+| `channel_g3_valid` | `true` when 3′ end has sufficient counts |
+| `channel_g_z_3prime` | Binomial z-score, 3′ C→G terminal vs interior |
+| `channel_h_valid` | `true` when ≥ 200 total counts for H baseline |
+| `channel_h_z` | Binomial z-score, 5′ A→T terminal (positions p0_h5–4) vs interior |
+| `channel_h_z_p2plus` | Same as `channel_h_z` but terminal window restricted to positions 2–4; more robust when TC hexamer bias is present without a position-0 artifact |
+| `channel_h3_valid` | `true` when 3′ end has sufficient counts |
+| `channel_h_z_3prime` | Binomial z-score, 3′ A→T terminal vs interior |
+
+Detection threshold: z > 3.0 (`kOxChannelZDetect`). Channel H is detected when
+`channel_h_z > 3.0 OR channel_h_z_p2plus > 3.0`.
 
 ---
 
@@ -342,6 +408,9 @@ near zero.
 | C | G→T stop codon uniformity | 8-oxoG oxidation | `channel_c_detected` |
 | D | G→T and C→A transversion rates | 8-oxoG oxidation | `complement_asymmetry` |
 | E | Purine 5′ enrichment | AP-site fragmentation | `depurination` |
+| F | C→A terminal enrichment (bottom-strand 8-oxoG) | 8-oxoG complement | `complement_asymmetry` |
+| G | C→G terminal enrichment (hydantoin/spiroiminodihydantoin) | Guanine oxidation products | `complement_asymmetry` |
+| H | A→T terminal enrichment (8-oxoadenine) | Adenine oxidation | `complement_asymmetry` |
 | CpG split | C→T amplitude by CpG / non-CpG context | Methylation-enhanced deamination | `cpg_like` |
 | Interior clustering | Adjacent CT co-occurrence in read interior | Clustered interior deamination | `interior_ct_cluster` |
 | 8-oxoG 16-ctx | G→T asymmetry by trinucleotide context | 8-oxoG context specificity | `s_oxog_16ctx` |

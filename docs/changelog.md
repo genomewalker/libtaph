@@ -2,6 +2,28 @@
 
 ## main (unreleased)
 
+### Channels F/G/H — oxidative terminal enrichment
+
+#### Added
+- Channels F (C→A), G (C→G), and H (A→T): binomial z-score comparing terminal
+  trinucleotide-context rate (positions 0–4, adapter-adjusted) to a far-interior
+  reference (pos ≥ 30, ≥ 50 counts; mid-read fallback pos 5–14).
+- `channel_h_z_p2plus`: secondary H score restricted to positions 2–4; robust
+  when TC hexamer bias is present without a formal position-0 artifact.
+- `ca_pre_interior` / `ca_stop_interior`: pre-aggregated uint64_t counters
+  accumulated at read-scan time, giving Channel F the same symmetric interior
+  reference as Channels G and H.
+
+#### Fixed
+- Channel H adapter skip now uses `p0_h5 = position_0_artifact_5prime` only.
+  The shared `p0_tc_5` gate (which also fires on `hexamer_excess_tc < −0.02`)
+  was incorrect for Channel H: TC hexamer bias is C→T-specific and does not
+  affect A/T-context trinucleotides. Under strong TC bias the old gate silently
+  excluded p=0 from Channel H, inflating z by ~3×.
+- Renamed `p0_5` → `p0_tc_5`; comment documents scope to Channels F and G only.
+- Renamed `ca_stop_baseline_3prime` → `ca_stop_rate_baseline_3prime`.
+- Fixed 17 `uint64_t` profile fields initialised with float literal `0.0` → `0`.
+
 ### Added
 - Native paired-end mode: `update_sample_profile_pe` consumes R1/R2 directly,
   mapping `R2[i]` complement to top-strand 3'-end position `i` (no SE-on-each-mate
