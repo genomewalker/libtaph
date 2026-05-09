@@ -215,9 +215,10 @@ the cancelling C→A signal) [[Mitchell & Bridge 2006](#references)].
 | `D` | Overall 8-oxoG asymmetry index |
 | `per_pos_5prime_gt[15]` | Raw G→T fraction at 5′ positions 0–14 |
 
-`channel_c_detected: true` when G→T stop-codon conversions (GAG/GAA/GGA → stop) are
-detected at levels consistent with uniform oxidation throughout the read rather than
-terminal enrichment from co-occurring deamination.
+`ox_gt_uniformity` (terminal / interior ratio) near 1.0 indicates G→T stop-codon
+conversions distributed uniformly across the read, consistent with 8-oxoG oxidation
+rather than terminal deamination. `ox_gt_asymmetry` encodes the strand contrast
+(`ox_gt_baseline − ox_ca_baseline`). The 16-context panel is in `s_oxog_16ctx`.
 
 #### 8-oxoG 16-context panel
 
@@ -434,7 +435,7 @@ near zero.
 |---------|----------|-----------|-------------|
 | A (ct5/ga3/ga0/ct3) | C→T and G→A terminal rates | Cytosine deamination | `deamination`, `bic` |
 | B / B₃′ | Stop codon C→T / G→A frequency | Deamination in triplet context | `validated`, `artifact` |
-| C | G→T stop codon uniformity | 8-oxoG oxidation | `channel_c_detected` |
+| C | G→T stop codon uniformity | 8-oxoG oxidation | `ox_gt_uniformity`, `ox_gt_asymmetry`, `s_oxog_16ctx` |
 | D | G→T and C→A transversion rates | 8-oxoG oxidation | `complement_asymmetry` |
 | E | Purine 5′ enrichment | AP-site fragmentation | `depurination` |
 | F | C→A terminal enrichment (bottom-strand 8-oxoG) | 8-oxoG complement | `complement_asymmetry` |

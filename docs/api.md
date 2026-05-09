@@ -247,6 +247,78 @@ float factor = taph::get_damage_suppression_factor(profile);
 // 1.0 = validated, 0.5 = unvalidated, 0.0 = artifact
 ```
 
+### Complement-asymmetry oxidative channels (F, G, H)
+
+These fields populate the `complement_asymmetry` JSON block. Each channel
+computes a binomial z-score comparing the trinucleotide-context stop rate in
+a terminal window (positions p0–4, adapter-adjusted) against a far-interior
+reference (pos ≥ 30, ≥ 50 counts; mid-read fallback pos 5–14). libtaph
+stores raw z-scores; threshold application is left to the consumer.
+
+See [Damage types — Channels F, G, H](damage-types.md) for the biochemical
+background, trinucleotide context lists, and the adapter-skip gate logic.
+
+#### Channel F — C→A (bottom-strand 8-oxoG complement)
+
+Pre-contexts: TCA/TCG/TAC/TGC. Stop contexts: TAA/TAG/TGA.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `channel_f_valid` | `bool` | ≥ 200 total trinucleotide counts across pre + stop |
+| `channel_f_z` | `float` | Binomial z-score, 5′ terminal vs interior; negative = depletion |
+| `ca_stop_rate_terminal` | `float` | Stop rate in terminal window |
+| `ca_stop_rate_interior` | `float` | Stop rate in mid-read interior (fallback baseline) |
+| `ca_stop_rate_baseline` | `float` | Stop rate in far-interior reference (pos ≥ 30) |
+| `ca_uniformity_ratio` | `float` | Terminal / baseline ratio; > 1 indicates enrichment |
+| `channel_f3_valid` | `bool` | ≥ 200 counts for 3′ end |
+| `ca_stop_rate_terminal_3prime` | `float` | 3′ terminal stop rate |
+| `ca_stop_rate_interior_3prime` | `float` | 3′ interior stop rate |
+| `ca_stop_rate_baseline_3prime` | `float` | 3′ far-interior baseline |
+| `ca_uniformity_ratio_3prime` | `float` | 3′ terminal / baseline ratio |
+| `ca_pre_interior` | `uint64_t` | Raw pre-context count, far-interior (pos ≥ 30) |
+| `ca_stop_interior` | `uint64_t` | Raw stop-context count, far-interior |
+
+#### Channel G — C→G (further-oxidized guanine: Gh, Sp)
+
+Pre-contexts: TCA/TAC. Stop contexts: TGA (from TCA), TAG (from TAC).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `channel_g_valid` | `bool` | ≥ 200 total counts |
+| `channel_g_z` | `float` | Binomial z-score, 5′ terminal vs interior |
+| `cg_stop_rate_terminal` | `float` | Terminal stop rate |
+| `cg_stop_rate_interior` | `float` | Interior stop rate |
+| `cg_stop_rate_baseline` | `float` | Far-interior baseline |
+| `cg_uniformity_ratio` | `float` | Terminal / baseline ratio |
+| `channel_g3_valid` | `bool` | ≥ 200 counts for 3′ end |
+| `cg_stop_rate_terminal_3prime` | `float` | 3′ terminal stop rate |
+| `cg_stop_rate_interior_3prime` | `float` | 3′ interior stop rate |
+| `cg_stop_rate_baseline_3prime` | `float` | 3′ far-interior baseline |
+| `cg_uniformity_ratio_3prime` | `float` | 3′ terminal / baseline ratio |
+| `cg_pre_interior` | `uint64_t` | Raw pre-context count, far-interior |
+| `cg_stop_interior` | `uint64_t` | Raw stop-context count, far-interior |
+
+#### Channel H — A→T (empirical; mechanism uncertain)
+
+Pre-contexts: AAA/AAG/AGA. Stop contexts: TAA/TAG/TGA.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `channel_h_valid` | `bool` | ≥ 200 total counts |
+| `channel_h_z` | `float` | Binomial z-score, 5′ terminal (positions p0_h5–4) vs interior |
+| `channel_h_z_p2plus` | `float` | Same but terminal window restricted to positions 2–4; more robust because position 0 carries a lower background A→T rate |
+| `at_stop_rate_terminal` | `float` | Terminal stop rate |
+| `at_stop_rate_interior` | `float` | Interior stop rate |
+| `at_stop_rate_baseline` | `float` | Far-interior baseline |
+| `at_uniformity_ratio` | `float` | Terminal / baseline ratio |
+| `channel_h3_valid` | `bool` | ≥ 200 counts for 3′ end |
+| `at_stop_rate_terminal_3prime` | `float` | 3′ terminal stop rate |
+| `at_stop_rate_interior_3prime` | `float` | 3′ interior stop rate |
+| `at_stop_rate_baseline_3prime` | `float` | 3′ far-interior baseline |
+| `at_uniformity_ratio_3prime` | `float` | 3′ terminal / baseline ratio |
+| `at_pre_interior` | `uint64_t` | Raw pre-context count, far-interior |
+| `at_stop_interior` | `uint64_t` | Raw stop-context count, far-interior |
+
 ---
 
 ## Typical usage patterns
