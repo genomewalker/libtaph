@@ -299,10 +299,16 @@ Several flags should override an otherwise positive damage call.
   Likely causes: read-orientation bug upstream, mis-trimmed adapters, or a
   reverse-complemented BAM. Investigate before reporting any `d_max` from
   this profile.
-- `hexamer_excess_tc` — the TC hexamer family is over-represented at the
-  5′ terminus. TC priming biases the C-context composition and inflates
-  Channel A C→T rates without genuine damage. When `hexamer_excess_tc < −0.02`
-  the F and G channel diagnostics flag the affected positions.
+- `hexamer_excess_tc` — a **library chemistry / priming bias** metric, not an
+  adapter remnant signal (see `flag_hex_artifact` and `adapter_clipped` for
+  those). It measures T/(T+C) at read starts minus T/(T+C) in the read interior
+  across all matched C/T hexamer pairs. A negative value means the library prep
+  preferentially produces C-starting read starts (e.g. ligation junction
+  composition in SS protocols), enriching C-context trinucleotides in the
+  channels F and G pre-count denominator across the full 5′ terminal window.
+  The effect is false **negatives** in F/G (suppression toward large negative
+  z-scores), not false positives in Channel A. Interpret F/G z-scores with
+  caution when `hexamer_excess_tc < −0.05`; the raw value is always reported.
 - `short_read_frac` — the fraction of reads below the short-read threshold.
   High values indicate library-prep size selection failure or extreme
   fragmentation; both reduce the reliability of terminal statistics

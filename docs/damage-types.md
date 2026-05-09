@@ -270,11 +270,12 @@ counts) is preferred; when insufficient, the mid-read region (positions 5–14) 
 as fallback. This avoids leakage of terminal damage signal into the baseline.
 
 **Adapter skip (p0 gate).** Position 0 is excluded from the terminal window when a
-position-0 composition artifact is detected at either end. At the 5′ end, channels F
-and G additionally exclude position 0 when TC-hexamer priming bias is elevated
-(`hexamer_excess_tc < −0.02`), because TC-bias shifts the composition of C-context
-trinucleotides at position 0. Channel H (A→T) is **not** subject to the TC hexamer
-gate: its A/T-context trinucleotides are unaffected by TC-specific hexamer enrichment.
+position-0 composition artifact is detected (`position_0_artifact_5prime` at the 5′
+end, `position_0_artifact_3prime` at the 3′ end). The 5′ flag fires when the C→T rate
+at p=0 falls below p=1 — the signature of an adapter ligation junction suppressing
+the true damage signal at the terminal nucleotide. The 3′ flag fires when the G→A
+spike at p=0 is isolated without smooth decay through p=1–4. All three channels (F,
+G, H) apply the same gate on both ends; no channel applies a TC-hexamer gate at p=0.
 
 | Variable | Trigger condition | Channels affected |
 |----------|-------------------|-------------------|
@@ -282,13 +283,31 @@ gate: its A/T-context trinucleotides are unaffected by TC-specific hexamer enric
 | `p0_h5`   | `position_0_artifact_5prime` | H (A/T-context) |
 | `p0_3`    | `position_0_artifact_3prime` | F, G, H (3′ end) |
 
+**Adapter remnants and TC hexamer bias are tracked by two separate systems.**
+
+*Adapter remnant detection* uses `position_0_artifact_5prime/3prime` (sharp p=0 spike
+without downstream decay) and hexamer-based stub enrichment (`adapter_clipped`,
+`adapter3_clipped`, `flag_hex_artifact` — a non-T-starting hexamer enriched > 3× over
+interior at the terminal). `inverted_pattern_5prime/3prime` fires when the full terminal
+window is depressed below interior. When adapter flags fire, Channel A shifts its
+exponential fit start point (`fit_offset_5prime`) to skip the suppressed positions and
+extrapolates back to p=0 for reporting.
+
+*TC hexamer bias* (`hexamer_excess_tc`) is a **library chemistry signal, not an adapter
+remnant**. It computes T/(T+C) at read starts minus T/(T+C) in the interior, across all
+matched C/T hexamer pairs. A negative value means the library prep preferentially produces
+C-starting read starts (e.g. ligation junction composition in SS protocols), not that
+adapter sequence is present in the reads. The two systems fire on different evidence and
+may fire independently or together.
+
 **TC hexamer bias and F/G z-scores.** TC hexamer priming (`hexamer_excess_tc < 0`)
 enriches C-context trinucleotides (TCA/TCG/TAC/TGC) across the full terminal window
 (positions 0–4), increasing the pre-context denominator without a proportional increase
 in stop contexts. This suppresses the terminal stop rate relative to interior, driving
 F and G z-scores **negative**. TC hexamer bias therefore cannot produce false-positive
-F/G signals; it suppresses genuine signal. Excluding p=0 alone does not correct this
-bias, so the TC hexamer gate previously applied at p=0 was removed.
+F/G signals; it only suppresses genuine signal. The `hexamer_excess_tc` value is
+reported so consumers can flag or down-weight F/G z-scores when strongly negative
+(empirically, values below −0.05 are sufficient to drive F_z below −100 at n > 500M reads).
 
 **Channel F — C→A terminal enrichment (8-oxoG bottom-strand complement).** Pre-contexts
 are TCA/TCG/TAC/TGC; stop contexts are TAA/TAG/TGA. Elevated terminal C→A rate indicates

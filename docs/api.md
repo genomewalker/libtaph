@@ -230,8 +230,8 @@ Per-context accumulators and shrinkage-fitted amplitudes, indexed by `CTX_AC = 0
 | `damage_validated` | `bool` | Joint model evidence supports genuine terminal deamination |
 | `damage_artifact` | `bool` | Channel A-like enrichment is present, but joint evidence indicates composition/artifact rather than real damage |
 | `terminal_inversion` | `bool` | Summary flag: terminal damage rate < interior at either end |
-| `inverted_pattern_5prime` / `inverted_pattern_3prime` | `bool` | End-specific terminal depletion flags |
-| `position_0_artifact_5prime` / `position_0_artifact_3prime` | `bool` | Position-0 depletion with downstream enrichment; likely adapter/ligation artifact |
+| `inverted_pattern_5prime` / `inverted_pattern_3prime` | `bool` | End-specific terminal depletion flags (full window below interior) |
+| `position_0_artifact_5prime` / `position_0_artifact_3prime` | `bool` | Sharp position-0 artifact: C→T at p=0 < p=1 (5′) or isolated G→A spike at p=0 (3′). Indicates adapter/ligation artifact at the terminal nucleotide. Independent of `hexamer_excess_tc`, which tracks full-window chemistry bias. |
 | `composition_bias_5prime` / `composition_bias_3prime` | `bool` | Control channel rises with the damage channel, suggesting compositional rather than damage-driven enrichment |
 | `is_valid()` | `bool` | `n_reads >= 1000` |
 | `is_detection_unreliable()` | `bool` | `true` when inversion or composition-bias flags indicate unreliable reference-free detection |
@@ -625,5 +625,9 @@ Raw 4096-bin terminal and interior histograms populated during accumulation and 
 | `hexamer_count_interior[4096]` | `double[4096]` | Hexamer counts at the interior (middle third). |
 | `n_hexamers_5prime` | `size_t` | Total counted terminal hexamers. |
 | `n_hexamers_interior` | `size_t` | Total counted interior hexamers. |
+| `hexamer_terminal_tc` | `float` | T/(T+C) ratio at 5′ terminal positions across all C/T hexamer pairs. |
+| `hexamer_interior_tc` | `float` | T/(T+C) ratio at interior positions (same hexamer pairs). |
+| `hexamer_excess_tc` | `float` | `hexamer_terminal_tc − hexamer_interior_tc`. **Library chemistry / priming bias metric — not an adapter remnant signal.** A negative value means the library prep preferentially produces C-starting read starts (e.g. SS ligation junction composition), which enriches C-context trinucleotides in the channels F and G pre-count denominator and suppresses their z-scores toward negative values. Adapter remnants are separately tracked by `adapter_clipped`, `flag_hex_artifact`, and `position_0_artifact_*`. |
+| `hexamer_damage_llr` | `float` | Log-likelihood ratio of T-enrichment over C-enrichment at 5′ terminal hexamers vs interior. Positive = T-starting hexamers enriched (consistent with deamination). Used to detect `inverted_pattern_5prime` when < −0.02 and no p0 artifact. |
 
 Paired with the 3' terminal hexamer histogram produced by the pre-scan (passed to `detect_adapter_stubs` as `hex3_terminal[4096]` with `n_hex3`). The 3' histogram is kept out of `SampleDamageProfile` so it does not bloat per-thread state in accumulators that do not need it.
