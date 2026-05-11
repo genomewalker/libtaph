@@ -19,9 +19,10 @@ The interior of the read provides the undamaged reference state. libtaph uses th
 
 These per-position ratios are later summarized with a weighted least-squares (WLS) amplitude estimate using a fixed decay rate $\hat\lambda$:
 
-$$\hat{A} = \max\!\left(0,\; \frac{\sum_p n_p \cdot e^{-\hat\lambda p} \cdot (r_p - b)}{\sum_p n_p \cdot e^{-2\hat\lambda p}}\right)$$
+$$\hat{A} = \max\!\left(0,\; \frac{\sum_p n_p \cdot e^{-\hat\lambda(p-1)} \cdot (r_p - b)}{\sum_p n_p \cdot e^{-2\hat\lambda(p-1)}}\right)$$
 
-where $n_p$ is the coverage at terminal position $p$. This expression asks whether terminal positions that should carry the strongest damage signal are systematically elevated above the interior baseline, weighted by how many reads cover each position. The WLS estimate is not the whole method; it is one summary of a richer terminal pattern that is cross-checked later against composition controls and codon-based evidence.
+where $n_p$ is the coverage at terminal position $p$ (with $p = 1$ as the first terminal base),
+and $\hat{A}$ is therefore the amplitude at the terminal position ($p = 1$). This expression asks whether terminal positions that should carry the strongest damage signal are systematically elevated above the interior baseline, weighted by how many reads cover each position. The WLS estimate is not the whole method; it is one summary of a richer terminal pattern that is cross-checked later against composition controls and codon-based evidence.
 
 ---
 
