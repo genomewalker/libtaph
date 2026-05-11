@@ -472,7 +472,7 @@ The `evidence` block in the JSON output mirrors the raw underlying numbers (d_ma
 
 <a id="ref-lindahl1993"></a>**Lindahl T** (1993) Instability and decay of the primary structure of DNA. *Nature* **362**:709–715. [doi:10.1038/362709a0](https://doi.org/10.1038/362709a0)
 
-<a id="ref-michelsen2022"></a>**Michelsen C, Fortunato G, Warinner C, Jonsson H, Schroeder H, Orlando L, Renaud G, Librado P** (2022) metaDMG: a fast and accurate ancient DNA damage toolkit for metagenomic sequencing data. *bioRxiv*. [doi:10.1101/2022.12.06.519264](https://doi.org/10.1101/2022.12.06.519264)
+<a id="ref-michelsen2022"></a>**Michelsen C, Pedersen MW, Fernandez-Guerra A, Zhao L, Petersen TC, Korneliussen TS** (2022) metaDMG: a fast and accurate ancient DNA damage toolkit for metagenomic sequencing data. *bioRxiv*. [doi:10.1101/2022.12.06.519264](https://doi.org/10.1101/2022.12.06.519264)
 
 <a id="ref-neeley2006"></a>**Neeley WL, Essigmann JM** (2006) Mechanisms of formation, genotoxicity, and mutation of guanine oxidation products. *Chem Res Toxicol* **19**:491–505. [doi:10.1021/tx0600043](https://doi.org/10.1021/tx0600043)
 
