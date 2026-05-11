@@ -35,9 +35,9 @@ In an intact duplex, uracil-DNA glycosylase removes the lesion efficiently. In t
 single-stranded overhangs that form at the ends of nicked or fragmented ancient molecules,
 repair is unavailable: the uracil persists and templates thymine during PCR amplification,
 producing the characteristic C→T excess in ancient DNA reads [[Briggs et al.
-2007](#references); [Lindahl 1993](#references)]. The rate of spontaneous deamination in double-stranded DNA is approximately 10⁻¹³ s⁻¹
+2007](#references); [Lindahl 1993](#references)]. The rate of spontaneous deamination in double-stranded DNA is approximately 7×10⁻¹³ s⁻¹
 per cytosine under physiological conditions (~100–500 events per cell per day), and is
-accelerated by low pH and elevated temperature [[Shen et al. 1994](#references); [Lindahl
+accelerated by low pH and elevated temperature [[Lindahl
 1993](#references)]; cold, alkaline burial
 slows it by orders of magnitude, explaining DNA survival over millennia.
 
@@ -317,8 +317,9 @@ are TCA/TCG/TAC/TGC; stop contexts are TAA/TAG/TGA. Elevated terminal C→A rate
 Pre-contexts are TCA/TAC; stop contexts are TGA (from TCA) and TAG (from TAC). 8-oxoG is a kinetically
 accessible substrate for further one-electron oxidation. The two principal products are
 guanidinohydantoin (Gh) and spiroiminodihydantoin (Sp, two diastereomers). Both lesions
-preferentially template cytosine incorporation opposite the damaged base, causing C→G
-transversions in the sequenced strand [[Henderson et al. 2002](#references);
+preferentially template cytosine incorporation opposite the damaged base; where the
+complementary strand carries the Gh/Sp lesion (oxidized guanine), the sequenced strand
+shows a C→G transversion [[Henderson et al. 2002](#references);
 [Neeley & Essigmann 2006](#references)].
 
 **Channel H — A→T terminal enrichment (empirical; mechanism uncertain).** Pre-contexts
@@ -555,11 +556,6 @@ mismatch-specific thymine DNA glycosylase from HeLa cells. *Proc Natl Acad Sci U
 Briggs AW, Stenzel U, Johnson PLF, et al. (2007) Patterns of damage in genomic DNA
 sequences from a Neandertal. *Proc Natl Acad Sci USA* 104:14616–14621.
 [DOI: 10.1073/pnas.0704665104](https://doi.org/10.1073/pnas.0704665104)
-
-Costello M, Pugh TJ, Fennell TJ, et al. (2013) Discovery and characterization of
-artifactual mutations in deep coverage targeted capture sequencing data due to oxidative
-DNA damage during sample preparation. *Nucleic Acids Res* 41:e67.
-[DOI: 10.1093/nar/gks1443](https://doi.org/10.1093/nar/gks1443)
 
 Cadet J, Douki T, Ravanat J-L (2010) Oxidatively generated base damage to cellular DNA.
 *Free Radic Biol Med* 49:9–21.
