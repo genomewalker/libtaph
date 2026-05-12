@@ -886,9 +886,17 @@ void FrameSelector::update_sample_profile(
                     else if (b2 == 'A') profile.convertible_tga_ca_5prime[p]++;
                 }
                 // Channel F: deamination shadows — C→T converts TCA→TTA, TCG→TTG, TAC→TAT, TGC→TGT
-                if ((b0=='T'&&b2=='A'&&b1=='T') || (b0=='T'&&b2=='G'&&b1=='T') ||
-                    (b0=='T'&&b1=='A'&&b2=='T') || (b0=='T'&&b1=='G'&&b2=='T'))
-                    profile.ca_deam_shadow_5prime[p]++;
+                if (b0 == 'T') {
+                    const bool sha0 = (b1=='T'&&b2=='A') || (b1=='A'&&b2=='T');
+                    const bool sha1 = (b1=='T'&&b2=='G');
+                    const bool sha2 = (b1=='G'&&b2=='T');
+                    if (sha0 || sha1 || sha2) {
+                        profile.ca_deam_shadow_5prime[p]++;
+                        if      (sha0) profile.ca_shadow_5prime_ctx0[p]++;
+                        else if (sha1) profile.ca_shadow_5prime_ctx1[p]++;
+                        else           profile.ca_shadow_5prime_ctx2[p]++;
+                    }
+                }
                 // Channel G: C→G oxidative stop codons
                 if (b0 == 'T' && b2 == 'A') {
                     if (b1 == 'C') profile.convertible_tca_cg_5prime[p]++;
@@ -1080,6 +1088,16 @@ void FrameSelector::update_sample_profile(
                     if      (is_pre)    profile.ca_pre_interior++;
                     else if (is_stop)   profile.ca_stop_interior++;
                     else if (is_shadow) profile.ca_deam_shadow_interior++;
+                    // Per-context for MH (ctx0=TCA+TAC, ctx1=TCG, ctx2=TGC)
+                    if      ((b1=='C'&&b2=='A') || (b1=='A'&&b2=='C')) profile.ca_pre_interior_by_ctx[0]++;
+                    else if (b1=='A'&&b2=='A')                          profile.ca_stop_interior_by_ctx[0]++;
+                    else if ((b1=='T'&&b2=='A') || (b1=='A'&&b2=='T'))  profile.ca_shadow_interior_by_ctx[0]++;
+                    if      (b1=='C'&&b2=='G') profile.ca_pre_interior_by_ctx[1]++;
+                    else if (b1=='A'&&b2=='G') profile.ca_stop_interior_by_ctx[1]++;
+                    else if (b1=='T'&&b2=='G') profile.ca_shadow_interior_by_ctx[1]++;
+                    if      (b1=='G'&&b2=='C') profile.ca_pre_interior_by_ctx[2]++;
+                    else if (b1=='G'&&b2=='A') profile.ca_stop_interior_by_ctx[2]++;
+                    else if (b1=='G'&&b2=='T') profile.ca_shadow_interior_by_ctx[2]++;
                 }
                 // Channel G interior
                 if (b0 == 'T' && b2 == 'A') {
@@ -2144,6 +2162,49 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         fin_oxog(pre5, stop5, pre_t, stop_t, pre_i, stop_i,
                  profile.ca_stop_rate_baseline, profile.ca_stop_rate_terminal,
                  profile.ca_stop_rate_interior, profile.ca_uniformity_ratio, profile.channel_f_valid);
+
+        // Mantel-Haenszel stratified test: 3 context strata (TCA+TAC, TCG, TGC)
+        // Removes terminal context-composition bias that inflates negative z.
+        // Robins-Breslow-Greenland variance of log(MH_OR).
+        {
+            const double* pre5_arr[3]  = { profile.convertible_tca_5prime.data(), profile.convertible_tcg_5prime.data(), profile.convertible_tgc_5prime.data() };
+            const double* pre5b_arr[3] = { profile.convertible_tac_5prime.data(), nullptr, nullptr };
+            const double* stop5_arr[3] = { profile.convertible_taa_ca_5prime.data(), profile.convertible_tag_ca_5prime.data(), profile.convertible_tga_ca_5prime.data() };
+            const double* sha5_arr[3]  = { profile.ca_shadow_5prime_ctx0.data(), profile.ca_shadow_5prime_ctx1.data(), profile.ca_shadow_5prime_ctx2.data() };
+            double mh_R = 0.0, mh_S = 0.0;
+            double rbg_PR = 0.0, rbg_QS = 0.0, rbg_PQRS = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                double a = 0.0, b_val = 0.0;
+                for (int p = p0_tc_5; p < 5; ++p) {
+                    double pre_k = pre5_arr[k][p] + (pre5b_arr[k] ? pre5b_arr[k][p] : 0.0);
+                    b_val += pre_k + sha5_arr[k][p];
+                    a     += stop5_arr[k][p];
+                }
+                double c = profile.ca_stop_interior_by_ctx[k];
+                double d = profile.ca_pre_interior_by_ctx[k] + profile.ca_shadow_interior_by_ctx[k];
+                double N = a + b_val + c + d;
+                if (N < 8.0) continue;
+                double R = a * d / N;
+                double S = b_val * c / N;
+                mh_R += R;
+                mh_S += S;
+                double P = (a + d) / N;
+                double Q = (b_val + c) / N;
+                rbg_PR   += P * R;
+                rbg_QS   += Q * S;
+                rbg_PQRS += P * S + Q * R;
+            }
+            if (mh_R > 0.0 && mh_S > 0.0) {
+                double common_or  = mh_R / mh_S;
+                double log_or     = std::log(common_or);
+                double var_log_or = rbg_PR   / (2.0 * mh_R * mh_R)
+                                  + rbg_PQRS / (2.0 * mh_R * mh_S)
+                                  + rbg_QS   / (2.0 * mh_S * mh_S);
+                if (var_log_or > 1e-15)
+                    profile.channel_f_mh_z = static_cast<float>(log_or / std::sqrt(var_log_or));
+                profile.channel_f_common_or = static_cast<float>(common_or);
+            }
+        }
 
         double pre3 = 0, stop3 = 0, pre_t3 = 0, stop_t3 = 0, pre_m3 = 0, stop_m3 = 0;
         for (int p = 0; p < 15; ++p) {
@@ -4739,6 +4800,16 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         dst.ca_pre_interior  += src.ca_pre_interior;
         dst.ca_stop_interior         += src.ca_stop_interior;
         dst.ca_deam_shadow_interior  += src.ca_deam_shadow_interior;
+        for (int k = 0; k < 3; ++k) {
+            dst.ca_pre_interior_by_ctx[k]    += src.ca_pre_interior_by_ctx[k];
+            dst.ca_stop_interior_by_ctx[k]   += src.ca_stop_interior_by_ctx[k];
+            dst.ca_shadow_interior_by_ctx[k] += src.ca_shadow_interior_by_ctx[k];
+        }
+        for (int p = 0; p < 15; ++p) {
+            dst.ca_shadow_5prime_ctx0[p] += src.ca_shadow_5prime_ctx0[p];
+            dst.ca_shadow_5prime_ctx1[p] += src.ca_shadow_5prime_ctx1[p];
+            dst.ca_shadow_5prime_ctx2[p] += src.ca_shadow_5prime_ctx2[p];
+        }
         dst.cg_pre_interior  += src.cg_pre_interior;
         dst.cg_stop_interior += src.cg_stop_interior;
         dst.at_pre_interior  += src.at_pre_interior;
@@ -5448,6 +5519,8 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.ca_stop_rate_terminal          = 0.0f;
     profile.ca_stop_rate_interior          = 0.0f;
     profile.channel_f_z                    = 0.0f;
+    profile.channel_f_mh_z                 = 0.0f;
+    profile.channel_f_common_or            = 0.0f;
     profile.ca_uniformity_ratio            = 0.0f;
     profile.ca_stop_rate_baseline_3prime        = 0.0f;
     profile.ca_stop_rate_terminal_3prime   = 0.0f;
@@ -5500,6 +5573,12 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.ca_pre_interior  = 0;
     profile.ca_stop_interior        = 0;
     profile.ca_deam_shadow_interior = 0;
+    profile.ca_pre_interior_by_ctx.fill(0.0);
+    profile.ca_stop_interior_by_ctx.fill(0.0);
+    profile.ca_shadow_interior_by_ctx.fill(0.0);
+    profile.ca_shadow_5prime_ctx0.fill(0.0);
+    profile.ca_shadow_5prime_ctx1.fill(0.0);
+    profile.ca_shadow_5prime_ctx2.fill(0.0);
     profile.cg_pre_interior  = 0;
     profile.cg_stop_interior = 0;
     profile.at_pre_interior  = 0;

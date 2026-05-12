@@ -683,6 +683,9 @@ struct SampleDamageProfile {
     std::array<double, 15> convertible_tag_ca_5prime = {};  // TAG stop from C→A
     std::array<double, 15> convertible_tga_ca_5prime = {};  // TGA stop from C→A
     std::array<double, 15> ca_deam_shadow_5prime = {};      // C→T shadows of TCA/TCG/TAC/TGC (TTA/TTG/TAT/TGT)
+    std::array<double, 15> ca_shadow_5prime_ctx0 = {};  // TCA+TAC shadows (TTA+TAT), per position
+    std::array<double, 15> ca_shadow_5prime_ctx1 = {};  // TCG shadows (TTG), per position
+    std::array<double, 15> ca_shadow_5prime_ctx2 = {};  // TGC shadows (TGT), per position
 
     uint64_t convertible_tca_interior = 0;
     uint64_t convertible_tcg_interior = 0;
@@ -706,6 +709,8 @@ struct SampleDamageProfile {
     float ca_stop_rate_terminal     = 0.0f;
     float ca_stop_rate_interior     = 0.0f;
     float channel_f_z               = 0.0f;
+    float channel_f_mh_z            = 0.0f;
+    float channel_f_common_or       = 0.0f;
     float ca_uniformity_ratio       = 0.0f;
     float ca_stop_rate_baseline_3prime = 0.0f;
     float ca_stop_rate_terminal_3prime = 0.0f;
@@ -771,6 +776,9 @@ struct SampleDamageProfile {
     uint64_t ca_pre_interior  = 0;  // Channel F far-interior (pos 30+)
     uint64_t ca_stop_interior = 0;
     uint64_t ca_deam_shadow_interior = 0;  // far-interior C→T shadows (TTA/TTG/TAT/TGT)
+    std::array<double, 3> ca_pre_interior_by_ctx    = {};  // [0]=TCA+TAC, [1]=TCG, [2]=TGC
+    std::array<double, 3> ca_stop_interior_by_ctx   = {};
+    std::array<double, 3> ca_shadow_interior_by_ctx = {};
     uint64_t cg_pre_interior  = 0;  // Channel G far-interior
     uint64_t cg_stop_interior = 0;
     uint64_t at_pre_interior  = 0;  // Channel H far-interior
