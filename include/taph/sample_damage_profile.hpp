@@ -541,6 +541,7 @@ struct SampleDamageProfile {
     // recompute_fgh_excluding_adapter_prefixes() to exclude adapter-matching reads.
     std::array<double, 4096> ca_pre_terminal_by_pfx   = {};  // Channel F 5' pre
     std::array<double, 4096> ca_stop_terminal_by_pfx  = {};  // Channel F 5' stop
+    std::array<double, 4096> ca_deam_shadow_terminal_by_pfx = {};  // Channel F 5' C→T shadow (TTA/TTG/TAT/TGT)
     std::array<double, 4096> cg_pre_terminal_by_pfx   = {};  // Channel G 5' pre
     std::array<double, 4096> cg_stop_terminal_by_pfx  = {};  // Channel G 5' stop
     std::array<double, 4096> at_pre_terminal_by_pfx        = {};  // Channel H 5' pre  (pos 0-4)
@@ -681,6 +682,7 @@ struct SampleDamageProfile {
     std::array<double, 15> convertible_taa_ca_5prime = {};  // TAA stop from C→A
     std::array<double, 15> convertible_tag_ca_5prime = {};  // TAG stop from C→A
     std::array<double, 15> convertible_tga_ca_5prime = {};  // TGA stop from C→A
+    std::array<double, 15> ca_deam_shadow_5prime = {};      // C→T shadows of TCA/TCG/TAC/TGC (TTA/TTG/TAT/TGT)
 
     uint64_t convertible_tca_interior = 0;
     uint64_t convertible_tcg_interior = 0;
@@ -698,6 +700,7 @@ struct SampleDamageProfile {
     std::array<double, 15> convertible_taa_ca_3prime = {};
     std::array<double, 15> convertible_tag_ca_3prime = {};
     std::array<double, 15> convertible_tga_ca_3prime = {};
+    std::array<double, 15> ca_deam_shadow_3prime = {};      // C→T shadows at 3' end
 
     float ca_stop_rate_baseline     = 0.0f;
     float ca_stop_rate_terminal     = 0.0f;
@@ -767,6 +770,7 @@ struct SampleDamageProfile {
 
     uint64_t ca_pre_interior  = 0;  // Channel F far-interior (pos 30+)
     uint64_t ca_stop_interior = 0;
+    uint64_t ca_deam_shadow_interior = 0;  // far-interior C→T shadows (TTA/TTG/TAT/TGT)
     uint64_t cg_pre_interior  = 0;  // Channel G far-interior
     uint64_t cg_stop_interior = 0;
     uint64_t at_pre_interior  = 0;  // Channel H far-interior

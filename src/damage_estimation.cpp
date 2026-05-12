@@ -885,6 +885,10 @@ void FrameSelector::update_sample_profile(
                     if (b2 == 'C') profile.convertible_tgc_5prime[p]++;
                     else if (b2 == 'A') profile.convertible_tga_ca_5prime[p]++;
                 }
+                // Channel F: deamination shadows — C→T converts TCA→TTA, TCG→TTG, TAC→TAT, TGC→TGT
+                if ((b0=='T'&&b2=='A'&&b1=='T') || (b0=='T'&&b2=='G'&&b1=='T') ||
+                    (b0=='T'&&b1=='A'&&b2=='T') || (b0=='T'&&b1=='G'&&b2=='T'))
+                    profile.ca_deam_shadow_5prime[p]++;
                 // Channel G: C→G oxidative stop codons
                 if (b0 == 'T' && b2 == 'A') {
                     if (b1 == 'C') profile.convertible_tca_cg_5prime[p]++;
@@ -915,6 +919,8 @@ void FrameSelector::update_sample_profile(
                         t0 && ((b1=='C'&&(b2=='A'||b2=='G')) || (b1=='A'&&b2=='C') || (b1=='G'&&b2=='C'));
                     profile.ca_stop_terminal_by_pfx[pfx5] +=
                         t0 && ((b2=='A'&&b1=='A') || (b2=='G'&&b1=='A') || (b1=='G'&&b2=='A'));
+                    profile.ca_deam_shadow_terminal_by_pfx[pfx5] +=
+                        t0 && ((b1=='T'&&(b2=='A'||b2=='G')) || (b1=='A'&&b2=='T') || (b1=='G'&&b2=='T'));
                     // Channel G (C→G): pre = TCA|TAC; stop = TGA|TAG
                     profile.cg_pre_terminal_by_pfx[pfx5] +=
                         t0 && ((b1=='C'&&b2=='A') || (b1=='A'&&b2=='C'));
@@ -979,6 +985,10 @@ void FrameSelector::update_sample_profile(
                     if (b2 == 'C') profile.convertible_tgc_3prime[p]++;
                     else if (b2 == 'A') profile.convertible_tga_ca_3prime[p]++;
                 }
+                // Channel F: deamination shadows at 3' end
+                if ((b0=='T'&&b2=='A'&&b1=='T') || (b0=='T'&&b2=='G'&&b1=='T') ||
+                    (b0=='T'&&b1=='A'&&b2=='T') || (b0=='T'&&b1=='G'&&b2=='T'))
+                    profile.ca_deam_shadow_3prime[p]++;
                 // Channel G
                 if (b0 == 'T' && b2 == 'A') {
                     if (b1 == 'C') profile.convertible_tca_cg_3prime[p]++;
@@ -1062,11 +1072,14 @@ void FrameSelector::update_sample_profile(
                 }
                 // Channel F far-interior (mirrors convertible_tc*/taa_ca/tag_ca/tga_ca)
                 if (b0 == 'T') {
-                    bool is_pre  = (b1=='C'&&b2=='A') || (b1=='C'&&b2=='G') ||
-                                   (b1=='A'&&b2=='C') || (b1=='G'&&b2=='C');
-                    bool is_stop = (b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A');
-                    if      (is_pre)  profile.ca_pre_interior++;
-                    else if (is_stop) profile.ca_stop_interior++;
+                    bool is_pre    = (b1=='C'&&b2=='A') || (b1=='C'&&b2=='G') ||
+                                     (b1=='A'&&b2=='C') || (b1=='G'&&b2=='C');
+                    bool is_stop   = (b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A');
+                    bool is_shadow = (b1=='T'&&(b2=='A'||b2=='G')) ||
+                                     (b1=='A'&&b2=='T') || (b1=='G'&&b2=='T');
+                    if      (is_pre)    profile.ca_pre_interior++;
+                    else if (is_stop)   profile.ca_stop_interior++;
+                    else if (is_shadow) profile.ca_deam_shadow_interior++;
                 }
                 // Channel G interior
                 if (b0 == 'T' && b2 == 'A') {
@@ -2109,20 +2122,25 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     // Channel F: C→A oxidation (bottom-strand 8-oxoG)
     {
         double pre5 = 0, stop5 = 0, pre_t = 0, stop_t = 0, pre_m = 0, stop_m = 0;
+        double shadow_t = 0, shadow_m = 0;
         for (int p = 0; p < 15; ++p) {
-            double pre  = profile.convertible_tca_5prime[p] + profile.convertible_tcg_5prime[p] +
-                          profile.convertible_tac_5prime[p] + profile.convertible_tgc_5prime[p];
-            double stop = profile.convertible_taa_ca_5prime[p] + profile.convertible_tag_ca_5prime[p] +
-                          profile.convertible_tga_ca_5prime[p];
+            double pre    = profile.convertible_tca_5prime[p] + profile.convertible_tcg_5prime[p] +
+                            profile.convertible_tac_5prime[p] + profile.convertible_tgc_5prime[p];
+            double stop   = profile.convertible_taa_ca_5prime[p] + profile.convertible_tag_ca_5prime[p] +
+                            profile.convertible_tga_ca_5prime[p];
+            double shadow = profile.ca_deam_shadow_5prime[p];
             pre5 += pre; stop5 += stop;
-            if (p >= p0_tc_5 && p < 5) { pre_t += pre; stop_t += stop; }
-            else if (p >= 5)           { pre_m += pre; stop_m += stop; }
+            if (p >= p0_tc_5 && p < 5) { pre_t += pre; stop_t += stop; shadow_t += shadow; }
+            else if (p >= 5)           { pre_m += pre; stop_m += stop; shadow_m += shadow; }
         }
-        double pre_far  = (double)profile.ca_pre_interior;
-        double stop_far = (double)profile.ca_stop_interior;
-        double pre_i  = (pre_far + stop_far >= 50) ? pre_far  : pre_m;
-        double stop_i = (pre_far + stop_far >= 50) ? stop_far : stop_m;
-        profile.channel_f_z = binom_z(stop_t, pre_t + stop_t, stop_i, pre_i + stop_i);
+        double pre_far    = (double)profile.ca_pre_interior;
+        double stop_far   = (double)profile.ca_stop_interior;
+        double shadow_far = (double)profile.ca_deam_shadow_interior;
+        bool use_far = (pre_far + stop_far >= 50);
+        double pre_i    = use_far ? pre_far    : pre_m;
+        double stop_i   = use_far ? stop_far   : stop_m;
+        double shadow_i = use_far ? shadow_far : shadow_m;
+        profile.channel_f_z = binom_z(stop_t, pre_t + stop_t + shadow_t, stop_i, pre_i + stop_i + shadow_i);
         fin_oxog(pre5, stop5, pre_t, stop_t, pre_i, stop_i,
                  profile.ca_stop_rate_baseline, profile.ca_stop_rate_terminal,
                  profile.ca_stop_rate_interior, profile.ca_uniformity_ratio, profile.channel_f_valid);
@@ -4644,8 +4662,9 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
     for (uint32_t i = 0; i < 4096; ++i) {
         dst.hexamer_count_5prime[i] += src.hexamer_count_5prime[i];
         dst.hexamer_count_interior[i] += src.hexamer_count_interior[i];
-        dst.ca_pre_terminal_by_pfx[i]    += src.ca_pre_terminal_by_pfx[i];
-        dst.ca_stop_terminal_by_pfx[i]   += src.ca_stop_terminal_by_pfx[i];
+        dst.ca_pre_terminal_by_pfx[i]          += src.ca_pre_terminal_by_pfx[i];
+        dst.ca_stop_terminal_by_pfx[i]         += src.ca_stop_terminal_by_pfx[i];
+        dst.ca_deam_shadow_terminal_by_pfx[i]  += src.ca_deam_shadow_terminal_by_pfx[i];
         dst.cg_pre_terminal_by_pfx[i]    += src.cg_pre_terminal_by_pfx[i];
         dst.cg_stop_terminal_by_pfx[i]   += src.cg_stop_terminal_by_pfx[i];
         dst.at_pre_terminal_by_pfx[i]         += src.at_pre_terminal_by_pfx[i];
@@ -4687,14 +4706,16 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         dst.convertible_tgc_5prime[i]    += src.convertible_tgc_5prime[i];
         dst.convertible_taa_ca_5prime[i] += src.convertible_taa_ca_5prime[i];
         dst.convertible_tag_ca_5prime[i] += src.convertible_tag_ca_5prime[i];
-        dst.convertible_tga_ca_5prime[i] += src.convertible_tga_ca_5prime[i];
+        dst.convertible_tga_ca_5prime[i]  += src.convertible_tga_ca_5prime[i];
+        dst.ca_deam_shadow_5prime[i]      += src.ca_deam_shadow_5prime[i];
         dst.convertible_tca_3prime[i]    += src.convertible_tca_3prime[i];
         dst.convertible_tcg_3prime[i]    += src.convertible_tcg_3prime[i];
         dst.convertible_tac_3prime[i]    += src.convertible_tac_3prime[i];
         dst.convertible_tgc_3prime[i]    += src.convertible_tgc_3prime[i];
         dst.convertible_taa_ca_3prime[i] += src.convertible_taa_ca_3prime[i];
         dst.convertible_tag_ca_3prime[i] += src.convertible_tag_ca_3prime[i];
-        dst.convertible_tga_ca_3prime[i] += src.convertible_tga_ca_3prime[i];
+        dst.convertible_tga_ca_3prime[i]  += src.convertible_tga_ca_3prime[i];
+        dst.ca_deam_shadow_3prime[i]      += src.ca_deam_shadow_3prime[i];
         dst.convertible_tca_cg_5prime[i]  += src.convertible_tca_cg_5prime[i];
         dst.convertible_tac_cg_5prime[i]  += src.convertible_tac_cg_5prime[i];
         dst.convertible_tga_cg_5prime[i]  += src.convertible_tga_cg_5prime[i];
@@ -4716,7 +4737,8 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         dst.convertible_tag_at_3prime[i]  += src.convertible_tag_at_3prime[i];
         dst.convertible_tga_at_3prime[i]  += src.convertible_tga_at_3prime[i];
         dst.ca_pre_interior  += src.ca_pre_interior;
-        dst.ca_stop_interior += src.ca_stop_interior;
+        dst.ca_stop_interior         += src.ca_stop_interior;
+        dst.ca_deam_shadow_interior  += src.ca_deam_shadow_interior;
         dst.cg_pre_interior  += src.cg_pre_interior;
         dst.cg_stop_interior += src.cg_stop_interior;
         dst.at_pre_interior  += src.at_pre_interior;
@@ -5174,11 +5196,14 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
         // Channel F 5'
         auto [pf, sf] = resum(profile.ca_pre_terminal_by_pfx,
                                profile.ca_stop_terminal_by_pfx, skip5);
-        double ni_f = profile.ca_pre_interior + profile.ca_stop_interior;
-        profile.channel_f_z = binom_z_f(sf, pf+sf,
+        double shadow_f = 0;
+        for (uint32_t i = 0; i < 4096; ++i)
+            if (!skip5[i]) shadow_f += profile.ca_deam_shadow_terminal_by_pfx[i];
+        double ni_f = profile.ca_pre_interior + profile.ca_stop_interior + profile.ca_deam_shadow_interior;
+        profile.channel_f_z = binom_z_f(sf, pf + sf + shadow_f,
                                          profile.ca_stop_interior, ni_f);
-        profile.ca_stop_rate_terminal = (pf+sf > 0) ? sf/(pf+sf) : 0.0;
-        profile.channel_f_valid = (pf+sf >= 10 && ni_f >= 10);
+        profile.ca_stop_rate_terminal = (pf+sf+shadow_f > 0) ? sf/(pf+sf+shadow_f) : 0.0;
+        profile.channel_f_valid = (pf+sf+shadow_f >= 10 && ni_f >= 10);
         // Channel G 5'
         auto [pg, sg] = resum(profile.cg_pre_terminal_by_pfx,
                                profile.cg_stop_terminal_by_pfx, skip5);
@@ -5410,6 +5435,7 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.convertible_taa_ca_5prime.fill(0.0);
     profile.convertible_tag_ca_5prime.fill(0.0);
     profile.convertible_tga_ca_5prime.fill(0.0);
+    profile.ca_deam_shadow_5prime.fill(0.0);
     profile.convertible_tca_3prime.fill(0.0);
     profile.convertible_tcg_3prime.fill(0.0);
     profile.convertible_tac_3prime.fill(0.0);
@@ -5417,6 +5443,7 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.convertible_taa_ca_3prime.fill(0.0);
     profile.convertible_tag_ca_3prime.fill(0.0);
     profile.convertible_tga_ca_3prime.fill(0.0);
+    profile.ca_deam_shadow_3prime.fill(0.0);
     profile.ca_stop_rate_baseline          = 0.0f;
     profile.ca_stop_rate_terminal          = 0.0f;
     profile.ca_stop_rate_interior          = 0.0f;
@@ -5471,7 +5498,8 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.channel_h_valid                = false;
     profile.channel_h3_valid               = false;
     profile.ca_pre_interior  = 0;
-    profile.ca_stop_interior = 0;
+    profile.ca_stop_interior        = 0;
+    profile.ca_deam_shadow_interior = 0;
     profile.cg_pre_interior  = 0;
     profile.cg_stop_interior = 0;
     profile.at_pre_interior  = 0;
