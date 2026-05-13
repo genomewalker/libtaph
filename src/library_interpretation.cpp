@@ -289,6 +289,32 @@ OxogTrinucResult compute_oxog_trinuc(const SampleDamageProfile& dp) {
     }
     if (nv > 1e-30 && nr > 0)
         r.cosine = dot / (std::sqrt(nv) * std::sqrt(nr));
+
+    // RC log-ratio estimator: IVW mean of log(rc(XGY)/XGY) across 16 XGY contexts.
+    // Uses interior trinucs only (5'+3' summed) to avoid 5' deamination confound.
+    // eta_bar > 0 means XGY depleted relative to complement → net G→T oxidative damage.
+    {
+        static constexpr double ALPHA = 0.5;
+        double sum_w = 0.0, sum_we = 0.0;
+        for (int p = 0; p < 4; ++p) {
+            for (int n = 0; n < 4; ++n) {
+                double g_i = ALPHA, c_i = ALPHA;
+                for (const auto* tri : {&dp.tri_5prime_interior, &dp.tri_3prime_interior}) {
+                    g_i += static_cast<double>((*tri)[p*16 + 2*4 + n]);            // XGn
+                    c_i += static_cast<double>((*tri)[RC4[n]*16 + 1*4 + RC4[p]]); // rc(XGn) = rc(n)Crc(p)
+                }
+                double w_i  = (g_i * c_i) / (g_i + c_i);
+                double eta_i = std::log(c_i / g_i);
+                sum_w  += w_i;
+                sum_we += w_i * eta_i;
+            }
+        }
+        if (sum_w > 0.0) {
+            r.eta_bar = sum_we / sum_w;
+            r.g_hat   = std::max(0.0, 1.0 - std::exp(-r.eta_bar));
+        }
+    }
+
     return r;
 }
 

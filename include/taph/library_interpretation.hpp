@@ -89,8 +89,10 @@ struct OxogInteriorScore { double z = 0.0; double p = 1.0; };
 OxogInteriorScore compute_oxog_interior_score(const SampleDamageProfile& dp);
 
 struct OxogTrinucResult {
-    double cosine = std::numeric_limits<double>::quiet_NaN();
-    int    n_ctx  = 0;
+    double cosine  = std::numeric_limits<double>::quiet_NaN();
+    int    n_ctx   = 0;
+    double eta_bar = std::numeric_limits<double>::quiet_NaN(); // IVW mean log(rc(XGY)/XGY), interior only
+    double g_hat   = std::numeric_limits<double>::quiet_NaN(); // max(0, 1-exp(-eta_bar)); ref-free G→T rate estimate
 };
 
 // Cosine similarity of per-context G→T residuals to empirical 8-oxoG reference.
