@@ -292,7 +292,7 @@ OxogTrinucResult compute_oxog_trinuc(const SampleDamageProfile& dp) {
 
     // RC log-ratio estimator: IVW mean of log(rc(XGY)/XGY) across 16 XGY contexts.
     // Uses interior trinucs only (5'+3' summed) to avoid 5' deamination confound.
-    // eta_bar > 0 means XGY depleted relative to complement → net G→T oxidative damage.
+    // gt_asymmetry > 0 means XGY depleted relative to complement → net G→T oxidative damage.
     {
         static constexpr double ALPHA = 0.5;
         double sum_w = 0.0, sum_we = 0.0;
@@ -310,8 +310,8 @@ OxogTrinucResult compute_oxog_trinuc(const SampleDamageProfile& dp) {
             }
         }
         if (sum_w > 0.0) {
-            r.eta_bar = sum_we / sum_w;
-            r.g_hat   = std::max(0.0, 1.0 - std::exp(-r.eta_bar));
+            r.gt_asymmetry = sum_we / sum_w;
+            r.gt_rate   = std::max(0.0, 1.0 - std::exp(-r.gt_asymmetry));
         }
     }
 
@@ -424,11 +424,11 @@ PreservationSummary compute_preservation_summary(
         bool   flag_hex_artifact,
         double cpg_score_z,
         double oxog_score_z,
-        double oxog_trinuc_cosine,
+        double oxog_context_cosine,
         double hex_shift_p) {
 
     (void)oxog_score_z;
-    (void)oxog_trinuc_cosine;
+    (void)oxog_context_cosine;
 
     PreservationSummary r;
 

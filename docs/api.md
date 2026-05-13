@@ -442,7 +442,7 @@ taph::PreservationSummary taph::compute_preservation_summary(
     const SampleDamageProfile& dp, bool is_ss,
     bool adapter_clipped, bool flag_hex_artifact,
     double cpg_score_z, double oxog_score_z,
-    double oxog_trinuc_cosine, double hex_shift_p);
+    double oxog_context_cosine, double hex_shift_p);
 ```
 
 Combines evidence from all channels into a single preservation assessment.  Fields: `authenticity_eff`, `authenticity_evidence`, `d5_raw`, `d5_hexamer_corrected`, `d5_was_corrected`, `oxidation_eff`, `oxidation_evidence`, `qc_risk_eff`, `qc_evidence`, `label` (e.g. `"ancient"`, `"weak"`, `"modern-like"`).
