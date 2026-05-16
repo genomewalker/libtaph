@@ -129,9 +129,11 @@ inline float JointDamageModel::log_likelihood(
         float pi_ag = std::clamp(b_ag + a_p, 0.01f, 0.99f);
         ll += binom_ll(stats.k_ag[p], stats.n_ag[p], pi_ag);
 
-        // Channel B: π_stop(p) = b_stop + (1 - b_stop) · δ(p)
-        float pi_stop = b_stop + (1.0f - b_stop) * delta_p;
-        pi_stop = std::clamp(pi_stop, 0.001f, 0.999f);
+        // Channel B: π_stop(p) = b_stop + a(p) + (1 − b_stop − a(p)) · δ(p)
+        // Same compositional artifact correction as Channel A: AT-rich sequences
+        // have elevated T-starting codon rates at termini that are not damage-induced.
+        float base_stop = std::clamp(b_stop + a_p, 0.001f, 0.999f);
+        float pi_stop   = std::clamp(base_stop + (1.0f - base_stop) * delta_p, 0.001f, 0.999f);
         ll += binom_ll(stats.k_stop[p], stats.n_stop[p], pi_stop);
     }
 

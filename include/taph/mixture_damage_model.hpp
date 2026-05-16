@@ -134,8 +134,9 @@ inline double MixtureDamageModel::channel_log_likelihood(
         float pi_ag = std::clamp(b_ag + a_p, 0.01f, 0.99f);
         ll += binom_ll(sr.k_ag[p], sr.n_ag[p], pi_ag);
 
-        // Channel B: π_stop(p) = b_stop + (1 - b_stop) · δ(p)
-        float pi_stop = std::clamp(b_stop + (1.0f - b_stop) * delta_p, 0.001f, 0.999f);
+        // Channel B: π_stop(p) = b_stop + a(p) + (1 − b_stop − a(p)) · δ(p)
+        float base_stop = std::clamp(b_stop + a_p, 0.001f, 0.999f);
+        float pi_stop   = std::clamp(base_stop + (1.0f - base_stop) * delta_p, 0.001f, 0.999f);
         ll += binom_ll(sr.k_stop[p], sr.n_stop[p], pi_stop);
     }
 
