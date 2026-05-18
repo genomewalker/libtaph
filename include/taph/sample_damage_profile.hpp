@@ -595,9 +595,19 @@ struct SampleDamageProfile {
 
     // Computed statistics for Channel B
     float stop_conversion_rate_baseline = 0.0f;  // Interior stop/(pre+stop) ratio
-    float stop_decay_llr_5prime = 0.0f;  // LLR for stop position decay (Channel B)
+    float stop_decay_llr_5prime = 0.0f;  // LLR for stop position decay (Channel B, pooled)
     float stop_amplitude_5prime = 0.0f;  // Fitted amplitude of stop excess
-    bool channel_b_valid = false;  // True if sufficient data for Channel B
+    bool channel_b_valid = false;  // True if sufficient data for Channel B (pooled)
+
+    // Per-stop-type Channel B LLRs (split by deamination parent codon)
+    float stop_decay_llr_taa_5prime = 0.0f;  // CAA→TAA specific LLR
+    float stop_decay_llr_tag_5prime = 0.0f;  // CAG→TAG specific LLR
+    float stop_decay_llr_tga_5prime = 0.0f;  // CGA→TGA specific LLR
+    // Exposure counts for each stop type (interior, used to gate per-type validity)
+    double n_convertible_caa = 0.0;  // CAA+TAA interior total
+    double n_convertible_cag = 0.0;  // CAG+TAG interior total
+    double n_convertible_cga = 0.0;  // CGA+TGA interior total
+    bool channel_b_valid_tga = false;  // True if CGA exposure sufficient for TGA-specific LLR
 
     // Channel B structural d_max from multi-position stop codon conversion
     // WLS model: r_p = b0 + (1-b0) * d_max * exp(-λp)
