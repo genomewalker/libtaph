@@ -1861,6 +1861,62 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 profile.stop_decay_llr_5prime = -std::abs(profile.stop_decay_llr_5prime);
             }
 
+            // Per-stop-type LLRs (same model, but with type-specific counts)
+            {
+                // Exposure counts for per-type validity gating
+                profile.n_convertible_caa = profile.convertible_caa_interior + profile.convertible_taa_interior;
+                profile.n_convertible_cag = profile.convertible_cag_interior + profile.convertible_tag_interior;
+                profile.n_convertible_cga = profile.convertible_cga_interior + profile.convertible_tga_interior;
+                profile.channel_b_valid_tga = (profile.n_convertible_cga >= 50.0);
+
+                struct StopType {
+                    const std::array<double,15>* pre;
+                    const std::array<double,15>* stop;
+                    float* llr_out;
+                };
+                StopType types[3] = {
+                    { &profile.convertible_caa_5prime, &profile.convertible_taa_5prime, &profile.stop_decay_llr_taa_5prime },
+                    { &profile.convertible_cag_5prime, &profile.convertible_tag_5prime, &profile.stop_decay_llr_tag_5prime },
+                    { &profile.convertible_cga_5prime, &profile.convertible_tga_5prime, &profile.stop_decay_llr_tga_5prime },
+                };
+                for (auto& t : types) {
+                    // Per-type interior baseline
+                    double t_pre_int = 0, t_stop_int = 0;
+                    for (int p = 5; p < 15; ++p) {
+                        t_pre_int  += (*t.pre)[p];
+                        t_stop_int += (*t.stop)[p];
+                    }
+                    double t_baseline = (t_pre_int + t_stop_int > 10)
+                        ? t_stop_int / (t_pre_int + t_stop_int)
+                        : static_cast<double>(local_baseline);
+
+                    // Amplitude from positions 0-4
+                    double t_sum_excess = 0, t_sum_weight = 0;
+                    for (int i = 0; i < 5; ++i) {
+                        double t_exp = (*t.pre)[i] + (*t.stop)[i];
+                        if (t_exp > 10) {
+                            double w = std::exp(-lambda_b * i);
+                            t_sum_excess += t_exp * ((*t.stop)[i] / t_exp - t_baseline) / w;
+                            t_sum_weight += t_exp;
+                        }
+                    }
+                    double t_amp = (t_sum_weight > 0) ? t_sum_excess / t_sum_weight : 0.0;
+
+                    // LLR
+                    double t_ll_exp = 0, t_ll_const = 0;
+                    for (int p = 0; p < 10; ++p) {
+                        double t_n = (*t.pre)[p] + (*t.stop)[p];
+                        if (t_n < 20) continue;
+                        double t_k = (*t.stop)[p];
+                        double t_p_exp = std::clamp(t_baseline + t_amp * std::exp(-lambda_b * p), 0.001, 0.999);
+                        double t_p_const = std::clamp(t_baseline, 0.001, 0.999);
+                        t_ll_exp   += binomial_ll(t_k, t_n, t_p_exp);
+                        t_ll_const += binomial_ll(t_k, t_n, t_p_const);
+                    }
+                    *t.llr_out = static_cast<float>(t_amp < 0 ? -(t_ll_exp - t_ll_const) : (t_ll_exp - t_ll_const));
+                }
+            }
+
             {
                 // WLS fit: r_p = b0 + (1-b0) * d_max * exp(-λp)
                 // Solve y_p = a + c*x_p, then b0 = a, d_max = c / (1 - b0)
@@ -3343,10 +3399,15 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             //   M_DS_symm_art: 3' GA spike is the complementary-strand reflection
             //                  of 5' CT damage. A reflection cannot exceed its
             //                  source — require ga0 ≤ ct5.
-            // When violated, the model is invalid for this sample and excluded
-            // from the tournament (BIC = +inf).
+            // Exception: when position_0_artifact_3prime is flagged, the 3' pos-0
+            // base-composition artifact legitimately inflates ga0 above ct5.
+            // In that case allow M_DS_symm_art to enter the cascade so it can
+            // compete against M_SS_comp (which otherwise wins unopposed).
+            // When violated (and no artifact flag), the model is invalid for this
+            // sample and excluded from the tournament (BIC = +inf).
             const bool ds_symm_valid     = (ga3.delta_bic > std::log(2.0));
-            const bool ds_symm_art_valid = (ga0.amplitude <= ct5.amplitude);
+            const bool ds_symm_art_valid = (ga0.amplitude <= ct5.amplitude)
+                                        || profile.position_0_artifact_3prime;
             constexpr double kInvalidBIC = 1e300;
 
             const double bic_M_bias        = ct5.bic_null   + ga3.bic_null + ga0.bic_null + ct3.bic_null;
@@ -3553,11 +3614,15 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 profile.library_type_rescued = true;
             }
             // GA0-spike DS-symm veto: when the 3' ga0 ligation spike unambiguously
-            // dominates (ga0 ≥ 0.10, ga0_dominates_ct5, ga0 > both ct5 and ga3),
+            // dominates (ga0 >= 0.10, ga0_dominates_ct5, ga0 > both ct5 and ga3),
             // an apparent CT5/GA3 symmetry absorbed by M_DS_symm is artifact, not
-            // real DS damage — true DS has ct5≈ga3 ≫ ga0. Restricted to ds_symm
+            // real DS damage -- true DS has ct5~=ga3 >> ga0. Restricted to ds_symm
             // winners; independent of max_damage_5prime (the artifact inflates it).
+            // Exception: when position_0_artifact_3prime is flagged the inflated ga0
+            // is a known composition artifact; M_DS_symm_art already models it via
+            // ga0.bic_alt, so the veto must not fire and undo that correct win.
             if (profile.library_type == SampleDamageProfile::LibraryType::DOUBLE_STRANDED &&
+                !profile.position_0_artifact_3prime &&
                 profile.library_gate_ga0_dominates_ct5 &&
                 ga0.amplitude >= 0.10f &&
                 ga0.amplitude > std::max(ct5.amplitude, ga3.amplitude) &&
@@ -3625,7 +3690,14 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                         profile.protocol_tag_class    = tag->klass;
                         profile.protocol_tag_log2fc   = static_cast<float>(enriched[0].log2fc);
                         profile.protocol_tag_log_lr   = tag->log_lr;
-                        if (profile.library_type != tag->klass) {
+                        // Do not apply a tentative protocol tag (log_lr < 4.0) to
+                        // override a structural_bilateral DS call -- channel B bilateral
+                        // confirmation is stronger evidence than a tentative hexamer match.
+                        const bool tag_overrides = (profile.library_type != tag->klass)
+                            && !(structural_bilateral
+                                 && tag->log_lr < 4.0f
+                                 && tag->klass == SampleDamageProfile::LibraryType::SINGLE_STRANDED);
+                        if (tag_overrides) {
                             profile.library_type        = tag->klass;
                             profile.library_type_rescued = true;
                             profile.protocol_tag_applied = true;
