@@ -644,6 +644,11 @@ void profile_to_json(const SampleDamageProfile& dp,
             }
             j << "],\n";
         }
+        if (in.adapter_stub_reads_checked > 0) {
+            j << "    \"adapter_stub5_read_fraction\": " << std::fixed << std::setprecision(6) << in.adapter_stub5_read_fraction << ",\n";
+            j << "    \"adapter_stub3_read_fraction\": " << in.adapter_stub3_read_fraction << ",\n";
+            j << "    \"adapter_stub_reads_checked\": " << in.adapter_stub_reads_checked << ",\n";
+        }
         j << "    \"adapter_offset_5prime\": " << dp.fit_offset_5prime << ",\n";
         j << "    \"adapter_offset_3prime\": " << dp.fit_offset_3prime << ",\n";
         j << "    \"position0_artifact_5prime\": " << (dp.position_0_artifact_5prime ? "true" : "false") << ",\n";

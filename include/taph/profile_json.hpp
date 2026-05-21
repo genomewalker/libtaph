@@ -23,6 +23,12 @@ struct ProfileJsonInput {
     bool adapter3_clipped   = false;
     bool flag_hex_artifact  = false;
 
+    // Adapter stub read fraction (optional; -1 = not computed)
+    // Fraction of pre-scan reads whose terminal 6 bp matched a detected stub.
+    double  adapter_stub5_read_fraction = -1.0;
+    double  adapter_stub3_read_fraction = -1.0;
+    int64_t adapter_stub_reads_checked  = 0;
+
     // Fraction of reads shorter than 50 bp (optional)
     double short_read_frac = 0.0;
 
