@@ -652,6 +652,14 @@ void FrameSelector::update_sample_profile(
             int mid = static_cast<int>(len) - 1 - p;
             add_ctx(mid - 1, mid, mid + 1, profile.tri_3prime_interior);
         }
+        // Per-position: all positions 1..N_POS_TRI-1 from each end.
+        for (int p = 1; p < SampleDamageProfile::N_POS_TRI && p + 1 < static_cast<int>(len); ++p)
+            add_ctx(p - 1, p, p + 1, profile.tri_5prime_pos[p]);
+        for (int p = 1; p < SampleDamageProfile::N_POS_TRI; ++p) {
+            int mid = static_cast<int>(len) - 1 - p;
+            if (mid - 1 >= 0 && mid + 1 < static_cast<int>(len))
+                add_ctx(mid - 1, mid, mid + 1, profile.tri_3prime_pos[p]);
+        }
     }
 
     // CpG-like context split — 5' terminal positions (all 15)
@@ -4764,6 +4772,11 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         dst.tri_3prime_terminal[i] += src.tri_3prime_terminal[i];
         dst.tri_3prime_interior[i] += src.tri_3prime_interior[i];
     }
+    for (int p = 0; p < SampleDamageProfile::N_POS_TRI; ++p)
+        for (int i = 0; i < SampleDamageProfile::N_TRINUC; ++i) {
+            dst.tri_5prime_pos[p][i] += src.tri_5prime_pos[p][i];
+            dst.tri_3prime_pos[p][i] += src.tri_3prime_pos[p][i];
+        }
     // Merge upstream-context-aware accumulators
     for (int uctx = 0; uctx < SampleDamageProfile::N_UPSTREAM_CTX; ++uctx) {
         for (int p = 0; p < SampleDamageProfile::N_POS; ++p) {
@@ -5481,6 +5494,8 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.tri_5prime_interior.fill(0.0);
     profile.tri_3prime_terminal.fill(0.0);
     profile.tri_3prime_interior.fill(0.0);
+    for (auto& a : profile.tri_5prime_pos) a.fill(0);
+    for (auto& a : profile.tri_3prime_pos) a.fill(0);
 
     profile.max_damage_5prime = 0.0f;
     profile.max_damage_3prime = 0.0f;

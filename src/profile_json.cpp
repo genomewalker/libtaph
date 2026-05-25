@@ -589,6 +589,79 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "  },\n";
     }
 
+    // ── Per-position trinucleotide counts ─────────────────────────────────────
+    // [pos][64 contexts], pos 1..N_POS_TRI-1 (pos 0 skipped — no left flank).
+    // Downstream: normalise T/(T+C) per XCY context per position for reference-free
+    // positional damage spectra analogous to bam2sbs sbs3d output.
+    {
+        j << "  \"trinuc_pos_spectrum\": {\n";
+        for (const char* end : {"5prime", "3prime"}) {
+            const auto& arr = (end[0] == '5') ? dp.tri_5prime_pos : dp.tri_3prime_pos;
+            j << "    \"" << end << "\": [";
+            for (int p = 0; p < SampleDamageProfile::N_POS_TRI; ++p) {
+                j << "[";
+                for (int i = 0; i < SampleDamageProfile::N_TRINUC; ++i) {
+                    j << arr[p][i];
+                    if (i < SampleDamageProfile::N_TRINUC - 1) j << ",";
+                }
+                j << "]";
+                if (p < SampleDamageProfile::N_POS_TRI - 1) j << ",";
+            }
+            j << "]";
+            if (end[0] == '5') j << ",\n"; else j << "\n";
+        }
+        j << "  },\n";
+    }
+
+    // ── Context-specific damage rates ─────────────────────────────────────────
+    // For each of the 16 XCY (5' C→T) and 16 XGY (3' G→A) contexts:
+    // terminal_rate = observed rate at read positions 1-4 from end
+    // interior_rate = baseline at positions 10-14
+    // excess = terminal_rate - interior_rate  (-1 = insufficient data)
+    {
+        static constexpr char B[4] = {'A','C','G','T'};
+        // encoding: prev*16 + mid*4 + next  (A=0,C=1,G=2,T=3)
+        j << "  \"trinuc_damage_rates\": {\n";
+
+        auto emit_ctx_rates = [&](const char* key,
+                                  const std::array<uint64_t,64>& term,
+                                  const std::array<uint64_t,64>& intr,
+                                  int mid_ref, int mid_dam) {
+            j << "    \"" << key << "\": {";
+            bool first = true;
+            for (int p = 0; p < 4; ++p) {
+                for (int n = 0; n < 4; ++n) {
+                    int ir = p*16 + mid_ref*4 + n;
+                    int id = p*16 + mid_dam*4 + n;
+                    uint64_t tn = term[ir] + term[id];
+                    uint64_t xn = intr[ir] + intr[id];
+                    double tr = tn > 0 ? (double)term[id] / tn : -1.0;
+                    double ir2= xn > 0 ? (double)intr[id] / xn : -1.0;
+                    double ex = (tr >= 0 && ir2 >= 0) ? tr - ir2 : -1.0;
+                    char ctx[4] = {B[p], B[mid_ref], B[n], 0};
+                    if (!first) j << ",";
+                    first = false;
+                    j << "\"" << ctx << "\":{"
+                      << "\"terminal_rate\":" << std::fixed << std::setprecision(6) << tr
+                      << ",\"interior_rate\":" << ir2
+                      << ",\"excess\":" << ex
+                      << ",\"terminal_n\":" << tn
+                      << ",\"interior_n\":" << xn << "}";
+                }
+            }
+            j << "}";
+        };
+
+        emit_ctx_rates("ct_5prime",
+                       dp.tri_5prime_terminal, dp.tri_5prime_interior,
+                       1 /*C*/, 3 /*T*/);
+        j << ",\n";
+        emit_ctx_rates("ga_3prime",
+                       dp.tri_3prime_terminal, dp.tri_3prime_interior,
+                       2 /*G*/, 0 /*A*/);
+        j << "\n  },\n";
+    }
+
     // ── Preservation ──────────────────────────────────────────────────────────
     j << "  \"preservation\": {\n";
     j << "    \"score\": " << std::setprecision(6) << dp.preservation_score << ",\n";

@@ -173,6 +173,15 @@ struct SampleDamageProfile {
     std::array<uint64_t, N_TRINUC> tri_3prime_terminal = {};
     std::array<uint64_t, N_TRINUC> tri_3prime_interior = {};
 
+    // Per-position trinucleotide counts (positions 1..N_POS_TRI-1 from each end).
+    // p=1 = second base from end (first with a valid left flank).
+    // Encoding: prev*16 + mid*4 + next  (A=0,C=1,G=2,T=3).
+    // 3' counts use read orientation (not reference); reverse-complement
+    // contexts downstream for strand-collapsing.
+    static constexpr int N_POS_TRI = 15;
+    std::array<std::array<uint64_t, N_TRINUC>, N_POS_TRI> tri_5prime_pos = {};
+    std::array<std::array<uint64_t, N_TRINUC>, N_POS_TRI> tri_3prime_pos = {};
+
     // Reference-free oxidation-like composition contrast.
     // Reads are first stratified by read-local terminal deamination excess.
     // Finalization then calibrates those strata against bin-matched interior
