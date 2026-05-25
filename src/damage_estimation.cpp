@@ -384,8 +384,16 @@ void FrameSelector::update_sample_profile(
 
     size_t len = seq.length();
 
+    // Decode entire read once: uppercase and cache so downstream passes
+    // pay one & ~0x20u per base instead of one per scan × 8+ scans.
+    thread_local std::vector<char> dec_buf;
+    if (dec_buf.size() < len) dec_buf.resize(len);
+    char* const decoded = dec_buf.data();
+    for (size_t i = 0; i < len; ++i)
+        decoded[i] = static_cast<char>(static_cast<unsigned char>(seq[i]) & ~0x20u);
+
     for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-        char base = fast_upper(seq[i]);
+        char base = decoded[i];
         // Damage signal: T/(T+C) for C→T
         if (base == 'T') {
             profile.t_freq_5prime[i]++;
@@ -404,7 +412,7 @@ void FrameSelector::update_sample_profile(
 
     for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
         size_t pos = len - 1 - i;
-        char base = fast_upper(seq[pos]);
+        char base = decoded[pos];
         // Damage signal: A/(A+G) for G→A
         if (base == 'A') {
             profile.a_freq_3prime[i]++;
@@ -430,12 +438,12 @@ void FrameSelector::update_sample_profile(
         const int hi = SampleDamageProfile::BG_TAIL_HI;
         for (int i = lo; i <= hi && static_cast<size_t>(i) < len; ++i) {
             const int idx = i - lo;
-            const char b5 = fast_upper(seq[i]);
+            const char b5 = decoded[i];
             if (b5 == 'T') { profile.tail_t_5prime[idx]++; profile.tail_tc_5prime[idx]++; }
             else if (b5 == 'C') { profile.tail_tc_5prime[idx]++; }
 
             const size_t pos3 = len - 1 - i;
-            const char b3 = fast_upper(seq[pos3]);
+            const char b3 = decoded[pos3];
             if (b3 == 'A') { profile.tail_a_3prime[idx]++; profile.tail_ag_3prime[idx]++; }
             else if (b3 == 'G') { profile.tail_ag_3prime[idx]++; }
         }
@@ -451,7 +459,7 @@ void FrameSelector::update_sample_profile(
     const bool interior_safe = (mid_start < mid_end);
     if (interior_safe) {
         for (size_t i = mid_start; i < mid_end; ++i) {
-            char base = fast_upper(seq[i]);
+            char base = decoded[i];
             if (base == 'T') profile.baseline_t_freq++;
             else if (base == 'C') profile.baseline_c_freq++;
             else if (base == 'A') profile.baseline_a_freq++;
@@ -468,7 +476,7 @@ void FrameSelector::update_sample_profile(
     if (interior_safe) {
         double term_t5 = 0.0, term_tc5 = 0.0;
         for (size_t p = 0; p < std::min<size_t>(5, len); ++p) {
-            const char b = fast_upper(seq[p]);
+            const char b = decoded[p];
             if (b == 'T') { term_t5 += 1.0; term_tc5 += 1.0; }
             else if (b == 'C') { term_tc5 += 1.0; }
         }
@@ -477,14 +485,14 @@ void FrameSelector::update_sample_profile(
         // the final base. Positions 1..4 carry the useful G->A deamination axis.
         double term_a3 = 0.0, term_ag3 = 0.0;
         for (size_t off = 1; off < std::min<size_t>(5, len); ++off) {
-            const char b = fast_upper(seq[len - 1 - off]);
+            const char b = decoded[len - 1 - off];
             if (b == 'A') { term_a3 += 1.0; term_ag3 += 1.0; }
             else if (b == 'G') { term_ag3 += 1.0; }
         }
 
         double mid_t = 0.0, mid_c = 0.0, mid_a = 0.0, mid_g = 0.0;
         for (size_t i = mid_start; i < mid_end; ++i) {
-            const char b = fast_upper(seq[i]);
+            const char b = decoded[i];
             if (b == 'T') ++mid_t;
             else if (b == 'C') ++mid_c;
             else if (b == 'A') ++mid_a;
@@ -534,7 +542,7 @@ void FrameSelector::update_sample_profile(
             oxs.int_a += mid_a; oxs.int_ag += mid_ag;
 
             for (size_t i = mid_start; i < mid_end; ++i) {
-                const char b = fast_upper(seq[i]);
+                const char b = decoded[i];
                 if (b == 'T' || b == 'G') {
                     oxs.sig_tg += 1.0;
                     if (b == 'T') oxs.sig_t += 1.0;
@@ -559,11 +567,11 @@ void FrameSelector::update_sample_profile(
             {
                 int s1 = 0;
                 for (int p = 1; p <= 3 && static_cast<size_t>(p) < len; ++p) {
-                    if (fast_upper(seq[p]) == 'T') ++s1;
+                    if (decoded[p] == 'T') ++s1;
                 }
                 int s2 = 0;
                 for (int p = 1; p <= 3 && static_cast<size_t>(p) < len; ++p) {
-                    if (fast_upper(seq[len - 1 - p]) == 'A') ++s2;
+                    if (decoded[len - 1 - p] == 'A') ++s2;
                 }
                 s1 = std::min(s1, 3);
                 s2 = std::min(s2, 3);
@@ -585,7 +593,7 @@ void FrameSelector::update_sample_profile(
     // Codon-position-aware counting at 5' end (first 15 bases)
     for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
         int codon_pos = i % 3;  // 0, 1, 2
-        char base = fast_upper(seq[i]);
+        char base = decoded[i];
         if (base == 'T') profile.codon_pos_t_count_5prime[codon_pos]++;
         else if (base == 'C') profile.codon_pos_c_count_5prime[codon_pos]++;
     }
@@ -594,15 +602,15 @@ void FrameSelector::update_sample_profile(
     for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
         size_t pos = len - 1 - i;
         int codon_pos = (len - 1 - i) % 3;
-        char base = fast_upper(seq[pos]);
+        char base = decoded[pos];
         if (base == 'A') profile.codon_pos_a_count_3prime[codon_pos]++;
         else if (base == 'G') profile.codon_pos_g_count_3prime[codon_pos]++;
     }
 
     // CpG context damage tracking (5' end, first 5 bases)
     for (size_t i = 0; i < std::min(size_t(5), len - 1); ++i) {
-        char base = fast_upper(seq[i]);
-        char next = fast_upper(seq[i + 1]);
+        char base = decoded[i];
+        char next = decoded[i + 1];
 
         // Check for CpG context: C followed by G, or T followed by G (damaged CpG)
         if (next == 'G') {
@@ -634,9 +642,9 @@ void FrameSelector::update_sample_profile(
         auto add_ctx = [&](int prev_pos, int mid_pos, int next_pos,
                            std::array<uint64_t, SampleDamageProfile::N_TRINUC>& target) {
             if (prev_pos < 0 || next_pos >= static_cast<int>(len)) return;
-            int i0 = nuc_idx(fast_upper(seq[prev_pos]));
-            int i1 = nuc_idx(fast_upper(seq[mid_pos]));
-            int i2 = nuc_idx(fast_upper(seq[next_pos]));
+            int i0 = nuc_idx(decoded[prev_pos]);
+            int i1 = nuc_idx(decoded[mid_pos]);
+            int i2 = nuc_idx(decoded[next_pos]);
             if (i0 < 0 || i1 < 0 || i2 < 0) return;
             ++target[i0 * 16 + i1 * 4 + i2];
         };
@@ -665,8 +673,8 @@ void FrameSelector::update_sample_profile(
     // CpG-like context split — 5' terminal positions (all 15)
     // Also accumulate upstream-context-aware bins (AC, CC, GC, TC)
     for (int p = 0; p < SampleDamageProfile::N_POS && (p + 1) < static_cast<int>(len); ++p) {
-        const char x = fast_upper(seq[p]);
-        const char y = fast_upper(seq[p + 1]);
+        const char x = decoded[p];
+        const char y = decoded[p + 1];
         if ((x == 'C' || x == 'T') && (y == 'A' || y == 'C' || y == 'G' || y == 'T')) {
             const int ctx = (y == 'G') ? SampleDamageProfile::CPG_LIKE : SampleDamageProfile::NONCPG_LIKE;
             profile.ct_ctx_total_5prime[ctx][p] += 1.0f;
@@ -674,7 +682,7 @@ void FrameSelector::update_sample_profile(
         }
         // Upstream-context-aware: classify by preceding base (for p > 0)
         if (p > 0 && (x == 'C' || x == 'T')) {
-            const char u = fast_upper(seq[p - 1]);  // upstream base
+            const char u = decoded[p - 1];
             int uctx = -1;
             switch (u) {
                 case 'A': uctx = SampleDamageProfile::CTX_AC; break;
@@ -703,7 +711,7 @@ void FrameSelector::update_sample_profile(
         // Context-split interior baseline
         if (interior_safe_ctx)
         for (int q = q0; q < q1 && (q + 1) < static_cast<int>(len); ++q) {
-            const char x = fast_upper(seq[q]), y = fast_upper(seq[q + 1]);
+            const char x = decoded[q], y = decoded[q + 1];
             if ((x == 'C' || x == 'T') && (y == 'A' || y == 'C' || y == 'G' || y == 'T')) {
                 const int ctx = (y == 'G') ? SampleDamageProfile::CPG_LIKE : SampleDamageProfile::NONCPG_LIKE;
                 profile.ct_ctx_total_interior[ctx] += 1.0f;
@@ -711,7 +719,7 @@ void FrameSelector::update_sample_profile(
             }
             // Upstream-context-aware interior baseline
             if (q > 0 && (x == 'C' || x == 'T')) {
-                const char u = fast_upper(seq[q - 1]);
+                const char u = decoded[q - 1];
                 int uctx = -1;
                 switch (u) {
                     case 'A': uctx = SampleDamageProfile::CTX_AC; break;
@@ -730,7 +738,7 @@ void FrameSelector::update_sample_profile(
         if (interior_safe_ctx)
         for (int q = q0; q < q1; ++q) {
             if (q <= 0 || q >= static_cast<int>(len) - 1) continue;
-            const char l = fast_upper(seq[q-1]), b = fast_upper(seq[q]), r = fast_upper(seq[q+1]);
+            const char l = decoded[q-1], b = decoded[q], r = decoded[q+1];
             auto enc = [](char c) -> int {
                 switch(c){ case 'A':return 0; case 'C':return 1; case 'G':return 2; case 'T':return 3; default:return -1; }
             };
@@ -757,9 +765,9 @@ void FrameSelector::update_sample_profile(
                 size_t p = codon_start;
                 if (p >= 15) break;
 
-                char b0 = fast_upper(seq[codon_start]);
-                char b1 = fast_upper(seq[codon_start + 1]);
-                char b2 = fast_upper(seq[codon_start + 2]);
+                char b0 = decoded[codon_start];
+                char b1 = decoded[codon_start + 1];
+                char b2 = decoded[codon_start + 2];
 
                 if ((b0 != 'A' && b0 != 'C' && b0 != 'G' && b0 != 'T') ||
                     (b1 != 'A' && b1 != 'C' && b1 != 'G' && b1 != 'T') ||
@@ -799,9 +807,9 @@ void FrameSelector::update_sample_profile(
                         continue;
                     }
 
-                    char b0 = fast_upper(seq[codon_start]);
-                    char b1 = fast_upper(seq[codon_start + 1]);
-                    char b2 = fast_upper(seq[codon_start + 2]);
+                    char b0 = decoded[codon_start];
+                    char b1 = decoded[codon_start + 1];
+                    char b2 = decoded[codon_start + 2];
 
                     if ((b0 != 'A' && b0 != 'C' && b0 != 'G' && b0 != 'T') ||
                         (b1 != 'A' && b1 != 'C' && b1 != 'G' && b1 != 'T') ||
@@ -854,9 +862,9 @@ void FrameSelector::update_sample_profile(
                 if (codon_start + 3 > len || codon_start > 14) break;
                 size_t p = codon_start;
 
-                const char b0 = static_cast<char>(static_cast<unsigned char>(seq[codon_start])     & ~0x20u);
-                const char b1 = static_cast<char>(static_cast<unsigned char>(seq[codon_start + 1]) & ~0x20u);
-                const char b2 = static_cast<char>(static_cast<unsigned char>(seq[codon_start + 2]) & ~0x20u);
+                const char b0 = decoded[codon_start];
+                const char b1 = decoded[codon_start + 1];
+                const char b2 = decoded[codon_start + 2];
 
                 if ((b0 != 'A' && b0 != 'C' && b0 != 'G' && b0 != 'T') ||
                     (b1 != 'A' && b1 != 'C' && b1 != 'G' && b1 != 'T') ||
@@ -968,9 +976,9 @@ void FrameSelector::update_sample_profile(
                 size_t codon_start = len - 3 - k * 3 - frame;
                 if (codon_start + 3 > len) break;
 
-                const char b0 = static_cast<char>(static_cast<unsigned char>(seq[codon_start])     & ~0x20u);
-                const char b1 = static_cast<char>(static_cast<unsigned char>(seq[codon_start + 1]) & ~0x20u);
-                const char b2 = static_cast<char>(static_cast<unsigned char>(seq[codon_start + 2]) & ~0x20u);
+                const char b0 = decoded[codon_start];
+                const char b1 = decoded[codon_start + 1];
+                const char b2 = decoded[codon_start + 2];
 
                 // Channel C
                 if (b1 == 'A' && b2 == 'G') {
@@ -1055,9 +1063,9 @@ void FrameSelector::update_sample_profile(
                 if (codon_start + 3 > len - 30) break;
                 if (codon_start < 30) continue;
 
-                const char b0 = static_cast<char>(static_cast<unsigned char>(seq[codon_start])     & ~0x20u);
-                const char b1 = static_cast<char>(static_cast<unsigned char>(seq[codon_start + 1]) & ~0x20u);
-                const char b2 = static_cast<char>(static_cast<unsigned char>(seq[codon_start + 2]) & ~0x20u);
+                const char b0 = decoded[codon_start];
+                const char b1 = decoded[codon_start + 1];
+                const char b2 = decoded[codon_start + 2];
 
                 // Channel C interior
                 if (b1 == 'A' && b2 == 'G') {
@@ -1138,7 +1146,7 @@ void FrameSelector::update_sample_profile(
     // Accumulate raw G, T, C, A counts at 5' terminal positions (0-14).
     // T/(T+G) and A/(A+C) at interior vs terminal positions detect G→T oxidation without alignment.
     for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-        char base = fast_upper(seq[i]);
+        char base = decoded[i];
         if      (base == 'G') profile.g_count_5prime[i]++;
         else if (base == 'T') profile.t_from_g_5prime[i]++;
         if      (base == 'C') profile.c_count_ox_5prime[i]++;
@@ -1153,7 +1161,7 @@ void FrameSelector::update_sample_profile(
             mid_e = len - INTERIOR_TERM_PAD_D;
         if (mid_s < mid_e) {
             for (size_t i = mid_s; i < mid_e; ++i) {
-                char base = fast_upper(seq[i]);
+                char base = decoded[i];
                 if      (base == 'G') profile.baseline_g_total++;
                 else if (base == 'T') profile.baseline_g_to_t_count++;
                 if      (base == 'C') profile.baseline_c_ox_total++;
@@ -1171,7 +1179,7 @@ void FrameSelector::update_sample_profile(
         uint64_t gc_count = 0;
         uint64_t at_count = 0;
         for (size_t i = interior_start; i < interior_end; ++i) {
-            char base = fast_upper(seq[i]);
+            char base = decoded[i];
             if (base == 'G' || base == 'C') gc_count++;
             else if (base == 'A' || base == 'T') at_count++;
         }
@@ -1184,7 +1192,7 @@ void FrameSelector::update_sample_profile(
 
             // Accumulate Channel A counts (T and C at terminal positions)
             for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-                char base = fast_upper(seq[i]);
+                char base = decoded[i];
                 if (base == 'T') bin.t_counts[i]++;
                 else if (base == 'C') bin.c_counts[i]++;
                 else if (base == 'A') bin.a_counts[i]++;
@@ -1195,7 +1203,7 @@ void FrameSelector::update_sample_profile(
             // Used to recover C→T damage on 3' end for SS libraries and
             // G→A damage on 3' end for DS libraries at joint-mixture time.
             for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-                char base = fast_upper(seq[len - 1 - i]);
+                char base = decoded[len - 1 - i];
                 if (base == 'T') bin.t_counts_3prime[i]++;
                 else if (base == 'C') bin.c_counts_3prime[i]++;
                 else if (base == 'A') bin.a_counts_3prime[i]++;
@@ -1211,7 +1219,7 @@ void FrameSelector::update_sample_profile(
                 mid_end = len - INTERIOR_TERM_PAD_GC;
             if (mid_start < mid_end) {
                 for (size_t i = mid_start; i < mid_end; ++i) {
-                    char base = fast_upper(seq[i]);
+                    char base = decoded[i];
                     if (base == 'T') bin.t_interior++;
                     else if (base == 'C') bin.c_interior++;
                     else if (base == 'A') bin.a_interior++;
@@ -1226,9 +1234,9 @@ void FrameSelector::update_sample_profile(
                     if (codon_start + 3 > len || codon_start > 14) break;
                     size_t p = codon_start;
 
-                    char b0 = fast_upper(seq[codon_start]);
-                    char b1 = fast_upper(seq[codon_start + 1]);
-                    char b2 = fast_upper(seq[codon_start + 2]);
+                    char b0 = decoded[codon_start];
+                    char b1 = decoded[codon_start + 1];
+                    char b2 = decoded[codon_start + 2];
 
                     // CAA/TAA, CAG/TAG, CGA/TGA
                     if (b1 == 'A' && b2 == 'A') {
@@ -1257,9 +1265,9 @@ void FrameSelector::update_sample_profile(
                             continue;
                         }
 
-                        char b0 = fast_upper(seq[codon_start]);
-                        char b1 = fast_upper(seq[codon_start + 1]);
-                        char b2 = fast_upper(seq[codon_start + 2]);
+                        char b0 = decoded[codon_start];
+                        char b1 = decoded[codon_start + 1];
+                        char b2 = decoded[codon_start + 2];
 
                         if (b1 == 'A' && b2 == 'A') {
                             if (b0 == 'C') bin.pre_interior++;
@@ -1286,7 +1294,7 @@ void FrameSelector::update_sample_profile(
         char hex_5prime[7];
         bool valid_5prime = true;
         for (int i = 0; i < 6; ++i) {
-            char b = fast_upper(seq[i]);
+            char b = decoded[i];
             if (b != 'A' && b != 'C' && b != 'G' && b != 'T') {
                 valid_5prime = false;
                 break;
@@ -1308,7 +1316,7 @@ void FrameSelector::update_sample_profile(
         char hex_interior[7];
         bool valid_interior = true;
         for (int i = 0; i < 6; ++i) {
-            char b = fast_upper(seq[interior_start + i]);
+            char b = decoded[interior_start + i];
             if (b != 'A' && b != 'C' && b != 'G' && b != 'T') {
                 valid_interior = false;
                 break;
@@ -1357,9 +1365,9 @@ void FrameSelector::update_sample_profile(
             int n_ct = 0, k_ct = 0, n_ag = 0, k_ag = 0;
             for (int i = lo; i < hi; ++i) {
                 const int j = i - lo;
-                const char b = fast_upper(seq[i]);
-                const char nx = (i + 1 < static_cast<int>(len)) ? fast_upper(seq[i+1]) : 'N';
-                const char pv = (i > 0) ? fast_upper(seq[i-1]) : 'N';
+                const char b = decoded[i];
+                const char nx = (i + 1 < static_cast<int>(len)) ? decoded[i+1] : 'N';
+                const char pv = (i > 0) ? decoded[i-1] : 'N';
                 if ((b == 'C' || b == 'T') && nx != 'G') {
                     ct_elig[j] = 1; ++n_ct;
                     if (b == 'T') { ct_pos[j] = 1; ++k_ct; }
@@ -1369,42 +1377,87 @@ void FrameSelector::update_sample_profile(
                     if (b == 'A') { ag_pos[j] = 1; ++k_ag; }
                 }
             }
-            if (n_ct >= 2) {
-                ++acc.reads_used_ct;
-                const double q_ct = (k_ct >= 2)
-                    ? (static_cast<double>(k_ct) * (k_ct - 1)) /
-                      (static_cast<double>(n_ct) * (n_ct - 1))
-                    : 0.0;
-                for (int d = 1; d <= 10; ++d) {
-                    uint64_t pairs = 0, obs = 0;
-                    for (int j = 0; j + d < wlen; ++j) {
-                        if (!ct_elig[j] || !ct_elig[j + d]) continue;
-                        ++pairs;
-                        obs += static_cast<uint64_t>(ct_pos[j] & ct_pos[j + d]);
-                    }
-                    acc.pairs_ct[d] += pairs;
-                    acc.obs_ct[d]   += obs;
-                    acc.exp_ct[d]   += static_cast<double>(pairs) * q_ct;
-                    acc.var_ct[d]   += static_cast<double>(pairs) * q_ct * (1.0 - q_ct);
+            if (wlen <= 64) {
+                // Pack eligible/position flags into uint64 bitmaps; replace
+                // the O(W)×10 branchy j-loop with 10 shifted-AND-popcount ops.
+                uint64_t ct_elig_w = 0, ct_pos_w = 0;
+                uint64_t ag_elig_w = 0, ag_pos_w = 0;
+                for (int j = 0; j < wlen; ++j) {
+                    ct_elig_w |= static_cast<uint64_t>(ct_elig[j]) << j;
+                    ct_pos_w  |= static_cast<uint64_t>(ct_pos[j])  << j;
+                    ag_elig_w |= static_cast<uint64_t>(ag_elig[j]) << j;
+                    ag_pos_w  |= static_cast<uint64_t>(ag_pos[j])  << j;
                 }
-            }
-            if (n_ag >= 2) {
-                ++acc.reads_used_ag;
-                const double q_ag = (k_ag >= 2)
-                    ? (static_cast<double>(k_ag) * (k_ag - 1)) /
-                      (static_cast<double>(n_ag) * (n_ag - 1))
-                    : 0.0;
-                for (int d = 1; d <= 10; ++d) {
-                    uint64_t pairs = 0, obs = 0;
-                    for (int j = 0; j + d < wlen; ++j) {
-                        if (!ag_elig[j] || !ag_elig[j + d]) continue;
-                        ++pairs;
-                        obs += static_cast<uint64_t>(ag_pos[j] & ag_pos[j + d]);
+                if (n_ct >= 2) {
+                    ++acc.reads_used_ct;
+                    const double q_ct = (k_ct >= 2)
+                        ? (static_cast<double>(k_ct) * (k_ct - 1)) /
+                          (static_cast<double>(n_ct) * (n_ct - 1))
+                        : 0.0;
+                    for (int d = 1; d <= 10; ++d) {
+                        uint64_t e     = ct_elig_w & (ct_elig_w >> d);
+                        uint64_t pairs = static_cast<uint64_t>(__builtin_popcountll(e));
+                        uint64_t obs   = static_cast<uint64_t>(__builtin_popcountll(e & ct_pos_w & (ct_pos_w >> d)));
+                        acc.pairs_ct[d] += pairs;
+                        acc.obs_ct[d]   += obs;
+                        acc.exp_ct[d]   += static_cast<double>(pairs) * q_ct;
+                        acc.var_ct[d]   += static_cast<double>(pairs) * q_ct * (1.0 - q_ct);
                     }
-                    acc.pairs_ag[d] += pairs;
-                    acc.obs_ag[d]   += obs;
-                    acc.exp_ag[d]   += static_cast<double>(pairs) * q_ag;
-                    acc.var_ag[d]   += static_cast<double>(pairs) * q_ag * (1.0 - q_ag);
+                }
+                if (n_ag >= 2) {
+                    ++acc.reads_used_ag;
+                    const double q_ag = (k_ag >= 2)
+                        ? (static_cast<double>(k_ag) * (k_ag - 1)) /
+                          (static_cast<double>(n_ag) * (n_ag - 1))
+                        : 0.0;
+                    for (int d = 1; d <= 10; ++d) {
+                        uint64_t e     = ag_elig_w & (ag_elig_w >> d);
+                        uint64_t pairs = static_cast<uint64_t>(__builtin_popcountll(e));
+                        uint64_t obs   = static_cast<uint64_t>(__builtin_popcountll(e & ag_pos_w & (ag_pos_w >> d)));
+                        acc.pairs_ag[d] += pairs;
+                        acc.obs_ag[d]   += obs;
+                        acc.exp_ag[d]   += static_cast<double>(pairs) * q_ag;
+                        acc.var_ag[d]   += static_cast<double>(pairs) * q_ag * (1.0 - q_ag);
+                    }
+                }
+            } else {
+                if (n_ct >= 2) {
+                    ++acc.reads_used_ct;
+                    const double q_ct = (k_ct >= 2)
+                        ? (static_cast<double>(k_ct) * (k_ct - 1)) /
+                          (static_cast<double>(n_ct) * (n_ct - 1))
+                        : 0.0;
+                    for (int d = 1; d <= 10; ++d) {
+                        uint64_t pairs = 0, obs = 0;
+                        for (int j = 0; j + d < wlen; ++j) {
+                            if (!ct_elig[j] || !ct_elig[j + d]) continue;
+                            ++pairs;
+                            obs += static_cast<uint64_t>(ct_pos[j] & ct_pos[j + d]);
+                        }
+                        acc.pairs_ct[d] += pairs;
+                        acc.obs_ct[d]   += obs;
+                        acc.exp_ct[d]   += static_cast<double>(pairs) * q_ct;
+                        acc.var_ct[d]   += static_cast<double>(pairs) * q_ct * (1.0 - q_ct);
+                    }
+                }
+                if (n_ag >= 2) {
+                    ++acc.reads_used_ag;
+                    const double q_ag = (k_ag >= 2)
+                        ? (static_cast<double>(k_ag) * (k_ag - 1)) /
+                          (static_cast<double>(n_ag) * (n_ag - 1))
+                        : 0.0;
+                    for (int d = 1; d <= 10; ++d) {
+                        uint64_t pairs = 0, obs = 0;
+                        for (int j = 0; j + d < wlen; ++j) {
+                            if (!ag_elig[j] || !ag_elig[j + d]) continue;
+                            ++pairs;
+                            obs += static_cast<uint64_t>(ag_pos[j] & ag_pos[j + d]);
+                        }
+                        acc.pairs_ag[d] += pairs;
+                        acc.obs_ag[d]   += obs;
+                        acc.exp_ag[d]   += static_cast<double>(pairs) * q_ag;
+                        acc.var_ag[d]   += static_cast<double>(pairs) * q_ag * (1.0 - q_ag);
+                    }
                 }
             }
         } else {
