@@ -7,12 +7,14 @@
 // Invoked via `ctest` after cmake -DTAPH_BUILD_TESTS=ON.
 
 #include "taph/library_interpretation.hpp"
+#include "taph/profile_json.hpp"
 #include "taph/sample_damage_profile.hpp"
 
 #include <cassert>
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <sstream>
 #include <string>
 
 using taph::DamageContextProfile;
@@ -246,6 +248,73 @@ void test_evidence_is_populated() {
     EXPECT(!r.dominant_process_str.empty());
 }
 
+// ── Hexamer confound certification ───────────────────────────────────────────
+// Tests the d3_confounded logic in profile_to_json:
+//   rc_overlap_topk==0  AND  dmg_frac_3 < 0.5  AND  fit_offset_3prime >= 1
+//   => confounded_outputs: ["d_max_3"]
+
+static taph::HexEnrichment make_hex(int idx, double lfc, bool dc) {
+    taph::HexEnrichment h;
+    h.idx              = idx;
+    h.log2fc           = lfc;
+    h.damage_consistent = dc;
+    return h;
+}
+
+void test_circligase_confound_certified() {
+    auto dp = make_base();
+    dp.d_max_5prime  = 0.072f;
+    dp.d_max_3prime  = 0.197f;
+    dp.fit_offset_3prime = 1;
+
+    taph::ProfileJsonInput in;
+    // RC-asymmetric ends (CircLigase signature)
+    in.hex_end_asymmetry.rc_overlap_topk = 0;
+    in.hex_end_asymmetry.rc_excess_jsd   = 0.596;
+    in.hex_end_asymmetry.status          = "ok";
+    // Top 3' hexamers: AAACCC, ATACCC, AGACCC — last base C, not damage-consistent
+    in.top_hex_enriched_3prime = {
+        make_hex(0, 2.45, false),  // AAACCC
+        make_hex(1, 2.41, false),  // ATACCC
+        make_hex(2, 2.28, false),  // AGACCC
+    };
+
+    std::ostringstream out;
+    taph::profile_to_json(dp, out, in);
+    const std::string json = out.str();
+
+    EXPECT(json.find("\"confounded_outputs\": [\"d_max_3\"]") != std::string::npos);
+    EXPECT(json.find("\"rc_overlap_topk\": 0") != std::string::npos);
+    EXPECT(json.find("\"top_damage_consistent_fraction_3prime\": 0") != std::string::npos);
+}
+
+void test_t4_ligase_no_confound() {
+    auto dp = make_base();
+    dp.d_max_5prime  = 0.043f;
+    dp.d_max_3prime  = 0.045f;
+    dp.fit_offset_3prime = 1;
+
+    taph::ProfileJsonInput in;
+    // RC-symmetric ends (T4 ligase signature)
+    in.hex_end_asymmetry.rc_overlap_topk = 4;
+    in.hex_end_asymmetry.rc_excess_jsd   = 0.011;
+    in.hex_end_asymmetry.status          = "ok";
+    // Top 3' hexamers: mixed damage-consistent/not — fraction >= 0.5
+    in.top_hex_enriched_3prime = {
+        make_hex(10, 1.8, true),   // ends in A — damage-consistent
+        make_hex(11, 1.7, true),
+        make_hex(12, 1.6, false),
+        make_hex(13, 1.5, true),
+    };
+
+    std::ostringstream out;
+    taph::profile_to_json(dp, out, in);
+    const std::string json = out.str();
+
+    EXPECT(json.find("\"confounded_outputs\": []") != std::string::npos);
+    EXPECT(json.find("\"rc_overlap_topk\": 4") != std::string::npos);
+}
+
 void test_to_string_covers_all_enumerators() {
     EXPECT(std::string(taph::to_string(D::None)) == "none");
     EXPECT(std::string(taph::to_string(D::LowDamage)) == "low_damage");
@@ -278,6 +347,8 @@ int main() {
     test_exactly_threshold_does_not_fire_gt();
     test_evidence_is_populated();
     test_to_string_covers_all_enumerators();
+    test_circligase_confound_certified();
+    test_t4_ligase_no_confound();
 
     if (failures == 0) {
         std::printf("all DamageContextProfile tests passed\n");
