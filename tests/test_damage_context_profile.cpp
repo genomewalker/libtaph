@@ -315,6 +315,104 @@ void test_t4_ligase_no_confound() {
     EXPECT(json.find("\"rc_overlap_topk\": 4") != std::string::npos);
 }
 
+// ── Fix 1: per-position flatness ─────────────────────────────────────────────
+
+void test_d5_flatness_blunting_suspected() {
+    auto dp = make_base();
+    dp.library_type   = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+    dp.d_max_5prime   = 0.003f;
+    dp.d_max_3prime   = 0.12f;
+    // Set flatness fields directly (normally populated by finalize_sample_profile)
+    dp.d5_profile_flat         = true;
+    dp.d3_profile_flat         = false;
+    dp.d5_max_rate_pos0_4      = 0.002f;
+    dp.d3_max_rate_pos0_4      = 0.11f;
+    dp.d5_profile_var_pos0_9   = 1e-6f;
+    dp.d3_profile_var_pos0_9   = 5e-4f;
+    dp.d5_blunting_suspected   = true;
+
+    taph::ProfileJsonInput in;
+    in.hex_end_asymmetry.rc_overlap_topk = 0;
+    in.hex_end_asymmetry.rc_excess_jsd   = 0.82;
+    in.hex_end_asymmetry.status          = "high";
+
+    std::ostringstream out;
+    taph::profile_to_json(dp, out, in);
+    const std::string json = out.str();
+
+    EXPECT(json.find("\"d5_profile_flat\": true")       != std::string::npos);
+    EXPECT(json.find("\"d3_profile_flat\": false")      != std::string::npos);
+    EXPECT(json.find("\"d5_blunting_suspected\": true") != std::string::npos);
+    // ss_end_asymmetry: d5 suppressed → recommended = d_max_3prime
+    EXPECT(json.find("\"d5_suppressed\": true")                   != std::string::npos);
+    EXPECT(json.find("\"recommended_estimate\": \"d_max_3prime\"") != std::string::npos);
+}
+
+// ── Fix 3: CircLigase selection bias corrects d_max_combined ─────────────────
+
+void test_ss_selection_bias_corrects_combined() {
+    // Typical Ellesmere-style SS sample: rc_overlap_topk=0, d3 >> d5, d5 not flat.
+    // Expected: d_max_combined in JSON = d_max_5prime, source = "5prime_conservative_ss".
+    auto dp = make_base();
+    dp.library_type   = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+    dp.d_max_5prime   = 0.010f;
+    dp.d_max_3prime   = 0.085f;   // d3 > d5 * 1.5  AND  d5 < 0.02
+    dp.d_max_combined = 0.085f;   // as set by MAX_SS_ASYMMETRY branch
+    dp.d_max_source   = SampleDamageProfile::DmaxSource::MAX_SS_ASYMMETRY;
+    dp.d5_profile_flat = false;
+
+    taph::ProfileJsonInput in;
+    in.hex_end_asymmetry.rc_overlap_topk = 0;
+    in.hex_end_asymmetry.rc_excess_jsd   = 0.79;
+    in.hex_end_asymmetry.status          = "high";
+    // damage-consistent 3' hexamers (real deamination, not pure CCC)
+    in.top_hex_enriched_3prime = {
+        make_hex(20, 2.1, true),
+        make_hex(21, 1.9, true),
+        make_hex(22, 1.7, true),
+    };
+
+    std::ostringstream out;
+    taph::profile_to_json(dp, out, in);
+    const std::string json = out.str();
+
+    // Combined must be overridden to d_max_5prime (0.010), not 0.085
+    EXPECT(json.find("\"d_max_combined\": 0.01") != std::string::npos);
+    EXPECT(json.find("\"source\": \"5prime_conservative_ss\"") != std::string::npos);
+    EXPECT(json.find("\"d3_selection_biased\": true")          != std::string::npos);
+    EXPECT(json.find("\"selection_biased_outputs\": [\"d_max_3\"]") != std::string::npos);
+    EXPECT(json.find("\"confounded_outputs\": []")             != std::string::npos);
+    // output_effects.d_max_3 status must be "selection_biased"
+    EXPECT(json.find("\"status\": \"selection_biased\"") != std::string::npos);
+}
+
+void test_ss_symmetric_no_selection_bias() {
+    // Symmetric SS library: d5 ≈ d3, rc_overlap_topk=0 by construction but
+    // the ratio condition (d3 > d5 * 1.5) does not hold → no override.
+    auto dp = make_base();
+    dp.library_type   = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+    dp.d_max_5prime   = 0.068f;
+    dp.d_max_3prime   = 0.075f;
+    dp.d_max_combined = 0.075f;
+    dp.d_max_source   = SampleDamageProfile::DmaxSource::MAX_SS_ASYMMETRY;
+    dp.d5_profile_flat = false;
+
+    taph::ProfileJsonInput in;
+    in.hex_end_asymmetry.rc_overlap_topk = 0;
+    in.hex_end_asymmetry.rc_excess_jsd   = 0.49;
+    in.hex_end_asymmetry.status          = "ok";
+
+    std::ostringstream out;
+    taph::profile_to_json(dp, out, in);
+    const std::string json = out.str();
+
+    // No override — combined stays at 0.075
+    EXPECT(json.find("\"d_max_combined\": 0.075") != std::string::npos);
+    EXPECT(json.find("\"source\": \"max_ss_asymmetry\"") != std::string::npos);
+    EXPECT(json.find("\"d3_selection_biased\": false") != std::string::npos);
+    EXPECT(json.find("\"selection_biased_outputs\": []") != std::string::npos);
+}
+
 void test_to_string_covers_all_enumerators() {
     EXPECT(std::string(taph::to_string(D::None)) == "none");
     EXPECT(std::string(taph::to_string(D::LowDamage)) == "low_damage");
@@ -349,6 +447,9 @@ int main() {
     test_to_string_covers_all_enumerators();
     test_circligase_confound_certified();
     test_t4_ligase_no_confound();
+    test_d5_flatness_blunting_suspected();
+    test_ss_selection_bias_corrects_combined();
+    test_ss_symmetric_no_selection_bias();
 
     if (failures == 0) {
         std::printf("all DamageContextProfile tests passed\n");

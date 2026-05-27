@@ -51,6 +51,23 @@ void profile_to_json(const SampleDamageProfile& dp,
 
     const bool is_ss = (dp.library_type == SP::LibraryType::SINGLE_STRANDED);
 
+    // ── Pre-compute CircLigase selection-bias diagnostics ─────────────────────
+    // These must be available before the deamination block (line ~148) and the
+    // diagnostic_groups block (~line 1076), so they are computed once here.
+    const HexEndAsymmetry& hea_early = in.hex_end_asymmetry;
+    const bool d5_suppressed_early    = dp.d5_profile_flat && (dp.d_max_3prime >= 0.05f);
+    const bool d3_selection_biased_early = is_ss
+                                        && (hea_early.rc_overlap_topk == 0)
+                                        && (dp.d_max_3prime > dp.d_max_5prime * 1.5f)
+                                        && (dp.d_max_5prime < 0.02f)
+                                        && !d5_suppressed_early;
+    float d_max_combined_out = dp.d_max_combined;
+    const char* source_str_out = dp.d_max_source_str();
+    if (d3_selection_biased_early) {
+        d_max_combined_out = dp.d_max_5prime;
+        source_str_out = "5prime_conservative_ss";
+    }
+
     // ── Pre-compute all derived scores ────────────────────────────────────────
     auto cpg     = compute_cpg_score(dp);
     auto oxog_is = compute_oxog_interior_score(dp);
@@ -145,9 +162,9 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "  \"deamination\": {\n";
     j << "    \"d_max_5prime\": " << std::setprecision(6) << dp.d_max_5prime << ",\n";
     j << "    \"d_max_3prime\": " << dp.d_max_3prime << ",\n";
-    j << "    \"d_max_combined\": " << dp.d_max_combined << ",\n";
+    j << "    \"d_max_combined\": " << d_max_combined_out << ",\n";
     j << "    \"d_metamatch\": " << dp.d_metamatch << ",\n";
-    j << "    \"source\": \"" << dp.d_max_source_str() << "\",\n";
+    j << "    \"source\": \"" << source_str_out << "\",\n";
     j << "    \"lambda_5prime\": " << dp.lambda_5prime << ",\n";
     j << "    \"lambda_3prime\": " << dp.lambda_3prime << ",\n";
     j << "    \"bg_5prime\": " << dp.fit_baseline_5prime << ",\n";
@@ -1081,6 +1098,18 @@ void profile_to_json(const SampleDamageProfile& dp,
                           && (dp.fit_offset_3prime >= 1);
         bool d3_corrected  = !d3_confounded && dp.fit_offset_3prime >= 1;
 
+        // Aliases so code below reads clearly (pre-computed at function top).
+        const bool d5_suppressed        = d5_suppressed_early;
+        const bool d3_selection_biased  = d3_selection_biased_early;
+        // Both ends unusable: d5 blunted AND d3 also flat (no real decay anywhere).
+        const bool no_reliable_estimate = is_ss
+                                       && (hea.rc_overlap_topk == 0)
+                                       && d5_suppressed
+                                       && dp.d3_profile_flat;
+        const bool ss_extreme_asym = is_ss && (hea.rc_overlap_topk == 0)
+                                  && ((dp.d_max_5prime < 0.01f && dp.d_max_3prime > 0.05f)
+                                   || (dp.d_max_3prime < 0.01f && dp.d_max_5prime > 0.05f));
+
         j << "    \"diagnostic_groups\": {\n";
 
         // adapter_position_effects
@@ -1105,7 +1134,9 @@ void profile_to_json(const SampleDamageProfile& dp,
         }
         j << "],\n";
         j << "        \"residual_outputs\": [\"position0_base_composition\"],\n";
-        j << "        \"confounded_outputs\": [" << (d3_confounded ? "\"d_max_3\"" : "") << "]\n";
+        j << "        \"confounded_outputs\": [" << (d3_confounded ? "\"d_max_3\"" : "") << "],\n";
+        j << "        \"selection_biased_outputs\": [" << (d3_selection_biased ? "\"d_max_3\"" : "") << "],\n";
+        j << "        \"suspect_outputs\": [" << (ss_extreme_asym ? "\"d_max_combined\"" : "") << "]\n";
         j << "      },\n";
 
         // terminal_hexamer_bias
@@ -1136,20 +1167,73 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "        \"terminal_excess_mass_3prime\": " << hea.excess_mass_3prime << ",\n";
         j << "        \"terminal_hexamer_n_5prime\": " << hea.n_5prime << ",\n";
         j << "        \"terminal_hexamer_n_3prime\": " << hea.n_3prime << "\n";
-        j << "      }\n";
+        j << "      },\n";
+
+        // end_damage_profile: per-position decay flatness diagnostics.
+        // d5_profile_flat / d3_profile_flat indicate the end signal is indistinguishable
+        // from noise — likely library construction erasure, not genuinely zero damage.
+        j << "      \"end_damage_profile\": {\n";
+        j << "        \"d5_profile_flat\": " << (dp.d5_profile_flat ? "true" : "false") << ",\n";
+        j << "        \"d3_profile_flat\": " << (dp.d3_profile_flat ? "true" : "false") << ",\n";
+        j << std::setprecision(6);
+        j << "        \"d5_max_rate_pos0_4\": " << dp.d5_max_rate_pos0_4 << ",\n";
+        j << "        \"d3_max_rate_pos0_4\": " << dp.d3_max_rate_pos0_4 << ",\n";
+        j << "        \"d5_var_pos0_9\": " << dp.d5_profile_var_pos0_9 << ",\n";
+        j << "        \"d3_var_pos0_9\": " << dp.d3_profile_var_pos0_9 << ",\n";
+        j << "        \"d5_amp_over_bg\": " << (dp.fit_baseline_5prime > 1e-4f
+              ? dp.fit_amplitude_5prime / dp.fit_baseline_5prime : 0.0f) << ",\n";
+        j << "        \"d3_amp_over_bg\": " << (dp.fit_baseline_3prime > 1e-4f
+              ? dp.fit_amplitude_3prime / dp.fit_baseline_3prime : 0.0f) << ",\n";
+        j << "        \"d5_blunting_suspected\": " << (dp.d5_blunting_suspected ? "true" : "false") << "\n";
+        j << "      }" << (is_ss ? "," : "") << "\n";
+
+        // ss_end_asymmetry: CircLigase selection bias and extreme 5'/3' asymmetry.
+        // Only emitted for SS libraries (CircLigase is the relevant ligation chemistry).
+        if (is_ss) {
+            const char* recommended =
+                no_reliable_estimate ? "none" :
+                d5_suppressed        ? "d_max_3prime" :
+                d3_selection_biased  ? "d_max_5prime" :
+                (dp.d_max_5prime < 0.01f && dp.d_max_3prime > 0.05f) ? "d_max_3prime" :
+                (dp.d_max_3prime < 0.01f && dp.d_max_5prime > 0.05f) ? "d_max_5prime" :
+                "none";
+
+            const char* note =
+                no_reliable_estimate ? "d5 suppressed by 5' blunting and d3 selection-biased; no reliable population estimate" :
+                d5_suppressed        ? "d5 flat — 5' overhang likely blunted before adapter ligation; d3 is best available" :
+                d3_selection_biased  ? "d3 inflated by CircLigase selection of deaminated 3' termini; d5 is conservative estimate" :
+                ss_extreme_asym      ? "extreme 5'/3' asymmetry in SS library; interpret both ends with caution" :
+                "";
+
+            j << "      \"ss_end_asymmetry\": {\n";
+            j << "        \"d5_suppressed\": " << (d5_suppressed ? "true" : "false") << ",\n";
+            j << "        \"d3_selection_biased\": " << (d3_selection_biased ? "true" : "false") << ",\n";
+            j << "        \"no_reliable_estimate\": " << (no_reliable_estimate ? "true" : "false") << ",\n";
+            j << "        \"recommended_estimate\": \"" << recommended << "\",\n";
+            j << "        \"note\": \"" << note << "\"\n";
+            j << "      }\n";
+        }
+
         j << "    },\n";
 
         // output_effects summary (d_max_3 certification)
         j << "    \"output_effects\": {\n";
         j << "      \"d_max_3\": {\n";
-        j << "        \"status\": \"" << (d3_confounded ? "confounded" : (d3_corrected ? "corrected" : "residual")) << "\",\n";
-        j << "        \"evidence\": [";
-        if (d3_confounded) {
-            j << "\"top_damage_consistent_fraction_3prime\",\"rc_overlap_topk\"";
-        } else if (d3_corrected) {
-            j << "\"adapter_offset_3prime\"";
+        {
+            const char* d3_status = d3_confounded       ? "confounded" :
+                                    d3_selection_biased  ? "selection_biased" :
+                                    d3_corrected         ? "corrected" : "residual";
+            j << "        \"status\": \"" << d3_status << "\",\n";
+            j << "        \"evidence\": [";
+            if (d3_confounded) {
+                j << "\"top_damage_consistent_fraction_3prime\",\"rc_overlap_topk\"";
+            } else if (d3_selection_biased) {
+                j << "\"rc_overlap_topk\",\"d_max_3prime_over_d_max_5prime\"";
+            } else if (d3_corrected) {
+                j << "\"adapter_offset_3prime\"";
+            }
+            j << "]\n";
         }
-        j << "]\n";
         j << "      }\n";
         j << "    },\n";
 

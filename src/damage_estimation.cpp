@@ -4536,6 +4536,40 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
     }
 
+    // Per-position flatness diagnostics.
+    // A profile is "flat" when max excess rate over positions 0-4 is < 0.005 AND
+    // variance over positions 0-9 is < 2.5e-5 (stddev < 0.005 across all positions).
+    // This distinguishes genuine-zero damage from attenuated-but-real decay — the
+    // latter always leaves a decaying residual above noise at position 0-2.
+    {
+        auto compute_flatness = [](const std::array<float,15>& rate)
+            -> std::tuple<bool,float,float>
+        {
+            float maxrate = 0.0f;
+            for (int p = 0; p <= 4; ++p) maxrate = std::max(maxrate, rate[p]);
+            double mean = 0.0;
+            for (int p = 0; p <= 9; ++p) mean += rate[p];
+            mean /= 10.0;
+            double var = 0.0;
+            for (int p = 0; p <= 9; ++p) { double d = rate[p] - mean; var += d * d; }
+            var /= 10.0;
+            bool flat = (maxrate < 0.005f) && (var < 2.5e-5);
+            return {flat, maxrate, static_cast<float>(var)};
+        };
+
+        auto [flat5, max5, var5] = compute_flatness(profile.damage_rate_5prime);
+        auto [flat3, max3, var3] = compute_flatness(profile.damage_rate_3prime);
+
+        profile.d5_profile_flat       = flat5;
+        profile.d3_profile_flat       = flat3;
+        profile.d5_max_rate_pos0_4    = max5;
+        profile.d3_max_rate_pos0_4    = max3;
+        profile.d5_profile_var_pos0_9 = var5;
+        profile.d3_profile_var_pos0_9 = var3;
+        // Blunting suspected: 5' completely flat while 3' shows real decay
+        profile.d5_blunting_suspected = flat5 && !flat3 && (profile.d_max_3prime >= 0.05f);
+    }
+
     // d_metamatch: Channel B-anchored estimate.
     // Formula: d_metamatch = d_global + γ × (d_channel_b - d_global)
     // γ from Channel B LLR; blends toward Channel B for validated samples.

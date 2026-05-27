@@ -494,21 +494,38 @@ struct SampleDamageProfile {
     float asymmetry = 0.0f;  // |D_5p - D_3p| / ((D_5p + D_3p) / 2)
     bool high_asymmetry = false;  // True if asymmetry > 0.5 (possible artifact)
 
+    // Per-position decay flatness metrics (populated in finalize_sample_profile).
+    // A flat profile (max rate < 0.005 AND variance < 2.5e-5 over positions 0-9)
+    // indicates the end signal is indistinguishable from noise — suggesting library
+    // construction erasure (5' blunting) rather than genuinely zero ancient damage.
+    bool  d5_profile_flat         = false;
+    bool  d3_profile_flat         = false;
+    float d5_max_rate_pos0_4      = 0.0f;  // max excess C→T over positions 0-4
+    float d3_max_rate_pos0_4      = 0.0f;  // max excess rate over positions 0-4
+    float d5_profile_var_pos0_9   = 0.0f;  // variance of rate over positions 0-9
+    float d3_profile_var_pos0_9   = 0.0f;
+    // d5 flat while d3 has real decay → 5' overhang blunted before adapter ligation
+    bool  d5_blunting_suspected   = false;
+
     // Track source of d_max_combined estimate
-    enum class DmaxSource { AVERAGE, MIN_ASYMMETRY, MAX_SS_ASYMMETRY, FIVE_PRIME_ONLY, THREE_PRIME_ONLY, CHANNEL_B_STRUCTURAL, CHANNEL_B3_STRUCTURAL, NONE };
+    enum class DmaxSource { AVERAGE, MIN_ASYMMETRY, MAX_SS_ASYMMETRY,
+                            FIVE_PRIME_ONLY, THREE_PRIME_ONLY,
+                            FIVE_PRIME_CONSERVATIVE_SS,
+                            CHANNEL_B_STRUCTURAL, CHANNEL_B3_STRUCTURAL, NONE };
     DmaxSource d_max_source = DmaxSource::AVERAGE;
 
     const char* d_max_source_str() const {
         switch (d_max_source) {
-            case DmaxSource::AVERAGE: return "average";
-            case DmaxSource::MIN_ASYMMETRY: return "min_asymmetry";
-            case DmaxSource::MAX_SS_ASYMMETRY: return "max_ss_asymmetry";
-            case DmaxSource::FIVE_PRIME_ONLY: return "5prime_only";
-            case DmaxSource::THREE_PRIME_ONLY: return "3prime_only";
-            case DmaxSource::CHANNEL_B_STRUCTURAL: return "channel_b_structural";
-            case DmaxSource::CHANNEL_B3_STRUCTURAL: return "channel_b3_structural";
-            case DmaxSource::NONE: return "none";
-            default: return "unknown";
+            case DmaxSource::AVERAGE:                  return "average";
+            case DmaxSource::MIN_ASYMMETRY:            return "min_asymmetry";
+            case DmaxSource::MAX_SS_ASYMMETRY:         return "max_ss_asymmetry";
+            case DmaxSource::FIVE_PRIME_ONLY:          return "5prime_only";
+            case DmaxSource::THREE_PRIME_ONLY:         return "3prime_only";
+            case DmaxSource::FIVE_PRIME_CONSERVATIVE_SS: return "5prime_conservative_ss";
+            case DmaxSource::CHANNEL_B_STRUCTURAL:     return "channel_b_structural";
+            case DmaxSource::CHANNEL_B3_STRUCTURAL:    return "channel_b3_structural";
+            case DmaxSource::NONE:                     return "none";
+            default:                                   return "unknown";
         }
     }
 
