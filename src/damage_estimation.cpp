@@ -1332,6 +1332,23 @@ void FrameSelector::update_sample_profile(
                 profile.n_hexamers_interior++;
             }
         }
+
+        // 3' terminal hexamer (last 6 bases of read)
+        char hex_3prime[7];
+        bool valid_3prime = true;
+        for (int i = 0; i < 6; ++i) {
+            char b = decoded[len - 6 + i];
+            if (b != 'A' && b != 'C' && b != 'G' && b != 'T') { valid_3prime = false; break; }
+            hex_3prime[i] = b;
+        }
+        hex_3prime[6] = '\0';
+        if (valid_3prime) {
+            uint32_t code_3prime = encode_hexamer(hex_3prime);
+            if (code_3prime < 4096) {
+                profile.hexamer_count_3prime[code_3prime] += 1.0;
+                profile.n_hexamers_3prime++;
+            }
+        }
     }
 
     // Interior clustered C→T: excess co-occurrence of T at non-CpG {C,T} sites
@@ -4861,6 +4878,7 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
     for (uint32_t i = 0; i < 4096; ++i) {
         dst.hexamer_count_5prime[i] += src.hexamer_count_5prime[i];
         dst.hexamer_count_interior[i] += src.hexamer_count_interior[i];
+        dst.hexamer_count_3prime[i] += src.hexamer_count_3prime[i];
         dst.ca_pre_terminal_by_pfx[i]          += src.ca_pre_terminal_by_pfx[i];
         dst.ca_stop_terminal_by_pfx[i]         += src.ca_stop_terminal_by_pfx[i];
         dst.ca_deam_shadow_terminal_by_pfx[i]  += src.ca_deam_shadow_terminal_by_pfx[i];
@@ -4879,6 +4897,7 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
     }
     dst.n_hexamers_5prime += src.n_hexamers_5prime;
     dst.n_hexamers_interior += src.n_hexamers_interior;
+    dst.n_hexamers_3prime += src.n_hexamers_3prime;
 
     for (int i = 0; i < 15; ++i) {
         dst.convertible_caa_5prime[i] += src.convertible_caa_5prime[i];
@@ -5256,6 +5275,23 @@ bool FrameSelector::update_sample_profile_paired(
                 profile.n_hexamers_interior++;
             }
         }
+
+        // 3' terminal hexamer (last 6 bases of read)
+        char hex_3prime[7];
+        bool valid_3prime = true;
+        for (int i = 0; i < 6; ++i) {
+            char b = fast_upper(r1[l1 - 6 + i]);
+            if (b != 'A' && b != 'C' && b != 'G' && b != 'T') { valid_3prime = false; break; }
+            hex_3prime[i] = b;
+        }
+        hex_3prime[6] = '\0';
+        if (valid_3prime) {
+            uint32_t code = encode_hexamer(hex_3prime);
+            if (code < 4096) {
+                profile.hexamer_count_3prime[code] += 1.0;
+                profile.n_hexamers_3prime++;
+            }
+        }
     }
 
     profile.n_reads++;
@@ -5566,8 +5602,10 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
 
     profile.hexamer_count_5prime.fill(0.0);
     profile.hexamer_count_interior.fill(0.0);
+    profile.hexamer_count_3prime.fill(0.0);
     profile.n_hexamers_5prime = 0;
     profile.n_hexamers_interior = 0;
+    profile.n_hexamers_3prime = 0;
     profile.hexamer_damage_llr = 0.0f;
 
     profile.convertible_caa_5prime.fill(0.0);

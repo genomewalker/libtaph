@@ -103,6 +103,30 @@ std::vector<HexEnrichment> compute_hex_enriched_5prime(
     return out;
 }
 
+std::vector<HexEnrichment> compute_hex_enriched_3prime(
+        const SampleDamageProfile& dp, float lfc_threshold) {
+    std::vector<HexEnrichment> out;
+    double tot_t = static_cast<double>(dp.n_hexamers_3prime);
+    double tot_i = static_cast<double>(dp.n_hexamers_interior);
+    if (tot_t <= 0 || tot_i <= 0) return out;
+    for (int i = 0; i < 4096; ++i) {
+        double t = dp.hexamer_count_3prime[i];
+        double q = dp.hexamer_count_interior[i];
+        if (t < 20.0 || q < 20.0) continue;
+        double lfc = std::log2((t / tot_t + 1e-12) / (q / tot_i + 1e-12));
+        if (lfc > static_cast<double>(lfc_threshold)) {
+            auto seq = decode_hex(i);
+            out.push_back({i, lfc, seq[5] == 'A'});  // damage_consistent = last base 'A' (G→A)
+        }
+    }
+    std::sort(out.begin(), out.end(),
+              [](const HexEnrichment& a, const HexEnrichment& b) {
+                  if (a.log2fc != b.log2fc) return a.log2fc > b.log2fc;
+                  return a.idx < b.idx;
+              });
+    return out;
+}
+
 AdapterStubs detect_adapter_stubs(
         const SampleDamageProfile& dp,
         const uint32_t hex3_terminal[4096],
@@ -130,6 +154,7 @@ AdapterStubs detect_adapter_stubs(
     }
 
     r.top_enriched = std::move(enriched);
+    r.top_enriched_3prime = compute_hex_enriched_3prime(dp, 1.5f);
 
     // 3' stubs: only when 5' adapter stubs exist (gating avoids false positives
     // on SS libraries where 3' enrichment is genuine G→A signal)
@@ -366,6 +391,96 @@ DamageMask compute_damage_mask(const SampleDamageProfile& dp,
         r.masked_str += std::to_string(p);
         ++r.n_masked;
     }
+    return r;
+}
+
+// ── End hexamer asymmetry ─────────────────────────────────────────────────────
+
+static int rc_hex_code(int h) {
+    int rc = 0;
+    for (int i = 0; i < 6; ++i) {
+        int base = h & 3;
+        h >>= 2;
+        rc = (rc << 2) | (3 - base);
+    }
+    return rc;
+}
+
+static double jsd_pair(const double* p, const double* q, int n) {
+    double jsd = 0.0;
+    for (int i = 0; i < n; ++i) {
+        double m = 0.5 * (p[i] + q[i]);
+        if (p[i] > 0.0) jsd += 0.5 * p[i] * std::log2(p[i] / m);
+        if (q[i] > 0.0) jsd += 0.5 * q[i] * std::log2(q[i] / m);
+    }
+    return std::max(0.0, std::min(1.0, jsd));
+}
+
+HexEndAsymmetry compute_hex_end_asymmetry(
+        const SampleDamageProfile&        dp,
+        const std::vector<HexEnrichment>& top5,
+        const std::vector<HexEnrichment>& top3,
+        int topk) {
+    HexEndAsymmetry r;
+    r.n_5prime = dp.n_hexamers_5prime;
+    r.n_3prime = dp.n_hexamers_3prime;
+    r.topk     = topk;
+
+    double tot5 = static_cast<double>(dp.n_hexamers_5prime);
+    double tot3 = static_cast<double>(dp.n_hexamers_3prime);
+    double toti = static_cast<double>(dp.n_hexamers_interior);
+    if (tot5 <= 0.0 || tot3 <= 0.0 || toti <= 0.0) {
+        r.status = "insufficient_excess";
+        return r;
+    }
+
+    static constexpr int N = 4096;
+    double E5[N], E3[N];
+    double sum_E5 = 0.0, sum_E3 = 0.0;
+    for (int i = 0; i < N; ++i) {
+        double p5 = dp.hexamer_count_5prime[i]   / tot5;
+        double p3 = dp.hexamer_count_3prime[i]   / tot3;
+        double pi = dp.hexamer_count_interior[i] / toti;
+        E5[i] = std::max(0.0, p5 - pi);
+        E3[i] = std::max(0.0, p3 - pi);
+        sum_E5 += E5[i];
+        sum_E3 += E3[i];
+    }
+
+    r.excess_mass_5prime = sum_E5;
+    r.excess_mass_3prime = sum_E3;
+
+    static constexpr double kMinExcess = 1e-4;
+    if (sum_E5 < kMinExcess || sum_E3 < kMinExcess) {
+        r.status = "insufficient_excess";
+        return r;
+    }
+
+    double En5[N], En3[N];
+    for (int i = 0; i < N; ++i) { En5[i] = E5[i] / sum_E5; En3[i] = E3[i] / sum_E3; }
+
+    r.fwd_excess_jsd = jsd_pair(En5, En3, N);
+
+    double Enc3[N] = {};
+    for (int i = 0; i < N; ++i) Enc3[rc_hex_code(i)] = En3[i];
+
+    r.rc_excess_jsd = jsd_pair(En5, Enc3, N);
+
+    int k = topk;
+    if ((int)top5.size() < k) k = (int)top5.size();
+    if ((int)top3.size() < k) k = (int)top3.size();
+    r.topk = k;
+    if (k > 0) {
+        int overlap = 0;
+        for (int i = 0; i < k; ++i) {
+            int c5 = top5[i].idx;
+            for (int j = 0; j < k; ++j)
+                if (rc_hex_code(top3[j].idx) == c5) { ++overlap; break; }
+        }
+        r.rc_overlap_topk = overlap;
+    }
+
+    r.status = "ok";
     return r;
 }
 

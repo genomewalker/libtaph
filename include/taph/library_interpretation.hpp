@@ -28,6 +28,12 @@ std::vector<HexEnrichment> compute_hex_enriched_5prime(
     const SampleDamageProfile& dp,
     float lfc_threshold = 1.5f);
 
+// Same as above but for the 3' terminal hexamers (last 6 bases).
+// damage_consistent = last base is 'A' (G→A deamination at 3' terminus).
+std::vector<HexEnrichment> compute_hex_enriched_3prime(
+    const SampleDamageProfile& dp,
+    float lfc_threshold = 1.5f);
+
 // ── Protocol-tag table ────────────────────────────────────────────────────────
 // Library-prep chemistry leaves a deterministic 5' oligo footprint at the start
 // of every read. The dominant 5' hexamer is therefore a chemistry fingerprint:
@@ -50,7 +56,8 @@ struct AdapterStubs {
     bool adapter_clipped   = false;            // 5' stubs present
     bool adapter3_clipped  = false;            // 3' stubs present
     bool flag_hex_artifact = false;            // non-T-leading 5' enrichment
-    std::vector<HexEnrichment> top_enriched;   // top hexamers from dp (post-clip)
+    std::vector<HexEnrichment> top_enriched;        // top 5' hexamers (terminal vs interior)
+    std::vector<HexEnrichment> top_enriched_3prime; // top 3' hexamers (terminal vs interior)
 };
 
 // Detect 5' adapter stubs from dp.hexamer_count_5prime vs interior,
@@ -75,6 +82,28 @@ struct HexStats {
 
 // Compute hexamer entropy, JSD, and multinomial G-test (terminal vs interior).
 HexStats compute_hex_stats(const SampleDamageProfile& dp);
+
+// ── End hexamer asymmetry ─────────────────────────────────────────────────────
+// Compares 5' terminal excess against reverse-complemented 3' terminal excess.
+// Low rc_excess_jsd = ends carry RC-complementary 6-mer families (DS-like).
+// High rc_excess_jsd = ends carry independent 6-mer families (SS-ligation-like).
+struct HexEndAsymmetry {
+    double      rc_excess_jsd      = std::numeric_limits<double>::quiet_NaN();
+    double      fwd_excess_jsd     = std::numeric_limits<double>::quiet_NaN();
+    double      excess_mass_5prime = 0.0;
+    double      excess_mass_3prime = 0.0;
+    size_t      n_5prime           = 0;
+    size_t      n_3prime           = 0;
+    int         rc_overlap_topk    = -1;   // -1 = not computed
+    int         topk               = 0;
+    const char* status             = "ok"; // "ok" | "insufficient_excess"
+};
+
+HexEndAsymmetry compute_hex_end_asymmetry(
+    const SampleDamageProfile&       dp,
+    const std::vector<HexEnrichment>& top5,
+    const std::vector<HexEnrichment>& top3,
+    int topk = 5);
 
 // ── Score functions (pure functions of finalized SampleDamageProfile) ─────────
 

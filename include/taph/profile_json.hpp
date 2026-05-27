@@ -19,6 +19,8 @@ struct ProfileJsonInput {
     std::vector<std::string>  adapter_stubs_5prime;
     std::vector<std::string>  adapter_stubs_3prime;
     std::vector<HexEnrichment> top_hex_enriched;
+    std::vector<HexEnrichment> top_hex_enriched_3prime;
+    HexEndAsymmetry            hex_end_asymmetry;
     bool adapter_clipped    = false;
     bool adapter3_clipped   = false;
     bool flag_hex_artifact  = false;

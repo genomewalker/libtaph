@@ -533,10 +533,12 @@ struct SampleDamageProfile {
     // Track hexamer counts at 5' terminal positions (first 6 bases)
     // For each hexamer, we count occurrences at terminal vs interior positions
     // C→T damage should show excess T-hexamers at terminals relative to expected
-    std::array<double, 4096> hexamer_count_5prime = {};  // Hexamer counts at 5' (pos 0-5)
-    std::array<double, 4096> hexamer_count_interior = {}; // Hexamer counts at interior
+    std::array<double, 4096> hexamer_count_5prime = {};   // Hexamer counts at 5' (pos 0-5)
+    std::array<double, 4096> hexamer_count_interior = {};  // Hexamer counts at interior
+    std::array<double, 4096> hexamer_count_3prime = {};    // Hexamer counts at 3' (last 6 bases)
     size_t n_hexamers_5prime = 0;    // Total hexamers counted at 5' terminal
     size_t n_hexamers_interior = 0;  // Total hexamers counted at interior
+    size_t n_hexamers_3prime = 0;    // Total hexamers counted at 3' terminal
 
     // Hexamer-based T/(T+C) ratios (more reliable than position 0 or 1 alone)
     // These average positions 1-6 and are less affected by first-base artifacts

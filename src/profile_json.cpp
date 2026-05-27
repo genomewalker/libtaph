@@ -66,10 +66,7 @@ void profile_to_json(const SampleDamageProfile& dp,
                        cpg.z, hs.shift_z,
                        in.adapter_clipped, in.adapter3_clipped,
                        in.flag_hex_artifact);
-    auto qcf     = compute_library_qc_flags(dp, is_ss,
-                       in.flag_hex_artifact,
-                       hs.jsd, hs.entropy_terminal,
-                       in.short_read_frac);
+
 
     // Artifact reasons
     std::vector<const char*> artifact_reasons;
@@ -613,6 +610,198 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "  },\n";
     }
 
+    // ── Per-position substitution rates (all 12 types) ────────────────────────
+    // rate(X→Y, pos) = alt/(ref+alt) collapsed over flanking context.
+    // Allows detection of damage types beyond C→T/G→A: AP-site A-rule (G→T
+    // elevated at internal positions), CPD-like dipyrimidine patterns, etc.
+    // pos 0 = read terminus; rate = -1 when ref+alt counts are zero.
+    {
+        static constexpr struct { int from; int to; const char* name; } SUBS[12] = {
+            {1,3,"CT"},{1,0,"CA"},{1,2,"CG"},
+            {2,0,"GA"},{2,3,"GT"},{2,1,"GC"},
+            {3,1,"TC"},{3,0,"TA"},{3,2,"TG"},
+            {0,2,"AG"},{0,3,"AT"},{0,1,"AC"},
+        };
+
+        auto emit_end = [&](const char* end_key,
+                            const std::array<std::array<uint64_t,64>,15>& pos_arr) {
+            j << "    \"" << end_key << "\": {\n";
+            for (int s = 0; s < 12; ++s) {
+                int F = SUBS[s].from, T = SUBS[s].to;
+                j << "      \"" << SUBS[s].name << "\": [";
+                for (int p = 0; p < 15; ++p) {
+                    uint64_t nf = 0, nt = 0;
+                    for (int prev = 0; prev < 4; ++prev)
+                        for (int next = 0; next < 4; ++next) {
+                            nf += pos_arr[p][prev*16 + F*4 + next];
+                            nt += pos_arr[p][prev*16 + T*4 + next];
+                        }
+                    double r = (nf + nt > 0) ? (double)nt / (nf + nt) : -1.0;
+                    j << std::fixed << std::setprecision(6) << r;
+                    if (p < 14) j << ",";
+                }
+                j << "]" << (s < 11 ? "," : "") << "\n";
+            }
+            j << "    }";
+        };
+
+        j << "  \"substitution_pos_profiles\": {\n";
+        j << "    \"n_positions\": " << SampleDamageProfile::N_POS_TRI << ",\n";
+        emit_end("5prime", dp.tri_5prime_pos);
+        j << ",\n";
+        emit_end("3prime", dp.tri_3prime_pos);
+        j << "\n  },\n";
+    }
+
+    // ── Per-channel damage statistics ─────────────────────────────────────────
+    // Three improvements over fixed-window terminal-vs-interior:
+    //
+    // 1. Adaptive interior baseline: plateau onset detected from C→T profile
+    //    per library, not assumed at fixed positions 10-14. Fast-decay libraries
+    //    plateau at pos 3; slow-decay or low-damage libraries may not plateau by
+    //    14. Uses tail positions 9-14 as anchor; finds first p≥3 where 3
+    //    consecutive positions are within 3σ of the tail mean.
+    //
+    // 2. Per-channel decay lambda: weighted log-linear fit of excess vs position
+    //    for each substitution type independently. lambda_ratio_vs_ct < 1 means
+    //    flatter than deamination (AP-site A-rule, oxidative internal damage);
+    //    > 1 means steeper (very terminal-concentrated). Divergent shape is the
+    //    primary evidence for a damage type with different geometry.
+    //
+    // 3. Coupled donor/acceptor balance: for X→Y signal, checks that FROM is
+    //    depleted AND TO is enriched at terminal vs interior in proportion. A
+    //    real substitution-like signal has balance ≈ 1.0; endpoint composition
+    //    selection produces imbalance (more enrichment than depletion, or vice
+    //    versa). balance = -1 when either side is non-positive.
+    {
+        static constexpr struct { int from; int to; const char* name; } SUBS12[12] = {
+            {1,3,"CT"},{1,0,"CA"},{1,2,"CG"},
+            {2,0,"GA"},{2,3,"GT"},{2,1,"GC"},
+            {3,1,"TC"},{3,0,"TA"},{3,2,"TG"},
+            {0,2,"AG"},{0,3,"AT"},{0,1,"AC"},
+        };
+
+        // Marginal per-position rate for FROM→TO collapsed over flanking context
+        auto pos_rates = [](const std::array<std::array<uint64_t,64>,15>& arr,
+                            int F, int T, std::array<double,15>& out) {
+            for (int p = 0; p < 15; ++p) {
+                uint64_t nf = 0, nt = 0;
+                for (int pv = 0; pv < 4; ++pv)
+                    for (int nx = 0; nx < 4; ++nx) {
+                        nf += arr[p][pv*16 + F*4 + nx];
+                        nt += arr[p][pv*16 + T*4 + nx];
+                    }
+                out[p] = (nf + nt > 0) ? (double)nt / (nf + nt) : -1.0;
+            }
+        };
+
+        // Adaptive plateau start: first p≥3 where 3 consecutive positions
+        // are within max(0.005, 3σ) of the positions-9-14 tail mean.
+        auto find_plateau = [](const std::array<double,15>& rates) -> int {
+            double tail = 0.0, tail2 = 0.0; int n = 0;
+            for (int p = 9; p < 15; ++p)
+                if (rates[p] >= 0) { tail += rates[p]; tail2 += rates[p]*rates[p]; n++; }
+            if (n < 2) return 5;
+            tail /= n;
+            double var = std::max(0.0, tail2/n - tail*tail);
+            double tol = std::max(0.005, 3.0 * std::sqrt(var));
+            for (int p = 3; p < 12; ++p) {
+                if (rates[p] < 0) continue;
+                bool ok = true;
+                for (int q = p; q < std::min(p+3, 15); ++q)
+                    if (rates[q] >= 0 && std::abs(rates[q] - tail) > tol) { ok=false; break; }
+                if (ok) return p;
+            }
+            return 5;
+        };
+
+        auto interior_mean = [](const std::array<double,15>& r, int plat) -> double {
+            double s = 0.0; int n = 0;
+            for (int p = plat; p < 15; ++p) if (r[p] >= 0) { s += r[p]; n++; }
+            return n > 0 ? s/n : -1.0;
+        };
+
+        // Weighted log-linear OLS: log(excess) = log(A) - lambda*p, w = excess.
+        auto fit_lambda = [](const std::array<double,15>& rates, int plat, double bg) -> double {
+            double sw=0,swx=0,swy=0,swxx=0,swxy=0;
+            for (int p = 1; p < plat; ++p) {
+                if (rates[p] < 0) continue;
+                double ex = rates[p] - bg;
+                if (ex < 1e-4) continue;
+                double lx = std::log(ex);
+                sw+=ex; swx+=ex*p; swy+=ex*lx; swxx+=ex*p*p; swxy+=ex*p*lx;
+            }
+            if (sw < 1e-12) return -1.0;
+            double det = sw*swxx - swx*swx;
+            if (std::abs(det) < 1e-18) return -1.0;
+            return -(sw*swxy - swx*swy) / det;
+        };
+
+        // Coupled balance: donor_depletion(FROM) / acceptor_enrichment(TO)
+        // over terminal zone [0, min(3,plat-1)] vs interior zone [plat,15).
+        auto coupled_bal = [](const std::array<std::array<uint64_t,64>,15>& arr,
+                              int F, int T, int plat) -> double {
+            uint64_t tc[4]{}, ic[4]{};
+            for (int p = 0; p <= std::min(3, plat-1); ++p)
+                for (int b = 0; b < 4; ++b)
+                    for (int pv = 0; pv < 4; ++pv)
+                        for (int nx = 0; nx < 4; ++nx)
+                            tc[b] += arr[p][pv*16 + b*4 + nx];
+            for (int p = plat; p < 15; ++p)
+                for (int b = 0; b < 4; ++b)
+                    for (int pv = 0; pv < 4; ++pv)
+                        for (int nx = 0; nx < 4; ++nx)
+                            ic[b] += arr[p][pv*16 + b*4 + nx];
+            uint64_t tt=tc[0]+tc[1]+tc[2]+tc[3], it=ic[0]+ic[1]+ic[2]+ic[3];
+            if (!tt || !it) return -1.0;
+            double depl   = (double)ic[F]/it - (double)tc[F]/tt;
+            double enrich = (double)tc[T]/tt  - (double)ic[T]/it;
+            if (depl <= 0.0 || enrich <= 0.0) return -1.0;
+            return depl / enrich;
+        };
+
+        auto emit_dcs_end = [&](const char* end_key,
+                                const std::array<std::array<uint64_t,64>,15>& arr) {
+            std::array<double,15> ct_r;
+            pos_rates(arr, 1, 3, ct_r);
+            int   plat   = find_plateau(ct_r);
+            double ct_bg  = interior_mean(ct_r, plat);
+            double ct_lam = (ct_bg >= 0) ? fit_lambda(ct_r, plat, ct_bg) : -1.0;
+
+            j << "    \"" << end_key << "\": {\n";
+            j << "      \"interior_start_pos\": " << plat << ",\n";
+            j << "      \"ct_interior_rate\": "   << std::fixed << std::setprecision(6) << ct_bg  << ",\n";
+            j << "      \"ct_decay_lambda\": "    << ct_lam << ",\n";
+            j << "      \"channels\": {";
+            bool first = true;
+            for (int s = 0; s < 12; ++s) {
+                int F = SUBS12[s].from, T = SUBS12[s].to;
+                std::array<double,15> r;
+                pos_rates(arr, F, T, r);
+                double bg  = interior_mean(r, plat);
+                double tex = (r[1] >= 0 && bg >= 0) ? r[1] - bg : -1.0;
+                double lam = (bg >= 0) ? fit_lambda(r, plat, bg) : -1.0;
+                double lr  = (lam > 0 && ct_lam > 0) ? lam / ct_lam : -1.0;
+                double bal = coupled_bal(arr, F, T, plat);
+                if (!first) j << ",";
+                first = false;
+                j << "\n        \"" << SUBS12[s].name << "\":"
+                  << "{\"interior_rate\":"      << std::fixed << std::setprecision(6) << bg
+                  << ",\"terminal_excess\":"    << tex
+                  << ",\"decay_lambda\":"       << lam
+                  << ",\"lambda_ratio_vs_ct\":" << lr
+                  << ",\"coupled_balance\":"    << bal << "}";
+            }
+            j << "\n      }\n    }";
+        };
+
+        j << "  \"damage_channel_stats\": {\n";
+        emit_dcs_end("5prime", dp.tri_5prime_pos);
+        j << ",\n";
+        emit_dcs_end("3prime", dp.tri_3prime_pos);
+        j << "\n  },\n";
+    }
+
     // ── Context-specific damage rates ─────────────────────────────────────────
     // For each of the 16 XCY (5' C→T) and 16 XGY (3' G→A) contexts:
     // terminal_rate = observed rate at read positions 1-4 from end
@@ -659,7 +848,94 @@ void profile_to_json(const SampleDamageProfile& dp,
         emit_ctx_rates("ga_3prime",
                        dp.tri_3prime_terminal, dp.tri_3prime_interior,
                        2 /*G*/, 0 /*A*/);
+        j << ",\n";
+        emit_ctx_rates("ct_3prime",
+                       dp.tri_3prime_terminal, dp.tri_3prime_interior,
+                       1 /*C*/, 3 /*T*/);
         j << "\n  },\n";
+    }
+
+    // ── Context-modulated deamination profile ─────────────────────────────────
+    // Reference-free per-NXN terminal deamination excess (terminal_rate −
+    // interior_rate). Interior positions are the self-normalising background.
+    // comparison_vector is positive-excess L1-normalised: encodes context shape
+    // independent of total damage amplitude, for cross-library comparison.
+    // SS libraries: 3′ C→T arm (dominant end in single-stranded prep).
+    // DS libraries: mean of 5′ C→T and 3′ G→A RC-mapped to C-equivalent.
+    {
+        static constexpr char B4[4]  = {'A','C','G','T'};
+        static constexpr int  RC4[4] = {3,2,1,0};  // A↔T, C↔G
+
+        auto ctx_ex = [&](const std::array<uint64_t,64>& term,
+                          const std::array<uint64_t,64>& intr,
+                          int mid_ref, int mid_dam, int p, int n) -> double {
+            int ir = p*16 + mid_ref*4 + n;
+            int id = p*16 + mid_dam*4 + n;
+            uint64_t tn = term[ir] + term[id];
+            uint64_t xn = intr[ir] + intr[id];
+            if (!tn || !xn) return 0.0;
+            return (double)term[id]/tn - (double)intr[id]/xn;
+        };
+
+        // 16 canonical C-centred contexts: i = prev*4 + next  (p=i/4, n=i%4)
+        // ACA ACC ACG ACT | CCA CCC CCG CCT | GCA GCC GCG GCT | TCA TCC TCG TCT
+        double ex5[16], ex3c[16], ex3g_rc[16];
+        for (int i = 0; i < 16; ++i) {
+            int p = i/4, n = i%4;
+            ex5[i]     = ctx_ex(dp.tri_5prime_terminal, dp.tri_5prime_interior, 1,3, p,n);
+            ex3c[i]    = ctx_ex(dp.tri_3prime_terminal, dp.tri_3prime_interior, 1,3, p,n);
+            // DS arm: 3′ G→A context RC(n)GRC(p) is the complement of canonical NCN (p,n)
+            ex3g_rc[i] = ctx_ex(dp.tri_3prime_terminal, dp.tri_3prime_interior,
+                                2,0, RC4[n],RC4[p]);
+        }
+
+        double cmp[16];
+        for (int i = 0; i < 16; ++i)
+            cmp[i] = is_ss ? ex3c[i] : 0.5*(ex5[i] + ex3g_rc[i]);
+
+        // L1-positive normalisation (comparison_vector): shape of positive excess only.
+        // Useful for DS where most channels are positive.
+        double pos_sum = 0.0;
+        for (int i = 0; i < 16; ++i) if (cmp[i] > 0.0) pos_sum += cmp[i];
+        double norm[16];
+        for (int i = 0; i < 16; ++i)
+            norm[i] = (pos_sum > 0.0) ? std::max(0.0, cmp[i]) / pos_sum : 0.0;
+
+        // L2-signed normalisation (signed_comparison_vector): preserves negative
+        // channels (non-CpG in SS). Correct for ordination mixing SS and DS.
+        double l2 = 0.0;
+        for (int i = 0; i < 16; ++i) l2 += cmp[i]*cmp[i];
+        l2 = std::sqrt(l2);
+        double snorm[16];
+        for (int i = 0; i < 16; ++i)
+            snorm[i] = (l2 > 1e-9) ? cmp[i] / l2 : 0.0;
+
+        auto emit16 = [&](const char* name, const double* v, bool comma) {
+            j << "    \"" << name << "\": [";
+            for (int i = 0; i < 16; ++i) {
+                j << std::fixed << std::setprecision(6) << v[i];
+                if (i < 15) j << ",";
+            }
+            j << "]" << (comma ? "," : "") << "\n";
+        };
+
+        j << "  \"deam_context_spectrum\": {\n";
+        j << "    \"channels\": [";
+        for (int i = 0; i < 16; ++i) {
+            j << "\"" << B4[i/4] << "C" << B4[i%4] << "\"";
+            if (i < 15) j << ",";
+        }
+        j << "],\n";
+        emit16("ct_5prime_excess",          ex5,     true);
+        emit16("ct_3prime_excess",          ex3c,    true);
+        emit16("ga_3prime_rc_excess",       ex3g_rc, true);
+        emit16("comparison_vector",         norm,    true);
+        emit16("signed_comparison_vector",  snorm,   true);
+        j << "    \"primary_arm\": \""
+          << (is_ss ? "ct_3prime" : "ct_5prime_ga_3prime_mean") << "\",\n";
+        j << "    \"sum_positive_excess\": "
+          << std::fixed << std::setprecision(6) << pos_sum << "\n";
+        j << "  },\n";
     }
 
     // ── Preservation ──────────────────────────────────────────────────────────
@@ -747,6 +1023,20 @@ void profile_to_json(const SampleDamageProfile& dp,
             }
         }
         j << "],\n";
+        j << "    \"top_hexamers_3prime\": [";
+        {
+            int n_out = 0;
+            for (const auto& hr : in.top_hex_enriched_3prime) {
+                if (n_out >= 5) break;
+                auto seq = decode_hex(hr.idx);
+                if (n_out) j << ",";
+                j << "{\"seq\":\"" << seq.data() << "\","
+                  << "\"log2fc\":" << std::setprecision(3) << hr.log2fc << ","
+                  << "\"damage_consistent\":" << (hr.damage_consistent ? "true" : "false") << "}";
+                ++n_out;
+            }
+        }
+        j << "],\n";
         // Adapter prefix identification
         if (in.adapter_clipped && !in.adapter_stubs_5prime.empty()) {
             static const std::pair<const char*, const char*> kAdapters[] = {
@@ -768,23 +1058,102 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"depurination_detected\": " << (dp.depurination_detected ? "true" : "false") << ",\n";
         j << "    \"short_read_frac\": " << std::setprecision(4)
           << (in.short_read_frac < 0 ? 0.0 : in.short_read_frac) << ",\n";
-        j << "    \"flags\": [";
-        bool first_flag = true;
-        auto emit_flag = [&](const char* name) {
-            if (!first_flag) j << ",";
-            j << "\"" << name << "\"";
-            first_flag = false;
+        // ── diagnostic_groups ─────────────────────────────────────────────────
+        // Convenience fractions derived from top enriched hexamer lists
+        const auto& t5 = in.top_hex_enriched;
+        const auto& t3 = in.top_hex_enriched_3prime;
+        auto dmg_frac = [](const std::vector<HexEnrichment>& v, int k) -> double {
+            if (v.empty() || k <= 0) return std::numeric_limits<double>::quiet_NaN();
+            int n = std::min(k, (int)v.size()), m = 0;
+            for (int i = 0; i < n; ++i) if (v[i].damage_consistent) ++m;
+            return static_cast<double>(m) / n;
         };
-        if (qcf.adapter_remnant_5prime)   emit_flag("adapter_remnant_5prime");
-        if (qcf.adapter_remnant_3prime)   emit_flag("adapter_remnant_3prime");
-        if (qcf.hexamer_composition_bias) emit_flag("hexamer_composition_bias");
-        if (qcf.hexamer_terminal_shift)   emit_flag("hexamer_terminal_shift");
-        if (qcf.short_read_spike)         emit_flag("short_read_spike");
-        if (qcf.depurination)             emit_flag("depurination");
-        if (qcf.ds_3prime_signal_absent)  emit_flag("ds_3prime_signal_absent");
-        if (qcf.ga3_inward_displaced)     emit_flag("ga3_inward_displaced");
-        if (qcf.hexamer_artifact_bias)    emit_flag("hexamer_artifact_bias");
+        double dmg_frac_5 = dmg_frac(t5, 5);
+        double dmg_frac_3 = dmg_frac(t3, 5);
+
+        const HexEndAsymmetry& hea = in.hex_end_asymmetry;
+
+        // Output certification for d_max_3:
+        // confounded when ends are asymmetric (rc_overlap_topk==0 and hea.rc_excess_jsd high)
+        // AND the 3' enriched hexamers are mostly non-damage-consistent.
+        bool d3_confounded = (hea.rc_overlap_topk == 0)
+                          && (!std::isnan(dmg_frac_3) && dmg_frac_3 < 0.5)
+                          && (dp.fit_offset_3prime >= 1);
+        bool d3_corrected  = !d3_confounded && dp.fit_offset_3prime >= 1;
+
+        j << "    \"diagnostic_groups\": {\n";
+
+        // adapter_position_effects
+        j << "      \"adapter_position_effects\": {\n";
+        j << "        \"adapter_offset_5prime\": " << dp.fit_offset_5prime << ",\n";
+        j << "        \"adapter_offset_3prime\": " << dp.fit_offset_3prime << ",\n";
+        j << "        \"position0_artifact_5prime\": " << (dp.position_0_artifact_5prime ? "true" : "false") << ",\n";
+        j << "        \"position0_artifact_3prime\": " << (dp.position_0_artifact_3prime ? "true" : "false") << ",\n";
+        if (in.adapter_stub_reads_checked > 0) {
+            j << "        \"prefix_read_fraction_5prime\": " << std::fixed << std::setprecision(6) << in.adapter_stub5_read_fraction << ",\n";
+            j << "        \"prefix_read_fraction_3prime\": " << in.adapter_stub3_read_fraction << ",\n";
+        } else {
+            j << "        \"prefix_read_fraction_5prime\": null,\n";
+            j << "        \"prefix_read_fraction_3prime\": null,\n";
+        }
+        j << "        \"corrected_outputs\": [";
+        {
+            bool first = true;
+            auto ca = [&](const char* s) { if (!first) j << ","; j << "\"" << s << "\""; first = false; };
+            if (dp.fit_offset_5prime > 1) ca("d_max_5");
+            if (dp.fit_offset_3prime > 1 && !d3_confounded) ca("d_max_3");
+        }
+        j << "],\n";
+        j << "        \"residual_outputs\": [\"position0_base_composition\"],\n";
+        j << "        \"confounded_outputs\": [" << (d3_confounded ? "\"d_max_3\"" : "") << "]\n";
+        j << "      },\n";
+
+        // terminal_hexamer_bias
+        j << "      \"terminal_hexamer_bias\": {\n";
+        j << "        \"hexamer_terminal_interior_jsd\": " << std::setprecision(6) << hs.jsd << ",\n";
+        j << "        \"hexamer_excess_tc\": " << dp.hexamer_excess_tc << ",\n";
+        j << "        \"top_damage_consistent_fraction_5prime\": ";
+        if (std::isnan(dmg_frac_5)) j << "null"; else j << std::setprecision(4) << dmg_frac_5;
+        j << ",\n";
+        j << "        \"top_damage_consistent_fraction_3prime\": ";
+        if (std::isnan(dmg_frac_3)) j << "null"; else j << std::setprecision(4) << dmg_frac_3;
+        j << ",\n";
+        j << "        \"residual_outputs\": [\"terminal_NXN_context_spectrum\",\"top_hexamers\"]\n";
+        j << "      },\n";
+
+        // end_hexamer_asymmetry
+        j << "      \"end_hexamer_asymmetry\": {\n";
+        j << "        \"hexamer_end_rc_excess_jsd_status\": \"" << hea.status << "\",\n";
+        j << "        \"hexamer_end_rc_excess_jsd\": ";
+        if (std::isnan(hea.rc_excess_jsd)) j << "null"; else j << std::setprecision(6) << hea.rc_excess_jsd;
+        j << ",\n";
+        j << "        \"hexamer_end_fwd_excess_jsd\": ";
+        if (std::isnan(hea.fwd_excess_jsd)) j << "null"; else j << std::setprecision(6) << hea.fwd_excess_jsd;
+        j << ",\n";
+        j << "        \"rc_overlap_topk\": " << hea.rc_overlap_topk << ",\n";
+        j << "        \"topk\": " << hea.topk << ",\n";
+        j << "        \"terminal_excess_mass_5prime\": " << std::setprecision(6) << hea.excess_mass_5prime << ",\n";
+        j << "        \"terminal_excess_mass_3prime\": " << hea.excess_mass_3prime << ",\n";
+        j << "        \"terminal_hexamer_n_5prime\": " << hea.n_5prime << ",\n";
+        j << "        \"terminal_hexamer_n_3prime\": " << hea.n_3prime << "\n";
+        j << "      }\n";
+        j << "    },\n";
+
+        // output_effects summary (d_max_3 certification)
+        j << "    \"output_effects\": {\n";
+        j << "      \"d_max_3\": {\n";
+        j << "        \"status\": \"" << (d3_confounded ? "confounded" : (d3_corrected ? "corrected" : "residual")) << "\",\n";
+        j << "        \"evidence\": [";
+        if (d3_confounded) {
+            j << "\"top_damage_consistent_fraction_3prime\",\"rc_overlap_topk\"";
+        } else if (d3_corrected) {
+            j << "\"adapter_offset_3prime\"";
+        }
         j << "]\n";
+        j << "      }\n";
+        j << "    },\n";
+
+        j << "    \"flags\": []\n";
         j << "  },\n";
     }
 
