@@ -509,7 +509,7 @@ struct SampleDamageProfile {
 
     // Ancient-fraction d_max: damage estimated only from reads classified as ancient
     // by the per-read LLR scorer (fused into the oxoG pass inside fqdup profile).
-    // Comparable to bamdam per-reference "damaged fraction" values.
+    // Comparable to metaDMG per-reference "damaged fraction" values.
     bool    damaged_fraction_valid = false;
     float   damaged_fraction_d5    = 0.0f;
     float   damaged_fraction_d3    = 0.0f;

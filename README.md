@@ -274,7 +274,7 @@ and writes an `ancient_fraction` block to the JSON. This estimates the
 fraction of reads that are ancient (`pi`), and fits independent exponential
 decay profiles (`d_max_5prime_fit`, `lambda_5prime`, ...) for the ancient and
 modern read pools separately — giving unmixed damage estimates that are
-comparable to reference-based tools (mapDamage, bamDam) without requiring
+comparable to reference-based tools (mapDamage, metaDMG) without requiring
 alignment.
 
 ---

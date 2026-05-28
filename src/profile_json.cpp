@@ -957,7 +957,7 @@ void profile_to_json(const SampleDamageProfile& dp,
 
     // ── Ancient-fraction d_max ─────────────────────────────────────────────────
     // d_max estimated only from reads classified as ancient by the per-read LLR
-    // scorer (fused into the oxoG pass). Comparable to bamdam "damaged fraction".
+    // scorer (fused into the oxoG pass). Comparable to metaDMG "damaged fraction".
     j << "  \"ancient_fraction\": {\n";
     j << "    \"valid\": " << (dp.damaged_fraction_valid ? "true" : "false") << ",\n";
     j << std::setprecision(6);

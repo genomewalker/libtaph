@@ -300,7 +300,7 @@ when `damaged_fraction_valid == true`.
 ### `damaged_fraction_pi` — ancient fraction
 
 The soft-EM posterior fraction of reads classified as ancient. This is the
-fraction to compare against metaDMG / bamDam "damaged fraction" values. A
+fraction to compare against metaDMG "damaged fraction" values. A
 value near 1 means almost all reads are ancient; near 0 means the ancient
 signal is diluted by a large modern background.
 
