@@ -955,6 +955,24 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "  },\n";
     }
 
+    // ── Ancient-fraction d_max ─────────────────────────────────────────────────
+    // d_max estimated only from reads classified as ancient by the per-read LLR
+    // scorer (fused into the oxoG pass). Comparable to bamdam "damaged fraction".
+    j << "  \"ancient_fraction\": {\n";
+    j << "    \"valid\": " << (dp.damaged_fraction_valid ? "true" : "false") << ",\n";
+    j << std::setprecision(6);
+    j << "    \"ancient\": {\n";
+    j << "      \"d_max_5prime\": " << dp.damaged_fraction_d5 << ",\n";
+    j << "      \"d_max_3prime\": " << dp.damaged_fraction_d3 << ",\n";
+    j << "      \"fraction\": " << dp.damaged_fraction_pi << ",\n";
+    j << "      \"n_reads\": " << dp.damaged_fraction_n << "\n";
+    j << "    },\n";
+    j << "    \"modern\": {\n";
+    j << "      \"d_max_5prime\": " << dp.modern_fraction_d5 << ",\n";
+    j << "      \"d_max_3prime\": " << dp.modern_fraction_d3 << "\n";
+    j << "    }\n";
+    j << "  },\n";
+
     // ── Preservation ──────────────────────────────────────────────────────────
     j << "  \"preservation\": {\n";
     j << "    \"score\": " << std::setprecision(6) << dp.preservation_score << ",\n";

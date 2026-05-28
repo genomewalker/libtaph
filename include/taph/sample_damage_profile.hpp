@@ -507,6 +507,17 @@ struct SampleDamageProfile {
     // d5 flat while d3 has real decay → 5' overhang blunted before adapter ligation
     bool  d5_blunting_suspected   = false;
 
+    // Ancient-fraction d_max: damage estimated only from reads classified as ancient
+    // by the per-read LLR scorer (fused into the oxoG pass inside fqdup profile).
+    // Comparable to bamdam per-reference "damaged fraction" values.
+    bool    damaged_fraction_valid = false;
+    float   damaged_fraction_d5    = 0.0f;
+    float   damaged_fraction_d3    = 0.0f;
+    float   damaged_fraction_pi    = 0.0f;   // fraction of reads classified as ancient
+    int64_t damaged_fraction_n     = 0;      // count of reads classified as ancient
+    float   modern_fraction_d5     = 0.0f;   // d_max_5prime for reads classified as modern
+    float   modern_fraction_d3     = 0.0f;
+
     // Track source of d_max_combined estimate
     enum class DmaxSource { AVERAGE, MIN_ASYMMETRY, MAX_SS_ASYMMETRY,
                             FIVE_PRIME_ONLY, THREE_PRIME_ONLY,
