@@ -83,7 +83,7 @@
 - Bug: M_DS_spike rescue could fire when M_DS_symm_art won via joint fit with marginal ct5/ga3 ΔBIC ≤ 0, now restricted to `ds_spike_won`
 
 ### Validation
-- 78-sample SE regression (33 clay91 + 45 ellesmere; 50 ds + 28 ss truth):
+- 78-sample SE regression (33 clay91 + 45 permafrost sediment; 50 ds + 28 ss truth):
   77/78 correct in v9 vs 63/78 in v8; all 14 flips in the correct direction
   (no regressions). Single remaining miss is a real ambiguity
   (`LV7009022725-20S-IS160`: ga3=0.030, ga0=0.047, margin 1.1).
