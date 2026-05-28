@@ -42,11 +42,14 @@ be meaningful — see the source string returned by `d_max_source_str()`.
 
 `lambda` is the decay constant of the fitted exponential. Larger λ means the
 elevated rate falls back to background more steeply, i.e. damage is concentrated
-in the first one or two terminal positions. Lower λ means a slow tail of
-damage extending several bases inward, which is characteristic of older, more
-heavily degraded material. As a guideline, λ > 0.5 is sharp (fresh or
-chemically-driven), λ ≈ 0.2–0.4 is typical of well-preserved aDNA, and
-λ < 0.1 indicates long damage tails seen in highly degraded samples.
+in the first one or two terminal positions. Lower λ means a slower decay with
+damage extending several bases inward, reflecting longer single-stranded overhangs
+(Briggs 2007; Jónsson 2013), which tend to accompany older material. As a
+guideline, λ ≈ 0.2–0.4 is typical of well-preserved aDNA; λ < 0.1 indicates long
+damage tails from extended single-stranded overhangs; λ > 0.5 indicates damage
+concentrated in the first 1–2 positions, consistent with short overhangs, chemical
+treatment, or near-modern material (but not exclusively). These bands are heuristic
+— they overlap and do not replace cross-channel validation.
 
 ### `d_max_combined` versus the per-end values
 
@@ -299,15 +302,21 @@ when `damaged_fraction_valid == true`.
 
 ### `damaged_fraction_pi` — ancient fraction
 
-The soft-EM posterior fraction of reads classified as ancient. This is the
-fraction to compare against metaDMG "damaged fraction" values. A
-value near 1 means almost all reads are ancient; near 0 means the ancient
-signal is diluted by a large modern background.
+The posterior-weighted fraction of reads classified as ancient. This is the
+fraction to compare against metaDMG "damaged fraction" values. A value near 1
+means almost all reads are ancient; near 0 means the ancient signal is diluted
+by a large modern background.
 
-The estimate uses posterior-weighted accumulation (soft-EM E-step) rather
-than a hard LLR > 0 threshold. In low-endogenous samples this matters:
-hard thresholding selects reads that happen to look ancient, producing a
-floor on `pi` regardless of true endogenous fraction.
+The estimate uses a single posterior-weighted E-step: π is initialised from the
+mixture identity (bulk_d5 / d_anc), per-read posteriors are computed as
+`sigmoid(LLR + log(π/(1−π)))` under a two-class model with reads conditionally
+independent, and π is then re-estimated as the mean posterior. This is **not**
+iterated to convergence (full EM); the one-step estimate is generally not a fixed
+point of the EM operator. In practice the initialisation is close enough that a
+single step suffices, but the result can differ from a converged estimate when π
+is far from 0.5. Compared to hard LLR > 0 thresholding, the posterior weighting
+avoids the selection-on-outcome floor that pins hard-call pi at ~0.25–0.35 in
+low-endogenous libraries.
 
 ### `damaged_fraction_d5` / `d3` — mixture-identity estimate
 
@@ -317,27 +326,46 @@ These divide the bulk `d_max` by `pi`:
 d_anc = bulk_d_max / pi
 ```
 
-This is fast and works well when `pi` is reliably estimated (high-endogenous
-samples). At low endogenous fractions (<5%), `pi` is uncertain and a small
-error propagates into a large error in `d_anc`.
+derived from `bulk_d = π × d_anc + (1−π) × d_mod`, which reduces to the above
+only if `d_mod ≈ 0` (modern reads carry no deamination). **This assumption is
+not always met.** If the modern component carries background deamination
+(d_mod > 0), then bulk_d/π **overestimates** d_anc — the bias is directional
+(upward), not just noisy, and it grows as π decreases. At low endogenous
+fractions (<5%), even a small d_mod (e.g. 0.01) inflates the estimate
+substantially.
+
+Additionally, the identity weights components by C-site count, not read count.
+`pi` is a read fraction; these coincide only if ancient and modern reads have
+similar GC content and length. If ancient reads are GC-poorer or shorter, the
+mixture identity mis-scales d_anc. The independent fit fields (`*_fit`) avoid
+both assumptions.
 
 ### `damaged_fraction_d5_fit` / `lambda5` — independent fitted estimate
 
 These fit an exponential decay directly to the 15-position per-read profile
-of reads classified as ancient, using log-linear regression:
+of reads classified as ancient, using log-linear regression (OLS on
+log-transformed excess):
 
 ```
 log(T/TC(p) − bg) = log(d_max) − λ × p
 ```
 
-This does not depend on the mixture-identity assumption and gives both
-`d_max` and the decay constant `λ` for the ancient component. It is the
-preferred estimate when `pi` is uncertain or when you need the shape of the
-decay (not just the amplitude).
+fitted over positions p = 0..14 where TC(p) ≥ 50 and excess > 0. The fit stops
+at the first position whose coverage falls below 50 (regardless of later
+positions); individual positions with non-positive excess before that point are
+skipped. OLS in log space assumes homoscedastic log-residuals, which binomial
+sampling does not guarantee — positions near the background threshold carry the
+most noise and disproportionate leverage on λ, so the fitted λ is approximate.
 
-Expect `d5_fit` ≥ `d5` (mixture-identity): the fit measures the damage in
-ancient-classified reads only, unattenuated by the `1/pi` approximation at
-low endogenous fractions.
+This does not depend on the d_mod ≈ 0 or C-site/read-fraction assumptions of
+the mixture-identity estimate and gives both `d_max` and `λ` directly from the
+ancient-classified read pool. It is the preferred estimate when `pi` is uncertain
+or when you need the shape of the decay.
+
+Under d_mod ≈ 0 and clean classification, d5_fit typically meets or exceeds d5
+(mixture identity). The inequality can reverse if the modern pool carries
+background deamination (inflating bulk_d/π) or if classification leakage at very
+low π dilutes the ancient pool and pulls d5_fit down.
 
 ### `modern_fraction_*` — modern component
 
@@ -351,9 +379,9 @@ ancient reads into the modern pool.
 
 | Signal | Interpretation |
 |---|---|
-| `pi ≈ 1`, `d5_fit ≈ d5` | High endogenous, both estimates agree — use either |
-| `pi` moderate (0.2–0.7), `d5_fit > d5` | Mixed library; `d5_fit` better describes the ancient component |
-| `d5_fit` and `lambda5` both finite, `modern_d5_fit ≈ 0` | Clean separation — ancient pool has real damage, modern pool is clean |
+| `pi ≈ 1`, `d5_fit ≈ d5` | High endogenous; both estimates converge toward bulk d_max — use either, provided both use the same background/normalization convention |
+| `pi` moderate (0.2–0.7), `d5_fit > d5` | Mixed library under d_mod ≈ 0; `d5_fit` better describes the ancient component |
+| `d5_fit` and `lambda5` both finite, `modern_d5_fit ≈ 0` | Likely clean separation — but at very low π, classification leakage can make `modern_d5_fit` unreliable as a cleanliness indicator |
 | `valid == false` | Paired-mode input, bulk d_max < 0.01, or insufficient reads — field unavailable |
 
 ---
@@ -402,7 +430,7 @@ Several flags should override an otherwise positive damage call.
 | `dominant_process == dipyrimidine_biased` | UV-driven photoproduct signature. Common in skin, hair, or surface-exposed bone fragments. |
 | `dominant_process == fragmentation_bias` | AP-site-mediated fragmentation dominates over terminal deamination. Typical of USER-treated or heavily chemically processed libraries. |
 | `terminal_inversion == true` with otherwise high `d_max` | Likely orientation or trimming bug upstream — investigate before trusting the call. |
-| Mixture model: `mixture_pi_ancient = 0.3`, `mixture_d_ancient = 0.18`, `d_max_combined = 0.06` | A genuine ancient signal diluted by ~70% modern contamination. Report `mixture_d_ancient` as the ancient damage rate. |
+| Mixture model: `mixture_pi_ancient = 0.3`, `mixture_d_ancient = 0.18`, `d_max_combined = 0.06` | A genuine ancient signal diluted by ~70% modern DNA (0.3 × 0.18 ≈ 0.054 ≈ 0.06, assuming d_mod ≈ 0). Note: `mixture_pi_ancient` is the fraction of **C-sites** in the high-damage component, not necessarily the read fraction — they differ when ancient and modern reads have unequal GC or length. Report `mixture_d_ancient` as the ancient damage rate. |
 
 When in doubt, look at all three layers — the d_max value, the
 cross-channel validation flags, and the dominant-process label — and

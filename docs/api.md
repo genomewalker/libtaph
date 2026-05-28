@@ -230,15 +230,21 @@ the standalone libtaph `FrameSelector` API.
 | `modern_fraction_d3_fit` | `float` | 3' d_max from independent fit of modern-classified reads |
 | `modern_fraction_lambda3` | `float` | 3' λ from modern fit |
 
-The mixture-identity fields (`damaged_fraction_d5/d3`) divide the bulk d_max
-by `pi` to unmix the modern fraction. The fitted fields (`*_fit`) measure
-the exponential shape directly in the classified read pools, giving an
-independent estimate that does not depend on the mixture identity assumption.
-For high-endogenous samples these agree well; for low-endogenous samples the
-fitted value is more reliable because the mixture-identity estimate amplifies
-any error in `pi`. A `damaged_fraction_valid == false` result means the LLR
-pass did not run (paired-mode input, bulk d_max below the 0.01 gate, or
-insufficient reads).
+The mixture-identity fields (`damaged_fraction_d5/d3`) equal `bulk_d / pi`,
+valid only under `d_mod ≈ 0` (modern reads carry no deamination) and equal
+C-site density between pools. When `d_mod > 0`, the estimate is upward-biased —
+the bias is directional, not just noisy — and grows as `pi` decreases. The
+fitted fields (`*_fit`) measure the exponential shape directly in the classified
+read pools and avoid both assumptions, at the cost of requiring enough ancient
+reads for a reliable fit. For high-endogenous samples both approaches agree; for
+low-endogenous samples prefer the fitted values. A `damaged_fraction_valid ==
+false` result means the LLR pass did not run (paired-mode input, bulk d_max
+below the 0.01 gate, or insufficient reads).
+
+Note on `d_max_5prime` (`A/(1−b)`): here `b` is the interior background
+deamination **rate** (not a read fraction), estimated from positions 20–49.
+The formula gives the model amplitude parameter — the exponential component's
+value extrapolated to position 0 — and requires `b < 1`.
 
 ---
 
