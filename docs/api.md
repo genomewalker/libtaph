@@ -206,6 +206,42 @@ Available after `finalize_sample_profile`. Requires at least one GC bin with suf
 | `mixture_converged` | `bool` | Whether the EM algorithm converged |
 | `gc_stratified_valid` | `bool` | At least one GC bin has a valid estimate |
 
+### Ancient-fraction deamination
+
+Populated by fqdup's per-read LLR scorer when the ancient-fraction pass is
+fused into the oxoG worker (`damaged_fraction_valid == true`). Not set by
+the standalone libtaph `FrameSelector` API.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `damaged_fraction_valid` | `bool` | `true` when the fqdup LLR pass ran and produced a valid estimate |
+| `damaged_fraction_pi` | `float` | Soft-EM posterior fraction of reads classified as ancient |
+| `damaged_fraction_n` | `int64_t` | Hard-call count of reads with LLR > 0 (informational) |
+| `damaged_fraction_d5` | `float` | 5' d_max for the ancient component via mixture identity: `bulk_d5 / pi` |
+| `damaged_fraction_d3` | `float` | 3' d_max via mixture identity: `bulk_d3 / pi` |
+| `damaged_fraction_d5_fit` | `float` | 5' d_max from independent log-linear regression over all 15 positions of ancient-classified reads |
+| `damaged_fraction_lambda5` | `float` | 5' decay constant λ from the independent fit |
+| `damaged_fraction_d3_fit` | `float` | 3' d_max from independent fit of ancient-classified reads |
+| `damaged_fraction_lambda3` | `float` | 3' decay constant λ from the independent fit |
+| `modern_fraction_d5` | `float` | 5' d_max at pos 0 for reads classified as modern |
+| `modern_fraction_d3` | `float` | 3' d_max at pos 0 for reads classified as modern |
+| `modern_fraction_d5_fit` | `float` | 5' d_max from independent fit of modern-classified reads |
+| `modern_fraction_lambda5` | `float` | 5' λ from modern fit |
+| `modern_fraction_d3_fit` | `float` | 3' d_max from independent fit of modern-classified reads |
+| `modern_fraction_lambda3` | `float` | 3' λ from modern fit |
+
+The mixture-identity fields (`damaged_fraction_d5/d3`) divide the bulk d_max
+by `pi` to unmix the modern fraction. The fitted fields (`*_fit`) measure
+the exponential shape directly in the classified read pools, giving an
+independent estimate that does not depend on the mixture identity assumption.
+For high-endogenous samples these agree well; for low-endogenous samples the
+fitted value is more reliable because the mixture-identity estimate amplifies
+any error in `pi`. A `damaged_fraction_valid == false` result means the LLR
+pass did not run (paired-mode input, bulk d_max below the 0.01 gate, or
+insufficient reads).
+
+---
+
 ### Context-aware 5' C→T (upstream base)
 
 Per-context accumulators and shrinkage-fitted amplitudes, indexed by `CTX_AC = 0`, `CTX_CC = 1`, `CTX_GC = 2`, `CTX_TC = 3` (constants under `SampleDamageProfile::UpstreamContext`, with `N_UPSTREAM_CTX = 4`).

@@ -2,6 +2,34 @@
 
 ## main (unreleased)
 
+### Ancient-fraction deamination — soft-EM + independent fitted profiles
+
+#### Added
+- `damaged_fraction_valid`, `damaged_fraction_pi`, `damaged_fraction_n`,
+  `damaged_fraction_d5`, `damaged_fraction_d3`: soft-EM ancient-fraction
+  estimate populated by fqdup's per-read LLR scorer (fused into the oxoG pass).
+  `pi` is the posterior-weighted fraction of reads classified as ancient
+  (soft-EM E-step), avoiding the selection-on-outcome bias of hard LLR > 0
+  thresholding. `d5`/`d3` are derived via mixture identity (`bulk_d / pi`).
+- `damaged_fraction_d5_fit` / `damaged_fraction_lambda5` /
+  `damaged_fraction_d3_fit` / `damaged_fraction_lambda3`: independently fitted
+  exponential decay (log-linear regression over all 15 positions) for the
+  ancient-classified read pool. Gives the true ancient d_max + lambda without
+  mixture-identity dilution.
+- `modern_fraction_d5` / `modern_fraction_d3`: pos-0 peak deamination estimate
+  for reads classified as modern.
+- `modern_fraction_d5_fit` / `modern_fraction_lambda5` /
+  `modern_fraction_d3_fit` / `modern_fraction_lambda3`: fitted exponential for
+  the modern-classified pool (typically ≈ 0 for clean libraries).
+- All fields serialised in the `ancient_fraction` JSON block under `ancient`
+  and `modern` sub-objects.
+
+#### Fixed
+- `skip_pos0_5prime` on `LsdClassifyParams`: when `position_0_artifact_5prime`
+  is set the per-read 5' LLR scorer starts from position 1, avoiding the
+  adapter-blunting depletion at pos 0 from artificially lowering LLR scores
+  on genuinely ancient reads.
+
 ### Channels F/G/H — oxidative terminal enrichment
 
 #### Added

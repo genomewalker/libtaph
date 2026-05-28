@@ -290,7 +290,75 @@ it is diluted by modern reads. In that case `mixture_d_ancient` is the
 better number to report for the ancient fraction, and `mixture_pi_ancient`
 is the proxy for the contamination level.
 
-## 9. QC flags and when to distrust results
+## 9. Ancient-fraction deamination (fqdup integration)
+
+When fqdup runs the per-read LLR scorer fused into the oxoG pass, it
+populates a set of fields that unmix the ancient and modern read pools and
+estimate deamination for each fraction independently. These are only available
+when `damaged_fraction_valid == true`.
+
+### `damaged_fraction_pi` — ancient fraction
+
+The soft-EM posterior fraction of reads classified as ancient. This is the
+fraction to compare against metaDMG / bamDam "damaged fraction" values. A
+value near 1 means almost all reads are ancient; near 0 means the ancient
+signal is diluted by a large modern background.
+
+The estimate uses posterior-weighted accumulation (soft-EM E-step) rather
+than a hard LLR > 0 threshold. In low-endogenous samples this matters:
+hard thresholding selects reads that happen to look ancient, producing a
+floor on `pi` regardless of true endogenous fraction.
+
+### `damaged_fraction_d5` / `d3` — mixture-identity estimate
+
+These divide the bulk `d_max` by `pi`:
+
+```
+d_anc = bulk_d_max / pi
+```
+
+This is fast and works well when `pi` is reliably estimated (high-endogenous
+samples). At low endogenous fractions (<5%), `pi` is uncertain and a small
+error propagates into a large error in `d_anc`.
+
+### `damaged_fraction_d5_fit` / `lambda5` — independent fitted estimate
+
+These fit an exponential decay directly to the 15-position per-read profile
+of reads classified as ancient, using log-linear regression:
+
+```
+log(T/TC(p) − bg) = log(d_max) − λ × p
+```
+
+This does not depend on the mixture-identity assumption and gives both
+`d_max` and the decay constant `λ` for the ancient component. It is the
+preferred estimate when `pi` is uncertain or when you need the shape of the
+decay (not just the amplitude).
+
+Expect `d5_fit` ≥ `d5` (mixture-identity): the fit measures the damage in
+ancient-classified reads only, unattenuated by the `1/pi` approximation at
+low endogenous fractions.
+
+### `modern_fraction_*` — modern component
+
+The same fields for reads classified as modern. For a clean ancient library
+these will be near zero. A non-zero `modern_fraction_d5_fit` can indicate
+modern contamination carrying genuine (but low-level) background deamination,
+or — at very low ancient fractions — false-positive classification leaking
+ancient reads into the modern pool.
+
+### Reading the trio together
+
+| Signal | Interpretation |
+|---|---|
+| `pi ≈ 1`, `d5_fit ≈ d5` | High endogenous, both estimates agree — use either |
+| `pi` moderate (0.2–0.7), `d5_fit > d5` | Mixed library; `d5_fit` better describes the ancient component |
+| `d5_fit` and `lambda5` both finite, `modern_d5_fit ≈ 0` | Clean separation — ancient pool has real damage, modern pool is clean |
+| `valid == false` | Paired-mode input, bulk d_max < 0.01, or insufficient reads — field unavailable |
+
+---
+
+## 10. QC flags and when to distrust results
 
 Several flags should override an otherwise positive damage call.
 
@@ -321,7 +389,7 @@ Several flags should override an otherwise positive damage call.
   composition-bias flags fire. **Treat every damage call from such a
   profile with caution**; report values only with their flag context.
 
-## 10. Common patterns in practice
+## 11. Common patterns in practice
 
 | Pattern | Likely interpretation |
 |---|---|
