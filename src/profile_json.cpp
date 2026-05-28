@@ -964,12 +964,20 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"ancient\": {\n";
     j << "      \"d_max_5prime\": " << dp.damaged_fraction_d5 << ",\n";
     j << "      \"d_max_3prime\": " << dp.damaged_fraction_d3 << ",\n";
+    j << "      \"d_max_5prime_fit\": " << dp.damaged_fraction_d5_fit << ",\n";
+    j << "      \"lambda_5prime\": " << dp.damaged_fraction_lambda5 << ",\n";
+    j << "      \"d_max_3prime_fit\": " << dp.damaged_fraction_d3_fit << ",\n";
+    j << "      \"lambda_3prime\": " << dp.damaged_fraction_lambda3 << ",\n";
     j << "      \"fraction\": " << dp.damaged_fraction_pi << ",\n";
     j << "      \"n_reads\": " << dp.damaged_fraction_n << "\n";
     j << "    },\n";
     j << "    \"modern\": {\n";
     j << "      \"d_max_5prime\": " << dp.modern_fraction_d5 << ",\n";
-    j << "      \"d_max_3prime\": " << dp.modern_fraction_d3 << "\n";
+    j << "      \"d_max_3prime\": " << dp.modern_fraction_d3 << ",\n";
+    j << "      \"d_max_5prime_fit\": " << dp.modern_fraction_d5_fit << ",\n";
+    j << "      \"lambda_5prime\": " << dp.modern_fraction_lambda5 << ",\n";
+    j << "      \"d_max_3prime_fit\": " << dp.modern_fraction_d3_fit << ",\n";
+    j << "      \"lambda_3prime\": " << dp.modern_fraction_lambda3 << "\n";
     j << "    }\n";
     j << "  },\n";
 

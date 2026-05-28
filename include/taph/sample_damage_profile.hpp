@@ -517,6 +517,16 @@ struct SampleDamageProfile {
     int64_t damaged_fraction_n     = 0;      // count of reads classified as ancient
     float   modern_fraction_d5     = 0.0f;   // d_max_5prime for reads classified as modern
     float   modern_fraction_d3     = 0.0f;
+    // Independently-fitted deamination profiles for each fraction (log-linear regression
+    // over all N_POS positions). _fit fields are the fitted d_max; _lambda are decay rates.
+    float   damaged_fraction_d5_fit  = 0.0f;
+    float   damaged_fraction_lambda5 = 0.0f;
+    float   damaged_fraction_d3_fit  = 0.0f;
+    float   damaged_fraction_lambda3 = 0.0f;
+    float   modern_fraction_d5_fit   = 0.0f;
+    float   modern_fraction_lambda5  = 0.0f;
+    float   modern_fraction_d3_fit   = 0.0f;
+    float   modern_fraction_lambda3  = 0.0f;
 
     // Track source of d_max_combined estimate
     enum class DmaxSource { AVERAGE, MIN_ASYMMETRY, MAX_SS_ASYMMETRY,
