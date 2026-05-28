@@ -22,7 +22,7 @@ terminal G→A excess at the 3′ end (or terminal C→T at the 3′ end for
 single-stranded original-orientation libraries). They are computed as
 `A / (1 − b)` where `A` is the fitted exponential amplitude above the interior
 background and `b` is the anchored background rate. Physically they answer:
-"by how much does the cytosine-deamination–driven substitution rate at the very
+"by how much does the cytosine-deamination-driven substitution rate at the very
 end of the read exceed what the interior of the same library shows?"
 
 A working interpretation scale, for chemistry-untreated libraries:
