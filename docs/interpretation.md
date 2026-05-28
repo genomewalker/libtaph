@@ -45,10 +45,10 @@ elevated rate falls back to background more steeply, i.e. damage is concentrated
 in the first one or two terminal positions. Lower λ means a slower decay with
 damage extending several bases inward, reflecting longer single-stranded overhangs
 (Briggs 2007; Jónsson 2013), which tend to accompany older material. As a
-guideline, λ ≈ 0.2–0.4 is typical of well-preserved aDNA; λ < 0.1 indicates long
+λ ≈ 0.2–0.4 is typical of well-preserved aDNA; λ < 0.1 indicates long
 damage tails from extended single-stranded overhangs; λ > 0.5 indicates damage
-concentrated in the first 1–2 positions, consistent with short overhangs, chemical
-treatment, or near-modern material (but not exclusively). These bands are heuristic
+concentrated in the first 1–2 positions, consistent with short overhangs or chemical
+treatment. These bands are heuristic
 — they overlap and do not replace cross-channel validation.
 
 ### `d_max_combined` versus the per-end values
@@ -91,7 +91,7 @@ shows G→A rather than C→T because the complementary strand of a damaged
 C-overhang carries a G, and that strand is what is sequenced from the 3′
 direction.
 
-In a **single-stranded** library (Gansauge & Meyer, Santa Cruz), both ends
+In a **single-stranded** library (Gansauge & Meyer 2013; Kapp et al. 2021 / SRSLY), both ends
 of the original strand survive intact through circularisation, so the
 underlying C→T deamination is visible at *both* the 5′ and 3′ ends.
 Consequently `d_max_5prime` and `d_max_3prime` should be of similar magnitude
@@ -312,7 +312,7 @@ mixture identity (bulk_d5 / d_anc), per-read posteriors are computed as
 `sigmoid(LLR + log(π/(1−π)))` under a two-class model with reads conditionally
 independent, and π is then re-estimated as the mean posterior. This is **not**
 iterated to convergence (full EM); the one-step estimate is generally not a fixed
-point of the EM operator. In practice the initialisation is close enough that a
+point of the EM operator. The initialisation is usually close enough that a
 single step suffices, but the result can differ from a converged estimate when π
 is far from 0.5. Compared to hard LLR > 0 thresholding, the posterior weighting
 avoids the selection-on-outcome floor that pins hard-call pi at ~0.25–0.35 in
@@ -327,8 +327,7 @@ d_anc = bulk_d_max / pi
 ```
 
 derived from `bulk_d = π × d_anc + (1−π) × d_mod`, which reduces to the above
-only if `d_mod ≈ 0` (modern reads carry no deamination). **This assumption is
-not always met.** If the modern component carries background deamination
+only if `d_mod ≈ 0` (modern reads carry no deamination). If the modern component carries background deamination
 (d_mod > 0), then bulk_d/π **overestimates** d_anc — the bias is directional
 (upward), not just noisy, and it grows as π decreases. At low endogenous
 fractions (<5%), even a small d_mod (e.g. 0.01) inflates the estimate
