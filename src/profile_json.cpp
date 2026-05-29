@@ -969,7 +969,13 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"d_max_3prime_fit\": " << dp.damaged_fraction_d3_fit << ",\n";
     j << "      \"lambda_3prime\": " << dp.damaged_fraction_lambda3 << ",\n";
     j << "      \"fraction\": " << dp.damaged_fraction_pi << ",\n";
-    j << "      \"n_reads\": " << dp.damaged_fraction_n << "\n";
+    j << "      \"n_reads\": " << dp.damaged_fraction_n << ",\n";
+    j << "      \"rate_5prime\": [";
+    for (int p = 0; p < 15; ++p) { if (p) j << ","; j << dp.damaged_fraction_rate5[p]; }
+    j << "],\n";
+    j << "      \"rate_3prime\": [";
+    for (int p = 0; p < 15; ++p) { if (p) j << ","; j << dp.damaged_fraction_rate3[p]; }
+    j << "]\n";
     j << "    },\n";
     j << "    \"modern\": {\n";
     j << "      \"d_max_5prime\": " << dp.modern_fraction_d5 << ",\n";
@@ -977,7 +983,15 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"d_max_5prime_fit\": " << dp.modern_fraction_d5_fit << ",\n";
     j << "      \"lambda_5prime\": " << dp.modern_fraction_lambda5 << ",\n";
     j << "      \"d_max_3prime_fit\": " << dp.modern_fraction_d3_fit << ",\n";
-    j << "      \"lambda_3prime\": " << dp.modern_fraction_lambda3 << "\n";
+    j << "      \"lambda_3prime\": " << dp.modern_fraction_lambda3 << ",\n";
+    j << "      \"rate_5prime\": [";
+    for (int p = 0; p < 15; ++p) { if (p) j << ","; j << dp.modern_fraction_rate5[p]; }
+    j << "],\n";
+    j << "      \"rate_3prime\": [";
+    for (int p = 0; p < 15; ++p) { if (p) j << ","; j << dp.modern_fraction_rate3[p]; }
+    j << "],\n";
+    j << "      \"leakage_5prime\": " << (dp.modern_fraction_leakage_5prime ? "true" : "false") << ",\n";
+    j << "      \"leakage_3prime\": " << (dp.modern_fraction_leakage_3prime ? "true" : "false") << "\n";
     j << "    }\n";
     j << "  },\n";
 

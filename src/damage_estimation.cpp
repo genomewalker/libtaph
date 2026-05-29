@@ -1643,13 +1643,29 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     profile.terminal_shift_3prime = stats_3_pos1_4.first;
     profile.terminal_z_3prime     = stats_3_pos1_4.second;
 
-    // Flag pos-0 as an artifact when it is substantially elevated above the pos1-4 mean
+    // Flag pos-0 as an artifact when it is:
+    //   (a) substantially elevated above pos1-4 mean — SS ligation artifact spike, or
+    //   (b) substantially depleted below pos1-4 mean — DS adapter blunting gap
+    //       (mirrors position_0_artifact_5prime depleted-pos0 / enriched-pos1 logic)
     {
         double tot0   = profile.a_freq_3prime[0] + profile.g_freq_3prime[0];
         double tot1_4 = sum_a_3_1_4 + sum_g_3_1_4;
         double ga0    = tot0   > 0.0 ? profile.a_freq_3prime[0] / tot0   : 0.0;
         double ga1_4  = tot1_4 > 0.0 ? sum_a_3_1_4              / tot1_4 : 0.0;
-        profile.position_0_artifact_3prime = (ga0 - ga1_4) > 0.05;
+        // Use pos1 alone (mirrors stats_5_pos1) — pos1-4 average diluted by interior positions
+        auto stats_3_pos0 = compute_terminal_stats(profile.a_freq_3prime[0],
+                                                   profile.g_freq_3prime[0],
+                                                   profile.baseline_a_freq,
+                                                   profile.baseline_g_freq);
+        auto stats_3_pos1 = compute_terminal_stats(profile.a_freq_3prime[1],
+                                                   profile.g_freq_3prime[1],
+                                                   profile.baseline_a_freq,
+                                                   profile.baseline_g_freq);
+        bool pos0_spike_3 = (ga0 - ga1_4) > 0.05;
+        bool pos0_gap_3   = (stats_3_pos0.first < -0.005f && stats_3_pos1.first > 0.01f) ||
+                            (stats_3_pos1.first > 0.02f &&
+                             (stats_3_pos1.first - stats_3_pos0.first) > 0.03f);
+        profile.position_0_artifact_3prime = pos0_spike_3 || pos0_gap_3;
     }
 
     // Negative control statistics (should NOT show enrichment if damage is real)

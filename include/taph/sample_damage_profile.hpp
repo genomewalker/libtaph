@@ -527,6 +527,13 @@ struct SampleDamageProfile {
     float   modern_fraction_lambda5  = 0.0f;
     float   modern_fraction_d3_fit   = 0.0f;
     float   modern_fraction_lambda3  = 0.0f;
+    // Per-position raw rates for fraction damage curves (0 = no data / below coverage gate)
+    std::array<float, 15> damaged_fraction_rate5{};  // T/TC(p) for ancient 5'
+    std::array<float, 15> damaged_fraction_rate3{};  // signal/denom for ancient 3'
+    std::array<float, 15> modern_fraction_rate5{};   // T/TC(p) for modern 5'
+    std::array<float, 15> modern_fraction_rate3{};   // signal/denom for modern 3'
+    bool    modern_fraction_leakage_5prime = false;
+    bool    modern_fraction_leakage_3prime = false;
 
     // Track source of d_max_combined estimate
     enum class DmaxSource { AVERAGE, MIN_ASYMMETRY, MAX_SS_ASYMMETRY,
