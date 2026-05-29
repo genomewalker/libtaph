@@ -29,6 +29,16 @@
   is set the per-read 5' LLR scorer starts from position 1, avoiding the
   adapter-blunting depletion at pos 0 from artificially lowering LLR scores
   on genuinely ancient reads.
+- **3′ pos-0 artifact detection — DS blunting gap**: `position_0_artifact_3prime`
+  previously only fired on the SS ligation spike (pos-0 G→A elevated above
+  pos-1–4 mean by > 5 pp). DS libraries with adapter blunting show the
+  opposite: pos-0 depleted, pos-1 elevated. Added complementary gap detection
+  (`stats_3_pos0 < −0.005 && stats_3_pos1 > 0.01`, or a large pos-0→pos-1
+  jump > 3 pp when pos-1 excess > 2%). Using pos-1 alone rather than the
+  pos-1–4 average is critical: the four-position average dilutes the pos-1
+  signal (shift ~0.008 vs ~0.060 at pos-1 alone), placing it below the
+  detection threshold. Fixes `d_max_3prime = 0` in DS libraries affected by
+  adapter blunting.
 
 ### Channels F/G/H — oxidative terminal enrichment
 
