@@ -20,7 +20,8 @@ target_include_directories(taph PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-target_compile_options(taph PRIVATE -O2 -march=cascadelake -Wall -Wextra)
+set(TAPH_MARCH "cascadelake" CACHE STRING "Value passed to -march= (override for CI/portability)")
+target_compile_options(taph PRIVATE -O2 -march=${TAPH_MARCH} -Wall -Wextra)
 
 # ── Install ───────────────────────────────────────────────────────────────────
 include(GNUInstallDirs)
