@@ -20,8 +20,12 @@ target_include_directories(taph PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-set(TAPH_MARCH "cascadelake" CACHE STRING "Value passed to -march= (override for CI/portability)")
-target_compile_options(taph PRIVATE -O2 -march=${TAPH_MARCH} -Wall -Wextra)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    set(TAPH_MARCH "native" CACHE STRING "Value passed to -march= (override for CI/portability)")
+    target_compile_options(taph PRIVATE -O2 -march=${TAPH_MARCH} -Wall -Wextra)
+else()
+    target_compile_options(taph PRIVATE -O2 -Wall -Wextra)
+endif()
 
 # ── Install ───────────────────────────────────────────────────────────────────
 include(GNUInstallDirs)
