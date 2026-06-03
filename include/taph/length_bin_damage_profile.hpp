@@ -24,9 +24,6 @@ struct LengthBinDamageProfile {
     double lambda_3prime = 0.0;
     double bg_5prime     = 0.0;
     double bg_3prime     = 0.0;
-    // DEPRECATED (removal in next major release): was upstream-GC (GpC) contrast, not CpG.
-    // Use log2_cpg_ratio / cpg_z. JSON emits "cpg_contrast": null as migration shim.
-    double cpg_contrast  = std::numeric_limits<double>::quiet_NaN();
     bool   validated     = false;
     bool   ss_mode       = false;
     std::string source   = "none";
