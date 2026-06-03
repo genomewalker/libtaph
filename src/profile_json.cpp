@@ -199,7 +199,7 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"dmax_GC\": " << nan_or(dp.dmax_ct5_by_upstream[SP::CTX_GC]) << ",\n";
     j << "      \"dmax_TC\": " << nan_or(dp.dmax_ct5_by_upstream[SP::CTX_TC]) << ",\n";
     j << "      \"dipyr_contrast\": " << nan_or(dp.dipyr_contrast) << ",\n";
-    j << "      \"cpg_contrast\": null,\n";  // deprecated: was upstream-GC (GpC) contrast; use log2_cpg_ratio/cpg_z instead
+
     j << "      \"heterogeneity_chi2\": " << std::setprecision(2) << dp.context_heterogeneity_chi2 << ",\n";
     j << "      \"heterogeneity_p\": " << std::setprecision(4) << dp.context_heterogeneity_p << ",\n";
     j << "      \"heterogeneity_detected\": " << (dp.context_heterogeneity_detected ? "true" : "false") << "\n";
@@ -242,7 +242,7 @@ void profile_to_json(const SampleDamageProfile& dp,
               << ",\"lambda_3prime\":" << lb.lambda_3prime
               << ",\"bg_5prime\":" << lb.bg_5prime
               << ",\"bg_3prime\":" << lb.bg_3prime
-              << ",\"cpg_contrast\":null"  // deprecated: removed in a future release
+
               << ",\"validated\":" << (lb.validated ? "true" : "false")
               << ",\"ss_mode\":" << (lb.ss_mode ? "true" : "false")
               << ",\"source\":\"" << lb.source << "\"";
