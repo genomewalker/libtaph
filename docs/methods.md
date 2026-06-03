@@ -410,11 +410,11 @@ The counts live on `SampleDamageProfile`:
 Finalization fits a fixed-lambda binomial likelihood per context via golden-section search on `d` (`fit_ct5_ctx_amplitude`), using the interior T/(T+C) as the baseline and clamping `mu` to `[1e-6, 1-1e-6]`. Coverage gates are explicit: the interior must have `total >= 500` with effective coverage `>= 100`, each fit position must have `>= 50` observations, at least three positions must clear that gate, and the cumulative terminal effective coverage must be `>= 50`. A fit that lands at `d >= 0.98` is reported as invalid (the optimizer hit the upper wall and the signal is indistinguishable from saturation). Results are stored as `dmax_ct5_by_upstream[ctx]`, `baseline_ct5_by_upstream[ctx]`, and the terminal / interior coverage arrays. Two derived contrasts summarize the pattern:
 
 - `dipyr_contrast = ½(d_CC + d_TC) − ½(d_AC + d_GC)`: positive when dipyrimidine contexts (CC, TC) carry more damage than non-dipyrimidine, as expected for UV-driven 6-4 photoproduct / CPD-linked deamination.
-- `cpg_contrast = d_GC − ⅓(d_AC + d_CC + d_TC)`: positive when 5-methylcytosine at CpG sites dominates, as expected for methylation-driven hydrolytic deamination.
+- `gpc_contrast = d_GC − ⅓(d_AC + d_CC + d_TC)`: positive when the upstream (5') neighbour is G (i.e. GpC context). Keyed on the UPSTREAM base — this is NOT the CpG/5mC axis. For methylation-driven deamination see `log2_cpg_ratio` / `cpg_z` (downstream neighbour, correct CpG geometry).
 
 A coverage-weighted pseudo-chi-squared statistic on the four fitted `dmax` values tests the null that the context amplitudes are equal. With three degrees of freedom, `context_heterogeneity_chi2 > 7.81` sets `context_heterogeneity_detected = true`. The p-value is read off a coarse critical-value ladder (`0.001, 0.01, 0.05, 0.1, 0.5, 0.9`) rather than a full chi-squared CDF, since the statistic is a pseudo-chi-squared and a precise p-value would imply more calibration than the construction warrants.
 
-In practice the contrast pair separates three regimes we observe in real samples: ancient DNA with a flat spectrum across contexts (cytosine hydrolysis everywhere), methylation-driven deamination with a CpG-dominant signal (`cpg_contrast > 0`, other contexts near baseline), and UV-damaged material where dipyrimidine contexts lead (`dipyr_contrast > 0`).
+In practice the contrast pair separates three regimes we observe in real samples: ancient DNA with a flat spectrum across contexts (cytosine hydrolysis everywhere), GpC-context-elevated deamination (`gpc_contrast > 0`, other contexts near baseline) — note this is the upstream-G context (GpC), not CpG/5mC methylation, and UV-damaged material where dipyrimidine contexts lead (`dipyr_contrast > 0`).
 
 ---
 

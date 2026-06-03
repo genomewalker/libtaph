@@ -260,7 +260,7 @@ Per-context accumulators and shrinkage-fitted amplitudes, indexed by `CTX_AC = 0
 | `baseline_ct5_by_upstream[ctx]` | `float[4]` | Interior baseline rate per context. |
 | `cov_ct5_terminal_by_upstream[ctx]` / `cov_ct5_interior_by_upstream[ctx]` | `float[4]` | Coverage used in the per-context fit. |
 | `dipyr_contrast` | `float` | `½(d_CC + d_TC) − ½(d_AC + d_GC)`. Positive for dipyrimidine-biased (UV-like) damage. |
-| `cpg_contrast` | `float` | `d_GC − ⅓(d_AC + d_CC + d_TC)`. Positive for CpG-dominant (methylation-driven) damage. |
+| `gpc_contrast` | `float` | `d_GC − ⅓(d_AC + d_CC + d_TC)`. Keyed on the UPSTREAM (5') base (GpC dinucleotide). NOT the CpG/5mC methylation axis — use `log2_cpg_ratio` for that. |
 | `context_heterogeneity_chi2` | `float` | Chi-squared statistic (df = 3) for uniformity across the four contexts. |
 | `context_heterogeneity_p` | `float` | Ladder-quantized p-value (`0.9, 0.5, 0.1, 0.05, 0.01, 0.001`). |
 | `context_heterogeneity_detected` | `bool` | `chi2 > 7.81` (p < 0.05). |

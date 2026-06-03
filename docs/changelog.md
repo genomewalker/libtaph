@@ -2,6 +2,14 @@
 
 ## main (unreleased)
 
+### Breaking: JSON key rename `cpg_contrast` → `gpc_contrast`
+
+The upstream-context contrast (keyed on `decoded[p-1]`, the base **5' of** the
+damaged cytosine) measures the GpC dinucleotide, not CpG. CpG methylation
+requires the **3' neighbour** (downstream G), already tracked via
+`log2_cpg_ratio` / `cpg_z`. Consumers must update JSON field references.
+C++ field renamed identically in `SampleDamageProfile` and `LengthBinDamageProfile`.
+
 ### Ancient-fraction deamination — soft-EM + independent fitted profiles
 
 #### Added

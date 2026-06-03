@@ -17,7 +17,7 @@ Reference-based damage estimation (mapDamage, metaDMG) requires a mapped BAM fil
 ## What it measures
 
 Nine biochemical damage channels plus three context-sensitive metrics, together
-covering all reference-free FASTQ-detectable aDNA damage types:
+covering a panel of reference-free, FASTQ-detectable aDNA damage channels:
 
 ### Channel A: Cytosine deamination (primary damage signal)
 
@@ -162,11 +162,11 @@ per context by golden-section search with explicit coverage gates (interior
 `>= 500`, effective interior `>= 100`, per-position `>= 50`, at least three
 usable positions). Fits that saturate (`d >= 0.98`) are reported as invalid. Two contrasts summarise the pattern: `dipyr_contrast`
 (`½(d_CC + d_TC) − ½(d_AC + d_GC)`) is positive for dipyrimidine-biased
-UV-like damage; `cpg_contrast` (`d_GC − ⅓(d_AC + d_CC + d_TC)`) is positive
-for methylation-driven CpG-dominant deamination. A chi-squared test over the
+UV-like damage; `gpc_contrast` (`d_GC − ⅓(d_AC + d_CC + d_TC)`) is positive
+when G precedes the cytosine (GpC context). This is the UPSTREAM neighbour, not CpG/5mC (use `log2_cpg_ratio` for that). A chi-squared test over the
 four fitted amplitudes (df = 3) sets `context_heterogeneity_detected` when
 `chi2 > 7.81` (p < 0.05). Fields live on `SampleDamageProfile`
-(`dmax_ct5_by_upstream`, `dipyr_contrast`, `cpg_contrast`,
+(`dmax_ct5_by_upstream`, `dipyr_contrast`, `gpc_contrast`,
 `context_heterogeneity_chi2`, `context_heterogeneity_p`).
 
 ### Length-stratified profile
