@@ -146,7 +146,11 @@ struct SampleDamageProfile {
     std::array<float, N_UPSTREAM_CTX> cov_ct5_interior_by_upstream = {};
 
     // Derived contrasts
-    float dipyr_contrast = std::numeric_limits<float>::quiet_NaN();  // mean(CC,TC) - mean(AC,GC)
+    float dipyr_contrast = std::numeric_limits<float>::quiet_NaN();  // mean(CC,TC) - mean(AC,GC); upstream (5') base; correct CPD geometry
+    // DEPRECATED (removal in next major release): was upstream-GC (GpC) contrast, not CpG.
+    // Use log2_cpg_ratio / cpg_z (downstream cpg_like block) for CpG/5mC signal.
+    // JSON emits "cpg_contrast": null as migration shim. Do not read this field in new code.
+    float cpg_contrast = std::numeric_limits<float>::quiet_NaN();
 
     float context_heterogeneity_chi2 = 0.0f;  // chi-squared for context uniformity
     float context_heterogeneity_p    = 1.0f;  // p-value
