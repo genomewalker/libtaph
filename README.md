@@ -313,13 +313,14 @@ std::cout << "Library:    " << profile.library_type_str() << "\n";
 
 ## Validated performance
 
-Tested on 315 Mediterranean sediment aDNA libraries (two independent datasets):
+Tested on collections of permafrost and sediment aDNA libraries spanning a range of
+degradation states (heavily damaged to near-zero damage):
 
 | Dataset | Correct | UNKNOWN | Wrong | Accuracy (determined) |
 |---|---|---|---|---|
-| Dataset 1 (91 samples) | 88 | 3 | 0 | **100%** |
-| Dataset 2 (224 samples) | 193 | 28 | 3 | **98.5%** |
-| Chemistry-aware regression (78 samples) | 77 | 0 | 1 | **98.7%** (vs 80.8% in v8) |
+| Dataset 1 (~100 samples) | 88 | 3 | 0 | **100%** |
+| Dataset 2 (~225 samples) | 193 | 28 | 3 | **98.5%** |
+| Chemistry-aware regression (~80 samples) | 77 | 0 | 1 | **98.7%** |
 
 UNKNOWN: no model beats the null (zero-damage libraries where library type cannot be inferred from sequence alone).
 

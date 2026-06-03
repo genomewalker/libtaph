@@ -2,20 +2,16 @@
 
 ## main (unreleased)
 
-### Deprecated: `cpg_contrast` JSON key (emits `null`; field removed from C++ API)
+### Breaking: `cpg_contrast` removed from C++ API and JSON output
 
 The upstream-context contrast (keyed on `decoded[p-1]`, base **5' of** the
-cytosine) measures the GpC dinucleotide, not CpG. GpC methylation is absent
-in the eukaryotes this library targets; the field implied chemistry that is not
-there. The correct CpG/5mC axis is `log2_cpg_ratio` / `cpg_z` (downstream
-`cpg_like` block, keyed on `decoded[p+1]`).
+cytosine) measured the GpC dinucleotide, not CpG. GpC methylation is absent
+in eukaryotes; the field implied chemistry that is not there. The correct
+CpG/5mC axis is `log2_cpg_ratio` / `cpg_z` (downstream `cpg_like` block,
+keyed on `decoded[p+1]`).
 
-**This release:** `cpg_contrast` is removed from `SampleDamageProfile` and
-`LengthBinDamageProfile`; JSON output emits `"cpg_contrast": null` as a
-one-release deprecation shim so consumers don't break on key lookup.
-
-**Next release:** the `null` shim will be removed. Update consumers to
-`log2_cpg_ratio` / `cpg_z` before then.
+Removed from `SampleDamageProfile`, `LengthBinDamageProfile`, and JSON output.
+Update consumers to use `log2_cpg_ratio` / `cpg_z`.
 
 `dipyr_contrast` (CC/TC vs AC/GC, correct CPD dipyrimidine geometry) is
 unchanged and its direction has been independently audited.
@@ -111,12 +107,10 @@ unchanged and its direction has been independently audited.
 - Bug: M_DS_spike rescue could fire when M_DS_symm_art won via joint fit with marginal ct5/ga3 ΔBIC ≤ 0, now restricted to `ds_spike_won`
 
 ### Validation
-- 78-sample SE regression (33 clay91 + 45 permafrost sediment; 50 ds + 28 ss truth):
-  77/78 correct in v9 vs 63/78 in v8; all 14 flips in the correct direction
-  (no regressions). Single remaining miss is a real ambiguity
-  (`LV7009022725-20S-IS160`: ga3=0.030, ga0=0.047, margin 1.1).
-- Dataset 1 (46 DS + 45 SS): 88/91 correct, 3 UNKNOWN (100% on determined calls)
-- Dataset 2 (78 DS + 146 SS): 193/196 correct on determined calls, 28 UNKNOWN (98.5%)
+- ~80-sample SE regression across heavily to lightly degraded permafrost and sediment libraries:
+  77/78 correct in v9 vs 63/78 in v8; all 14 flips in the correct direction (no regressions).
+- Dataset 1 (~90 samples, DS+SS mix): 88/91 correct, 3 UNKNOWN (100% on determined calls)
+- Dataset 2 (~225 samples, DS+SS mix): 193/196 correct on determined calls, 28 UNKNOWN (98.5%)
 
 ---
 
