@@ -20,11 +20,10 @@ target_include_directories(taph PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-    set(TAPH_MARCH "native" CACHE STRING "Value passed to -march= (override for CI/portability)")
-    target_compile_options(taph PRIVATE -O2 -march=${TAPH_MARCH} -Wall -Wextra)
-else()
-    target_compile_options(taph PRIVATE -O2 -Wall -Wextra)
+set(TAPH_MARCH "" CACHE STRING "Value passed to -march=; empty = portable. Set to 'native' for local optimisation.")
+target_compile_options(taph PRIVATE -O2 -Wall -Wextra)
+if(NOT "${TAPH_MARCH}" STREQUAL "")
+    target_compile_options(taph PRIVATE -march=${TAPH_MARCH})
 endif()
 
 # ── Install ───────────────────────────────────────────────────────────────────
