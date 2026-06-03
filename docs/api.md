@@ -4,6 +4,64 @@ All public symbols live in the `taph` namespace. Include `<taph/frame_selector_d
 
 ---
 
+## Stability tiers
+
+`SampleDamageProfile` fields are grouped into three tiers. The tier of a field is
+annotated in `sample_damage_profile.hpp` with a comment block
+(`// --- Stable outputs ---`, `// --- Diagnostics ---`,
+`// --- Experimental ---`).
+
+### Stable
+
+These fields are committed across minor versions. Their names, types, and
+semantics will not change without a major version bump and a changelog entry.
+
+| Field group | Fields |
+|---|---|
+| Channel A d_max | `d_max_5prime`, `d_max_3prime`, `d_max_combined`, `d_max_source_str()` |
+| Channel A decay | `lambda_5prime`, `lambda_3prime` |
+| Channel A area | `damage_5prime_area_excess`, `damage_3prime_area_excess`, `damage_5prime_lr`, `damage_3prime_lr` |
+| Channel A asymmetry | `asymmetry` |
+| Channel A background | `bg_5prime_anchored`, `bg_3prime_anchored` |
+| Library type | `library_type`, `library_type_auto_detected`, `library_type_str()` |
+| Library BIC | `library_bic_bias`, `library_bic_ds`, `library_bic_ss`, `library_bic_mix` |
+| CpG axis | `log2_cpg_ratio`, `cpg_ratio` |
+| Context contrasts | `dipyr_contrast`, `gpc_contrast` |
+| Channel B headline | `channel_b_valid`, `stop_amplitude_5prime`, `d_max_from_channel_b` |
+| Oxidative channels | `channel_f_z`, `channel_g_z`, `channel_h_z`, `channel_h_z_p2plus` |
+| Ancient fraction | `damaged_fraction_valid`, `damaged_fraction_pi`, `damaged_fraction_d5_fit`, `damaged_fraction_d3_fit`, `damaged_fraction_lambda5`, `damaged_fraction_lambda3` |
+| Validation flags | `damage_validated`, `damage_artifact`, `terminal_inversion`, `is_valid()`, `is_detection_unreliable()` |
+
+### Diagnostics
+
+Useful for debugging and model development but may gain or lose fields in minor
+releases. Do not write production code that hard-depends on these names.
+
+- Library BIC internals: `libtype_amp_ct5/ga3/ga0/ct3`, `libtype_dbic_*`, `library_p_ds/ss/bias/winner`, `library_bic_winner_model`, `library_bic_margin`
+- Background coverage: `bg_n_positions_*`, `bg_denominator_*`, `briggs_pos0_masked_*`
+- Channel B internals: `channel_b_slope`, `channel_b_weight`, `channel_b_quantifiable`, `channel_b_inverted`, `stop_decay_llr_*`, `stop_conversion_rate_baseline`, per-stop-type LLRs (`*_taa_*`, `*_tag_*`, `*_tga_*`)
+- Oxidative channel details: `ca_stop_rate_*`, `cg_stop_rate_*`, `at_stop_rate_*`, `*_uniformity_ratio*`, `channel_f/g/h_valid`, `channel_f/g/h3_valid`
+- Hexamer chemistry: `hexamer_excess_tc`, `hexamer_damage_llr`
+- Fraction d_max (mixture-identity, biased at low π): `damaged_fraction_d5`, `damaged_fraction_d3`, `modern_fraction_*`
+- Pattern flags: `composition_bias_*`, `inverted_pattern_*`, `position_0_artifact_*`
+- Preservation: `preservation_score`, `preservation_label`, `preservation_evidence`, `preservation_reliability`
+
+### Experimental
+
+No stability guarantee. Schema, semantics, and field names may change between any
+two releases. Do not depend on these in downstream tools without pinning the
+libtaph version.
+
+- **Raw upstream-context arrays** — `ct5_t_by_upstream[ctx][pos]`, `ct5_total_by_upstream[ctx][pos]`, `ct5_t_interior_by_upstream[ctx]`, `ct5_total_interior_by_upstream[ctx]`, `dmax_ct5_by_upstream[ctx]`, `baseline_ct5_by_upstream[ctx]`, `cov_ct5_*_by_upstream[ctx]`
+- **Per-position trinucleotide counts** — `tri_5prime_pos[pos][ctx]`, `tri_3prime_pos[pos][ctx]`, `tri_5prime_terminal`, `tri_5prime_interior`, `tri_3prime_terminal`, `tri_3prime_interior`
+- **16-context OxoG panel** — `oxog16_t`, `oxog16_a_rc`, `s_oxog_16ctx`, `cov_oxog_16ctx`
+- **Per-hexamer-prefix F/G/H sums** — `ca_pre_terminal_by_pfx`, `ca_stop_terminal_by_pfx`, and all `*_by_pfx` variants
+- **OxoTwoMarkerBins struct** and all `ox_two_marker_bins` fields
+- **Codon-position arrays** — `codon_pos_t_rate_5prime`, `codon_pos_a_rate_3prime`, `codon_pos_*_count_*`
+- **Length×GC joint mixture** (`LengthGcJointMixtureResult`) and `MultiDomainResult` domain ensemble fields
+
+---
+
 ## FrameSelector
 
 The main entry point. All methods are `static`.
