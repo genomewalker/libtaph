@@ -2887,9 +2887,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // Positive = dipyrimidine excess (UV-like)
             profile.dipyr_contrast = 0.5f * (d_cc + d_tc) - 0.5f * (d_ac + d_gc);
 
-            // cpg_contrast: GC - mean(AC, CC, TC)
-            // Positive = CpG excess (methylation-enhanced deamination)
-            profile.cpg_contrast = d_gc - (d_ac + d_cc + d_tc) / 3.0f;
+            // gpc_contrast: GC - mean(AC, CC, TC); keyed on the UPSTREAM (5') base.
+            // This is NOT the CpG methylation axis (that requires the 3' neighbour).
+            // For CpG/5mC-driven deamination use log2_cpg_ratio / cpg_z instead.
+            profile.gpc_contrast = d_gc - (d_ac + d_cc + d_tc) / 3.0f;
 
             // Chi-squared heterogeneity test: are contexts different from uniform?
             const float mean_d = dmax_sum / 4.0f;
@@ -5611,7 +5612,7 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
         profile.cov_ct5_interior_by_upstream[uctx] = 0.0f;
     }
     profile.dipyr_contrast = std::numeric_limits<float>::quiet_NaN();
-    profile.cpg_contrast = std::numeric_limits<float>::quiet_NaN();
+    profile.gpc_contrast = std::numeric_limits<float>::quiet_NaN();
     profile.context_heterogeneity_chi2 = 0.0f;
     profile.context_heterogeneity_p = 1.0f;
     profile.context_heterogeneity_detected = false;
