@@ -147,7 +147,7 @@ struct SampleDamageProfile {
 
     // Derived contrasts
     float dipyr_contrast = std::numeric_limits<float>::quiet_NaN();  // mean(CC,TC) - mean(AC,GC)
-    float gpc_contrast   = std::numeric_limits<float>::quiet_NaN();  // GC - mean(AC,CC,TC); upstream (5') base; NOT the CpG/5mC axis
+
     float context_heterogeneity_chi2 = 0.0f;  // chi-squared for context uniformity
     float context_heterogeneity_p    = 1.0f;  // p-value
     bool  context_heterogeneity_detected = false;  // true if p < 0.05

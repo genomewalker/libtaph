@@ -24,7 +24,6 @@ struct LengthBinDamageProfile {
     double lambda_3prime = 0.0;
     double bg_5prime     = 0.0;
     double bg_3prime     = 0.0;
-    double gpc_contrast  = std::numeric_limits<double>::quiet_NaN();
     bool   validated     = false;
     bool   ss_mode       = false;
     std::string source   = "none";
