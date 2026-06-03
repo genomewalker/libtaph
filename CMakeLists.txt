@@ -15,6 +15,8 @@ add_library(taph
     src/profile_json.cpp
 )
 
+add_library(taph::taph ALIAS taph)
+
 target_include_directories(taph PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>

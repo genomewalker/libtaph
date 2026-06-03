@@ -12,7 +12,7 @@ from C, C++14, or any later standard.
 ```cmake
 # In your top-level or src/ CMakeLists.txt
 add_subdirectory(path/to/libtaph)
-target_link_libraries(your_classifier PRIVATE taph)
+target_link_libraries(your_classifier PRIVATE taph::taph)
 ```
 
 `taph` sets its own `CXX_STANDARD 17` — it does not affect your

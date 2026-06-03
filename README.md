@@ -331,7 +331,7 @@ As a CMake dependency:
 
 ```cmake
 find_package(taph REQUIRED)
-target_link_libraries(your_target PRIVATE taph)
+target_link_libraries(your_target PRIVATE taph::taph)
 ```
 
 Or via FetchContent:
@@ -343,7 +343,7 @@ FetchContent_Declare(libtaph
     GIT_TAG        main
 )
 FetchContent_MakeAvailable(libtaph)
-target_link_libraries(your_target PRIVATE taph)
+target_link_libraries(your_target PRIVATE taph::taph)
 ```
 
 ---
