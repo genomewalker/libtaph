@@ -1,6 +1,7 @@
 #include "taph/length_stratified_profile.hpp"
 
 #include <algorithm>
+#include <new>
 #include <stdexcept>
 
 namespace taph {
@@ -20,8 +21,12 @@ void LengthBinStats::configure(const std::vector<int>& new_edges) {
 
     edges = new_edges;
     n_bins = edges.size() + 1;
-    profiles = {};
-    for (std::size_t i = 0; i < n_bins; ++i) {
+    // SampleDamageProfile is ~650 KB; any assignment creates a stack temporary
+    // of that size (or 4× for the full array). Use placement new to reinitialise
+    // in-place — no stack allocation, safe in SSH sessions with reduced ulimit -s.
+    for (std::size_t i = 0; i < MAX_BINS; ++i) {
+        profiles[i].~SampleDamageProfile();
+        ::new (static_cast<void*>(&profiles[i])) SampleDamageProfile{};
         profiles[i].forced_library_type = forced_library_type;
     }
 }
