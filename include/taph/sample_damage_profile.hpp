@@ -118,11 +118,12 @@ struct SampleDamageProfile {
     int   fit_positions_ct5_cpg_like    = 0;
     int   fit_positions_ct5_noncpg_like = 0;
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Upstream-context-aware C→T tracking (experimental)
+    // --- Experimental (no stability guarantee) --------------------------------
+    // Fields below may be renamed, retyped, or removed in any release.
+    // Do not rely on them in production consumers without pinning the library version.
+
+    // Upstream-context-aware C→T tracking
     // 4 disjoint bins by upstream base: AC, CC, GC, TC
-    // Used to detect context-dependent deamination (CpG vs dipyrimidine patterns)
-    // ═══════════════════════════════════════════════════════════════════════════
     std::array<std::array<double, N_POS>, N_UPSTREAM_CTX> ct5_t_by_upstream = {};
     std::array<std::array<double, N_POS>, N_UPSTREAM_CTX> ct5_total_by_upstream = {};
     std::array<double, N_UPSTREAM_CTX> ct5_t_interior_by_upstream = {};
@@ -486,6 +487,10 @@ struct SampleDamageProfile {
     int fit_offset_5prime = 1;
     int fit_offset_3prime = 1;
 
+    // --- Stable outputs -------------------------------------------------------
+    // Fields below are part of the public API and will not be renamed or removed
+    // without a major version bump and changelog entry.
+
     // Calibrated D_max values (comparable to metaDMG)
     // D = A / (1 - b), the fraction of C that became T
     float d_max_5prime = 0.0f;  // Calibrated D_max for 5' end
@@ -648,6 +653,11 @@ struct SampleDamageProfile {
     double convertible_cga_interior = 0.0;
     double convertible_tga_interior = 0.0;
     double total_codons_interior = 0.0;
+
+    // --- Diagnostics ----------------------------------------------------------
+    // Informational counters and intermediate statistics. Stable names but
+    // values may change when algorithms are updated; not recommended as primary
+    // analysis inputs.
 
     // Computed statistics for Channel B
     float stop_conversion_rate_baseline = 0.0f;  // Interior stop/(pre+stop) ratio
