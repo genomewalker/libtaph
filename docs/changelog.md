@@ -2,13 +2,23 @@
 
 ## main (unreleased)
 
-### Breaking: JSON key rename `cpg_contrast` → `gpc_contrast`
+### Deprecated: `cpg_contrast` JSON key (emits `null`; field removed from C++ API)
 
-The upstream-context contrast (keyed on `decoded[p-1]`, the base **5' of** the
-damaged cytosine) measures the GpC dinucleotide, not CpG. CpG methylation
-requires the **3' neighbour** (downstream G), already tracked via
-`log2_cpg_ratio` / `cpg_z`. Consumers must update JSON field references.
-C++ field renamed identically in `SampleDamageProfile` and `LengthBinDamageProfile`.
+The upstream-context contrast (keyed on `decoded[p-1]`, base **5' of** the
+cytosine) measures the GpC dinucleotide, not CpG. GpC methylation is absent
+in the eukaryotes this library targets; the field implied chemistry that is not
+there. The correct CpG/5mC axis is `log2_cpg_ratio` / `cpg_z` (downstream
+`cpg_like` block, keyed on `decoded[p+1]`).
+
+**This release:** `cpg_contrast` is removed from `SampleDamageProfile` and
+`LengthBinDamageProfile`; JSON output emits `"cpg_contrast": null` as a
+one-release deprecation shim so consumers don't break on key lookup.
+
+**Next release:** the `null` shim will be removed. Update consumers to
+`log2_cpg_ratio` / `cpg_z` before then.
+
+`dipyr_contrast` (CC/TC vs AC/GC, correct CPD dipyrimidine geometry) is
+unchanged and its direction has been independently audited.
 
 ### Ancient-fraction deamination — soft-EM + independent fitted profiles
 
