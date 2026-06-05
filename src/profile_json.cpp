@@ -1850,6 +1850,8 @@ void profile_to_json(const SampleDamageProfile& dp,
             // not only in the count table. True for F (an established bottom-strand 8-oxoG lesion whose
             // z denominator folds in the C->T deamination shadow); false for the empirical channels.
             j << "      \"z_deamination_shadow_in_denominator\": " << (s.shadow_in_z ? "true" : "false") << ",\n";
+            j << "      \"inference_class\": \""
+              << (s.inference_class == InferenceClass::STOP_CHANNEL ? "stop_channel" : "rate_only") << "\",\n";
         };
 
         // Channel F
@@ -1893,6 +1895,30 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"z_score_p2plus\": "; emit_z(dp.channel_h_z_p2plus, dp.channel_h_valid); j << ",\n";
         j << "      \"z_consistent\": " << jbool(ch_h_z_consistent) << ",\n";
         j << "      \"odds_ratio\": " << nan_or(dp.channel_h_or) << "\n";  // P4: 2x2 Haldane-Anscombe OR (primary effect size)
+        j << "    },\n";
+
+        // Channels F3/G3/H3 — 3' rate-only (registry inference_class=rate_only): terminal/baseline
+        // rates at the 3' end, no stop-enrichment z/OR. Declared so "no z here" is a stated contract.
+        j << "    {\n";
+        emit_channel_meta(kStopChannels3p[0]);
+        j << "      \"valid\": " << jbool(dp.channel_f3_valid) << ",\n";
+        j << "      \"baseline_rate\": "; jfloat(dp.ca_stop_rate_baseline_3prime); j << ",\n";
+        j << "      \"terminal_rate\": "; jfloat(dp.ca_stop_rate_terminal_3prime); j << ",\n";
+        j << "      \"uniformity_ratio\": "; jfloat(dp.ca_uniformity_ratio_3prime); j << "\n";
+        j << "    },\n";
+        j << "    {\n";
+        emit_channel_meta(kStopChannels3p[1]);
+        j << "      \"valid\": " << jbool(dp.channel_g3_valid) << ",\n";
+        j << "      \"baseline_rate\": "; jfloat(dp.cg_stop_rate_baseline_3prime); j << ",\n";
+        j << "      \"terminal_rate\": "; jfloat(dp.cg_stop_rate_terminal_3prime); j << ",\n";
+        j << "      \"uniformity_ratio\": "; jfloat(dp.cg_uniformity_ratio_3prime); j << "\n";
+        j << "    },\n";
+        j << "    {\n";
+        emit_channel_meta(kStopChannels3p[2]);
+        j << "      \"valid\": " << jbool(dp.channel_h3_valid) << ",\n";
+        j << "      \"baseline_rate\": "; jfloat(dp.at_stop_rate_baseline_3prime); j << ",\n";
+        j << "      \"terminal_rate\": "; jfloat(dp.at_stop_rate_terminal_3prime); j << ",\n";
+        j << "      \"uniformity_ratio\": "; jfloat(dp.at_uniformity_ratio_3prime); j << "\n";
         j << "    }\n";
 
         j << "  ]\n";

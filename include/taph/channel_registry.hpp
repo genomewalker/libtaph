@@ -1,12 +1,12 @@
 #pragma once
 // Layer-1 of the stop-channel registry: a declarative ChannelSpec table that states, ONCE, each
-// stop channel's mechanism, observable-vs-inferred semantics, denominator/shadow policy, context
-// stratification, variance family and cap policy. This is what ends the "four comparable stop
-// channels" fiction: F's deamination-shadow denominator and Mantel-Haenszel stratification are
-// TYPED capability fields here (has_deam_shadow / has_mh_stratification), not parallelism implied by
-// six hand-rolled code blocks. compute_stop_channel(spec, counts) (P3) becomes the single producer
-// driven by this table; until then the live blocks and this table are kept in lock-step by the
-// Layer-0 count-table golden gate.
+// channel's mechanism, observable-vs-inferred semantics, denominator/shadow policy, context
+// stratification, variance family, cap policy and inference class. This is what ends the "comparable
+// channels" fiction: F's deamination-shadow denominator and Mantel-Haenszel stratification are TYPED
+// capability fields here (has_deam_shadow / has_mh_stratification), not parallelism implied by
+// hand-rolled code blocks. compute_stop_channel(spec, counts) is the single producer driven by the
+// 5' stop channels; the 3' channels are declared here too with inference_class=RATE_ONLY so their
+// non-membership in the stop-channel z/OR inference is EXPLICIT, not implicit.
 #include <array>
 #include <cstddef>
 
@@ -25,8 +25,13 @@ enum class VarianceFamily { POOLED_BERNOULLI, MANTEL_HAENSZEL_OR, PLAIN_2x2_OR }
 
 enum class CapPolicy { CLAMP_ZCAP, NONE };
 
+// How the channel participates in inference. STOP_CHANNEL: full Layer-0 count table + pooled z +
+// effect-size OR (the 5' F/G/H). RATE_ONLY: terminal/baseline rates only, no z/OR/count-table
+// (the 3' F3/G3/H3) — declared so "no z here" is a stated contract, not a silent omission.
+enum class InferenceClass { STOP_CHANNEL, RATE_ONLY };
+
 struct ChannelSpec {
-    const char*      channel_id;            // "F","G","H" (+ "F3"/"G3"/"H3" when 3' z is migrated)
+    const char*      channel_id;            // "F","G","H","F3","G3","H3"
     char             channel_type;          // 'F' | 'G' | 'H'
     const char*      json_name;             // emitted legend "name"
     const char*      json_description;      // emitted legend "description"
@@ -35,18 +40,19 @@ struct ChannelSpec {
     const char*      observable_name;       // measured substitution, e.g. "C_to_A_complement_asymmetry"
     const char*      inferred_lesion;       // earned lesion or nullptr (G/H assert none)
     StrandFrame      strand;
-    bool             has_deam_shadow;       // F only: deamination shadow exists for this channel
+    bool             has_deam_shadow;       // F/F3: deamination shadow exists for this channel
     bool             shadow_in_z;           // F: shadow folded into the z denominator
     bool             shadow_in_rate;        // F: NOT folded into the rate denominator (rates are shadow-free)
     bool             has_mh_stratification; // F only: 3 context strata feed a Mantel-Haenszel test
-    int              n_strata;              // F: 3, G/H: 1
+    int              n_strata;              // F: 3, others: 1
     bool             applicable_in_ss;      // F/G/H: false (applicable == !is_ss)
     VarianceFamily   variance;
     CapPolicy        cap;
+    InferenceClass   inference_class;       // STOP_CHANNEL (5' F/G/H) | RATE_ONLY (3' F3/G3/H3)
 };
 
 // The 5' stop channels as they behave TODAY (F: shadow + MH; G/H: bare single-stratum z). The
-// asymmetry is declared, not implied. 3' (F3/G3/H3) join when their z is migrated in P3.
+// asymmetry is declared, not implied.
 inline constexpr std::array<ChannelSpec, 3> kStopChannels5p = {{
     { "F", 'F', "8_oxog_complement",
       "C to A oxidative stop codons (TCA/TCG/TAC/TGC); bottom-strand 8-oxoguanine",
@@ -55,7 +61,7 @@ inline constexpr std::array<ChannelSpec, 3> kStopChannels5p = {{
       "C_to_A_complement_asymmetry", "bottom_strand_8oxoG", StrandFrame::COMPLEMENT,
       /*has_deam_shadow*/ true, /*shadow_in_z*/ true, /*shadow_in_rate*/ false,
       /*has_mh_stratification*/ true, /*n_strata*/ 3, /*applicable_in_ss*/ false,
-      VarianceFamily::MANTEL_HAENSZEL_OR, CapPolicy::CLAMP_ZCAP },
+      VarianceFamily::MANTEL_HAENSZEL_OR, CapPolicy::CLAMP_ZCAP, InferenceClass::STOP_CHANNEL },
 
     { "G", 'G', "cg_stop_enrichment",
       "C to G stop codons (TCA/TAC to TGA/TAG); empirical terminal stop-enrichment. NOT an earned hydantoin assignment (hydantoins are guanine over-oxidation products; this is a complement-strand C to G observation)",
@@ -64,7 +70,7 @@ inline constexpr std::array<ChannelSpec, 3> kStopChannels5p = {{
       "C_to_G_stop_enrichment", nullptr, StrandFrame::COMPLEMENT,
       /*has_deam_shadow*/ false, /*shadow_in_z*/ false, /*shadow_in_rate*/ false,
       /*has_mh_stratification*/ false, /*n_strata*/ 1, /*applicable_in_ss*/ false,
-      VarianceFamily::PLAIN_2x2_OR, CapPolicy::CLAMP_ZCAP },
+      VarianceFamily::PLAIN_2x2_OR, CapPolicy::CLAMP_ZCAP, InferenceClass::STOP_CHANNEL },
 
     { "H", 'H', "at_stop_enrichment",
       "A to T stop codons (AAA/AAG/AGA to TAA/TAG/TGA); empirical terminal stop-enrichment. No established direct adenine-oxidation to A to T pathway",
@@ -73,7 +79,39 @@ inline constexpr std::array<ChannelSpec, 3> kStopChannels5p = {{
       "A_to_T_stop_enrichment", nullptr, StrandFrame::TOP_5P,
       /*has_deam_shadow*/ false, /*shadow_in_z*/ false, /*shadow_in_rate*/ false,
       /*has_mh_stratification*/ false, /*n_strata*/ 1, /*applicable_in_ss*/ false,
-      VarianceFamily::PLAIN_2x2_OR, CapPolicy::CLAMP_ZCAP },
+      VarianceFamily::PLAIN_2x2_OR, CapPolicy::CLAMP_ZCAP, InferenceClass::STOP_CHANNEL },
+}};
+
+// The 3' channels: terminal/baseline RATES only. They have no terminal-vs-interior stop-enrichment
+// z/OR (the interior reference at the 3' end is not separated the way it is at 5'), so they are
+// declared RATE_ONLY rather than left as implicit non-members of the stop-channel inference.
+inline constexpr std::array<ChannelSpec, 3> kStopChannels3p = {{
+    { "F3", 'F', "8_oxog_complement_3prime",
+      "C to A oxidative stop rate at the 3' end (rate-only; no terminal-enrichment z/OR inference)",
+      "oxidative_guanine_8_oxog",
+      MechanismStatus::ESTABLISHED,
+      "C_to_A_complement_asymmetry", "bottom_strand_8oxoG", StrandFrame::COMPLEMENT,
+      /*has_deam_shadow*/ true, /*shadow_in_z*/ false, /*shadow_in_rate*/ false,
+      /*has_mh_stratification*/ false, /*n_strata*/ 1, /*applicable_in_ss*/ false,
+      VarianceFamily::POOLED_BERNOULLI, CapPolicy::NONE, InferenceClass::RATE_ONLY },
+
+    { "G3", 'G', "cg_stop_enrichment_3prime",
+      "C to G stop rate at the 3' end (rate-only; empirical, no z/OR inference)",
+      "empirical_stop_enrichment",
+      MechanismStatus::EMPIRICAL,
+      "C_to_G_stop_enrichment", nullptr, StrandFrame::COMPLEMENT,
+      /*has_deam_shadow*/ false, /*shadow_in_z*/ false, /*shadow_in_rate*/ false,
+      /*has_mh_stratification*/ false, /*n_strata*/ 1, /*applicable_in_ss*/ false,
+      VarianceFamily::POOLED_BERNOULLI, CapPolicy::NONE, InferenceClass::RATE_ONLY },
+
+    { "H3", 'H', "at_stop_enrichment_3prime",
+      "A to T stop rate at the 3' end (rate-only; empirical, no z/OR inference)",
+      "empirical_stop_enrichment",
+      MechanismStatus::EMPIRICAL,
+      "A_to_T_stop_enrichment", nullptr, StrandFrame::TOP_3P,
+      /*has_deam_shadow*/ false, /*shadow_in_z*/ false, /*shadow_in_rate*/ false,
+      /*has_mh_stratification*/ false, /*n_strata*/ 1, /*applicable_in_ss*/ false,
+      VarianceFamily::POOLED_BERNOULLI, CapPolicy::NONE, InferenceClass::RATE_ONLY },
 }};
 
 inline constexpr const ChannelSpec& stop_channel_spec(char type) {
