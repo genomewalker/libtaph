@@ -1289,6 +1289,55 @@ void FrameSelector::update_sample_profile(
         }
     }
 
+    // Per-length-bin terminal counts for the bulk damage law (Phase 1). Fine
+    // fixed bins here; finalize_sample_profile aggregates them into data-driven
+    // adaptive length bins. Every read contributes (no GC guard) so the bulk law
+    // sees the full length distribution.
+    {
+        auto& lbin = profile.len_bins[SampleDamageProfile::len_fine_bin(len)];
+        // per-read eligibility-stratified damage co-occurrence (mixture P2): in the first JP terminal
+        // positions count damaged sites k and ELIGIBLE sites S per channel (folded into existing scans).
+        constexpr size_t JP = static_cast<size_t>(JStrat::JP);
+        int t5 = 0, c5 = 0, t3 = 0, c3 = 0, a3 = 0, g3 = 0;
+        for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
+            char base = decoded[i];
+            if (base == 'T') { lbin.t_counts[i]++; if (i < JP) ++t5; }
+            else if (base == 'C') { lbin.c_counts[i]++; if (i < JP) ++c5; }
+            else if (base == 'A') lbin.a_counts[i]++;
+            else if (base == 'G') lbin.g_counts[i]++;
+        }
+        for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
+            char base = decoded[len - 1 - i];
+            if (base == 'T') { lbin.t_counts_3prime[i]++; if (i < JP) ++t3; }
+            else if (base == 'C') { lbin.c_counts_3prime[i]++; if (i < JP) ++c3; }
+            else if (base == 'A') { lbin.a_counts_3prime[i]++; if (i < JP) ++a3; }
+            else if (base == 'G') { lbin.g_counts_3prime[i]++; if (i < JP) ++g3; }
+        }
+        int S5 = t5 + c5, k5 = t5;          // 5' damage C→T: hits=T, eligible sites=T+C (ds & ss)
+        int S3d = a3 + g3, k3d = a3;        // ds 3' damage G→A: hits=A, eligible=A+G
+        int S3s = t3 + c3, k3s = t3;        // ss 3' damage C→T: hits=T, eligible=T+C
+        lbin.jstrat_ds.n[S5][S3d]++;  lbin.jstrat_ds.sk5[S5][S3d] += k5;
+        lbin.jstrat_ds.sk3[S5][S3d] += k3d; lbin.jstrat_ds.sk53[S5][S3d] += static_cast<uint64_t>(k5) * k3d;
+        lbin.jstrat_ss.n[S5][S3s]++;  lbin.jstrat_ss.sk5[S5][S3s] += k5;
+        lbin.jstrat_ss.sk3[S5][S3s] += k3s; lbin.jstrat_ss.sk53[S5][S3s] += static_cast<uint64_t>(k5) * k3s;
+        constexpr size_t INTERIOR_TERM_PAD_LEN = 15;
+        size_t mid_start = len / 3, mid_end = 2 * len / 3;
+        if (mid_start < INTERIOR_TERM_PAD_LEN) mid_start = INTERIOR_TERM_PAD_LEN;
+        if (len > INTERIOR_TERM_PAD_LEN && mid_end + INTERIOR_TERM_PAD_LEN > len)
+            mid_end = len - INTERIOR_TERM_PAD_LEN;
+        if (mid_start < mid_end) {
+            for (size_t i = mid_start; i < mid_end; ++i) {
+                char base = decoded[i];
+                if (base == 'T') lbin.t_interior++;
+                else if (base == 'C') lbin.c_interior++;
+                else if (base == 'A') lbin.a_interior++;
+                else if (base == 'G') lbin.g_interior++;
+            }
+        }
+        lbin.len_sum += len;
+        lbin.n_reads++;
+    }
+
     if (len >= 18) {
         // 5' terminal hexamer starting at position 0
         char hex_5prime[7];
@@ -1758,6 +1807,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         profile.joint_delta_bic = jresult.delta_bic;
         profile.joint_bayes_factor = jresult.bayes_factor;
         profile.joint_p_damage = jresult.p_damage;
+        profile.joint_z_delta = jresult.z_delta;
+        profile.joint_n_informative = jresult.n_informative;
         profile.joint_model_valid = jresult.valid;
 
         // Use joint model for damage decision
@@ -4421,7 +4472,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 profile.mixture_n_components = mixture_result.n_components;
                 profile.mixture_d_population = mixture_result.d_population;
                 profile.mixture_d_ancient = mixture_result.d_ancient;
-                profile.mixture_d_reference = mixture_result.d_reference;
+                profile.mixture_d_population_highgc = mixture_result.d_population_highgc;
                 profile.mixture_pi_ancient = mixture_result.pi_ancient;
                 profile.mixture_bic = mixture_result.bic;
                 profile.mixture_converged = mixture_result.converged;
@@ -4452,9 +4503,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             } else if (profile.inverted_pattern_5prime && !profile.inverted_pattern_3prime) {
                 profile.d_max_combined = raw_d_max_3prime;
                 profile.d_max_source = SampleDamageProfile::DmaxSource::THREE_PRIME_ONLY;
-            } else if (profile.mixture_converged && profile.mixture_d_reference > 0.01f) {
-                profile.d_max_combined = profile.mixture_d_reference;
-                profile.d_max_source = SampleDamageProfile::DmaxSource::AVERAGE;
+            // d_population_highgc dropped as a d_max source: it is a GC-reweighted mean of
+            // the same per-class δ, not an independent estimate (see mixture_damage_model.hpp).
             } else if (profile.gc_stratified_valid) {
                 profile.d_max_combined = profile.gc_stratified_d_max_weighted;
                 profile.d_max_source = SampleDamageProfile::DmaxSource::AVERAGE;
@@ -4463,10 +4513,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 profile.d_max_source = SampleDamageProfile::DmaxSource::AVERAGE;
             }
         } else if (profile.joint_model_valid && profile.joint_p_damage > 0.5f) {
-            if (profile.mixture_converged && profile.mixture_d_reference > 0.01f) {
-                profile.d_max_combined = profile.mixture_d_reference;
-                profile.d_max_source = SampleDamageProfile::DmaxSource::AVERAGE;
-            } else if (profile.gc_stratified_valid) {
+            if (profile.gc_stratified_valid) {
                 profile.d_max_combined = profile.gc_stratified_d_max_weighted;
                 profile.d_max_source = SampleDamageProfile::DmaxSource::AVERAGE;
             } else {
@@ -4820,6 +4867,126 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         else
             profile.preservation_label = PL::EXCEPTIONAL;
     }
+
+    // ── Bulk damage law (Phase 1): threshold-free δ(L) ────────────────────────
+    // Aggregate the fine fixed length bins (filled per-read in update_sample_profile)
+    // into ~equal-read adaptive length bins, map terminal counts to damage/control
+    // channels (ss/ds-aware), and fit the count-level binomial GLM. Reads len_bins
+    // (raw counts, untouched by the normalization above) and the final library_type.
+    {
+        const auto& LB = profile.len_bins;
+        uint64_t n_total = 0;
+        for (const auto& fb : LB) n_total += fb.n_reads;
+
+        constexpr uint64_t MIN_BULK_READS = 1000;   // below this, no meaningful fit
+        constexpr uint64_t READS_PER_BIN  = 2000;   // target reads per adaptive length bin
+        constexpr int      MAX_LEN_BINS   = 6;
+
+        if (n_total >= MIN_BULK_READS) {
+            // greedy quantile grouping of fine bins (ascending length) into ~equal-read bins
+            const int K = static_cast<int>(std::clamp<uint64_t>(
+                n_total / READS_PER_BIN, uint64_t(1), uint64_t(MAX_LEN_BINS)));
+            const uint64_t per = n_total / static_cast<uint64_t>(K);
+            std::vector<std::vector<int>> groups;
+            std::vector<int> cur;
+            uint64_t cum = 0;
+            for (int f = 0; f < SampleDamageProfile::N_LEN_FINE; ++f) {
+                if (LB[f].n_reads == 0) continue;
+                cur.push_back(f);
+                cum += LB[f].n_reads;
+                if (cum >= per && static_cast<int>(groups.size()) + 1 < K) {
+                    groups.push_back(cur);
+                    cur.clear();
+                    cum = 0;
+                }
+            }
+            if (!cur.empty()) groups.push_back(cur);
+
+            const int L = static_cast<int>(groups.size());
+            const bool is_ss =
+                profile.forced_library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED ||
+                profile.library_type        == SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+
+            BulkDamageSuffStats bs;
+            bs.ss = is_ss;
+            bs.skip_3p_pos0 = is_ss;          // ss ligation artifact at the 3' terminal base
+            bs.bin.resize(L);
+            bs.k_interior.resize(L);
+            bs.n_interior.resize(L);
+            bs.median_len.resize(L);
+            bs.jstrat.resize(L);
+            std::vector<uint64_t> group_reads(L, 0);
+            std::vector<int> group_lo(L, 0), group_hi(L, 0);
+
+            for (int l = 0; l < L; ++l) {
+                std::array<uint64_t, 15> T5{}, C5{}, A5{}, G5{}, T3{}, C3{}, A3{}, G3{};
+                uint64_t Ti = 0, Ci = 0, Ai = 0, Gi = 0, nr = 0, lensum = 0;
+                JStrat Jds, Jss;
+                for (int f : groups[l]) {
+                    const auto& fb = LB[f];
+                    for (int p = 0; p < 15; ++p) {
+                        T5[p] += fb.t_counts[p];        C5[p] += fb.c_counts[p];
+                        A5[p] += fb.a_counts[p];        G5[p] += fb.g_counts[p];
+                        T3[p] += fb.t_counts_3prime[p]; C3[p] += fb.c_counts_3prime[p];
+                        A3[p] += fb.a_counts_3prime[p]; G3[p] += fb.g_counts_3prime[p];
+                    }
+                    Jds.add(fb.jstrat_ds);
+                    Jss.add(fb.jstrat_ss);
+                    Ti += fb.t_interior; Ci += fb.c_interior;
+                    Ai += fb.a_interior; Gi += fb.g_interior;
+                    nr += fb.n_reads;    lensum += fb.len_sum;
+                }
+                bs.jstrat[l] = is_ss ? Jss : Jds;   // damage 3' channel resolved here
+                group_reads[l] = nr;
+                group_lo[l] = SampleDamageProfile::LEN_FINE_MIN +
+                              groups[l].front() * SampleDamageProfile::LEN_FINE_W;
+                group_hi[l] = SampleDamageProfile::LEN_FINE_MIN +
+                              (groups[l].back() + 1) * SampleDamageProfile::LEN_FINE_W;
+                bs.median_len[l] = nr ? static_cast<double>(lensum) / static_cast<double>(nr) : 0.0;
+
+                auto& dmg5 = bs.bin[l][0][0]; auto& dmg3 = bs.bin[l][0][1];
+                auto& ctl5 = bs.bin[l][1][0]; auto& ctl3 = bs.bin[l][1][1];
+                for (int p = 0; p < 15; ++p) {
+                    // 5' (identical for ss and ds): damage = C→T (T/(T+C)), control = A/(A+G)
+                    dmg5.k[p] = T5[p]; dmg5.n[p] = T5[p] + C5[p];
+                    ctl5.k[p] = A5[p]; ctl5.n[p] = A5[p] + G5[p];
+                    if (is_ss) {
+                        // ss: C→T on the 3' end too; control A/(A+G)
+                        dmg3.k[p] = T3[p]; dmg3.n[p] = T3[p] + C3[p];
+                        ctl3.k[p] = A3[p]; ctl3.n[p] = A3[p] + G3[p];
+                    } else {
+                        // ds: G→A on the 3' end (A/(A+G)); control T/(T+C)
+                        dmg3.k[p] = A3[p]; dmg3.n[p] = A3[p] + G3[p];
+                        ctl3.k[p] = T3[p]; ctl3.n[p] = T3[p] + C3[p];
+                    }
+                }
+                // interior baselines (β warm-start only): damage T/(T+C), control A/(A+G)
+                bs.k_interior[l][0] = Ti; bs.n_interior[l][0] = Ti + Ci;
+                bs.k_interior[l][1] = Ai; bs.n_interior[l][1] = Ai + Gi;
+            }
+
+            profile.bulk_attempted = true;
+            BulkDamageResult R = BulkDamageModel::fit(bs);
+
+            // fill the per-bin length extents + read counts the solver does not know
+            for (int l = 0; l < L && l < static_cast<int>(R.bins.size()); ++l) {
+                R.bins[l].length_lo = group_lo[l];
+                R.bins[l].length_hi = group_hi[l];
+                R.bins[l].n_reads   = static_cast<int64_t>(group_reads[l]);
+            }
+
+            // read-weighted headline δ̂ over the valid (live) length bins
+            double num = 0.0, den = 0.0;
+            for (int l = 0; l < L && l < static_cast<int>(R.bins.size()); ++l) {
+                if (!bs.bin_valid(l)) continue;
+                num += R.bins[l].delta * static_cast<double>(group_reads[l]);
+                den += static_cast<double>(group_reads[l]);
+            }
+            profile.bulk_headline_delta = den > 0.0 ? num / den : 0.0;
+            profile.bulk_damage = R;
+        }
+    }
+
     // Lifecycle: mark finalized so re-entry is rejected (see SampleDamageProfile::finalized).
     profile.finalized = true;
 }
@@ -5112,6 +5279,29 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         db.stop_interior += sb.stop_interior;
         db.pre_interior += sb.pre_interior;
         db.n_reads += sb.n_reads;
+    }
+
+    for (int b = 0; b < SampleDamageProfile::N_LEN_FINE; ++b) {
+        auto& dl = dst.len_bins[b];
+        const auto& sl = src.len_bins[b];
+        for (int p = 0; p < 15; ++p) {
+            dl.t_counts[p] += sl.t_counts[p];
+            dl.c_counts[p] += sl.c_counts[p];
+            dl.a_counts[p] += sl.a_counts[p];
+            dl.g_counts[p] += sl.g_counts[p];
+            dl.t_counts_3prime[p] += sl.t_counts_3prime[p];
+            dl.c_counts_3prime[p] += sl.c_counts_3prime[p];
+            dl.a_counts_3prime[p] += sl.a_counts_3prime[p];
+            dl.g_counts_3prime[p] += sl.g_counts_3prime[p];
+        }
+        dl.t_interior += sl.t_interior;
+        dl.c_interior += sl.c_interior;
+        dl.a_interior += sl.a_interior;
+        dl.g_interior += sl.g_interior;
+        dl.n_reads += sl.n_reads;
+        dl.len_sum += sl.len_sum;
+        dl.jstrat_ds.add(sl.jstrat_ds);
+        dl.jstrat_ss.add(sl.jstrat_ss);
     }
 
     dst.n_reads += src.n_reads;
@@ -5686,13 +5876,19 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.joint_delta_bic = 0.0f;
     profile.joint_bayes_factor = 0.0f;
     profile.joint_p_damage = 0.0f;
+    profile.joint_z_delta = 0.0f;
+    profile.joint_n_informative = 0;
     profile.joint_model_valid = false;
+
+    profile.bulk_damage = {};
+    profile.bulk_headline_delta = 0.0;
+    profile.bulk_attempted = false;
 
     profile.mixture_K = 0;
     profile.mixture_n_components = 0;
     profile.mixture_d_population = 0.0f;
     profile.mixture_d_ancient = 0.0f;
-    profile.mixture_d_reference = 0.0f;
+    profile.mixture_d_population_highgc = 0.0f;
     profile.mixture_pi_ancient = 0.0f;
     profile.mixture_bic = 0.0f;
     profile.mixture_converged = false;
@@ -5701,6 +5897,7 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.adaptive_gc_threshold = 0.0f;
     profile.gc_threshold_computed = false;
     profile.gc_bins = {};
+    profile.len_bins = {};
     profile.gc_stratified_d_max_weighted = 0.0f;
     profile.gc_stratified_d_max_peak = 0.0f;
     profile.gc_peak_bin = -1;

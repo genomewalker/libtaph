@@ -171,10 +171,25 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"bg_3prime\": " << dp.fit_baseline_3prime << ",\n";
     j << "    \"validated\": " << (dp.damage_validated ? "true" : "false") << ",\n";
     j << "    \"artifact\": " << (dp.damage_artifact ? "true" : "false") << ",\n";
+    j << "    \"joint\": {\n";
+    j << "      \"delta_bic\": " << std::setprecision(6) << dp.joint_delta_bic << ",\n";
+    j << "      \"z_delta\": " << dp.joint_z_delta << ",\n";
+    j << "      \"p_damage\": " << dp.joint_p_damage << ",\n";
+    j << "      \"n_informative_positions\": " << dp.joint_n_informative << ",\n";
+    j << "      \"valid\": " << (dp.joint_model_valid ? "true" : "false") << "\n";
+    j << "    },\n";
+    const bool mix_gc_identified = dp.mixture_identifiable && dp.mixture_converged;
     j << "    \"mixture_gc\": {\n";
-    j << "      \"d_ancient\": " << dp.mixture_d_ancient << ",\n";
-    j << "      \"pi_ancient\": " << dp.mixture_pi_ancient << ",\n";
-    j << "      \"d_reference\": " << dp.mixture_d_reference << ",\n";
+    j << "      \"status\": \"" << (mix_gc_identified ? "identified" : "undetermined") << "\",\n";
+    if (mix_gc_identified) {
+        j << "      \"d_ancient\": " << dp.mixture_d_ancient << ",\n";
+        j << "      \"pi_ancient\": " << dp.mixture_pi_ancient << ",\n";
+        j << "      \"d_population_highgc\": " << dp.mixture_d_population_highgc << ",\n";
+    } else {
+        j << "      \"d_ancient\": null,\n";
+        j << "      \"pi_ancient\": null,\n";
+        j << "      \"d_population_highgc\": null,\n";
+    }
     j << "      \"identifiable\": " << (dp.mixture_identifiable ? "true" : "false") << ",\n";
     j << "      \"converged\": " << (dp.mixture_converged ? "true" : "false") << ",\n";
     j << "      \"n_components\": " << dp.mixture_n_components << "\n";
@@ -257,11 +272,17 @@ void profile_to_json(const SampleDamageProfile& dp,
                 if (p + 1 < LengthBinDamageProfile::N_POS) j << ",";
             }
             j << "]";
-            j << ",\"mixture\":{\"d_ancient\":" << std::setprecision(6) << lb.mixture_d_damaged
-              << ",\"d_reference\":" << lb.mixture_d_reference
-              << ",\"d_population\":" << lb.mixture_d_population
-              << ",\"pi_ancient\":" << lb.mixture_pi_damaged
-              << ",\"n_components\":" << lb.mixture_n_components
+            const bool mix_lb_identified = lb.mixture_identifiable && lb.mixture_converged;
+            j << ",\"mixture\":{\"status\":\"" << (mix_lb_identified ? "identified" : "undetermined") << "\"";
+            if (mix_lb_identified) {
+                j << ",\"d_ancient\":" << std::setprecision(6) << lb.mixture_d_damaged
+                  << ",\"d_population_highgc\":" << lb.mixture_d_population_highgc
+                  << ",\"d_population\":" << lb.mixture_d_population
+                  << ",\"pi_ancient\":" << lb.mixture_pi_damaged;
+            } else {
+                j << ",\"d_ancient\":null,\"d_population_highgc\":null,\"d_population\":null,\"pi_ancient\":null";
+            }
+            j << ",\"n_components\":" << lb.mixture_n_components
               << ",\"converged\":" << (lb.mixture_converged ? "true" : "false")
               << ",\"identifiable\":" << (lb.mixture_identifiable ? "true" : "false")
               << "}";
@@ -278,6 +299,17 @@ void profile_to_json(const SampleDamageProfile& dp,
             j << "],\"gc_p_damaged\":[";
             for (int g = 0; g < LengthBinDamageProfile::N_GC_BINS; ++g) {
                 j << std::setprecision(6) << lb.gc_p_damaged[g];
+                if (g + 1 < LengthBinDamageProfile::N_GC_BINS) j << ",";
+            }
+            j << "],\"gc_per_pos_ct\":[";
+            for (int g = 0; g < LengthBinDamageProfile::N_GC_BINS; ++g) {
+                j << "[";
+                for (int p = 0; p < LengthBinDamageProfile::N_POS; ++p) {
+                    double v = lb.gc_per_pos_ct[g][p];
+                    if (v < 0.0) j << "null"; else j << std::setprecision(6) << v;
+                    if (p + 1 < LengthBinDamageProfile::N_POS) j << ",";
+                }
+                j << "]";
                 if (g + 1 < LengthBinDamageProfile::N_GC_BINS) j << ",";
             }
             j << "]";
@@ -1436,6 +1468,101 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"ds_symm_ct5_resid\": " << dp.library_ds_symm_ct5_resid << ",\n";
     j << "    \"ds_symm_ga3_resid\": " << dp.library_ds_symm_ga3_resid << "\n";
     j << "  },\n";
+
+    // ── Bulk damage law (Phase 1): threshold-free δ(L) ─────────────────────────
+    // Count-level binomial GLM over data-driven length bins. Emits continuous,
+    // uncertainty-bearing quantities only (δ̂, K_eff, R_damage, Δℓ0/S0 and the
+    // FULL profile-likelihood curve) — no cutoffs, no verdict.
+    {
+        const auto& bd = dp.bulk_damage;
+        // Finite-safe number emitter: a non-finite fit value (NaN/inf) prints as a bare
+        // `nan`/`inf` token under std::fixed and would corrupt the whole document — emit `null`
+        // instead (the validator treats null as non-finite and flags it loudly, the correct signal).
+        auto jn = [&](double v, int prec = 6) {
+            if (std::isfinite(v)) j << std::setprecision(prec) << v;
+            else                  j << "null";
+        };
+        j << "  \"bulk_damage\": {\n";
+        j << "    \"attempted\": " << (dp.bulk_attempted ? "true" : "false") << ",\n";
+        j << "    \"valid\": "      << (bd.valid ? "true" : "false") << ",\n";
+        j << "    \"converged\": "  << (bd.converged ? "true" : "false") << ",\n";
+        j << "    \"n_sweeps\": "   << bd.n_sweeps << ",\n";
+        j << "    \"log_lik\": ";        jn(bd.log_lik);              j << ",\n";
+        j << "    \"lambda\": ";         jn(bd.lambda);               j << ",\n";
+        j << "    \"headline_delta\": "; jn(dp.bulk_headline_delta);  j << ",\n";
+        // threshold-free length-coupling weight: w_length∈[0,1] = P(terminal-damage mass falls with read
+        // length); slope_m = OLS slope of m(L)=δ_L·L (≤0 authentic terminal decay, ≫0 pervasive artifact).
+        // δ_auth = δ·w_length.
+        j << "    \"slope_m\": ";        jn(bd.slope_m);              j << ",\n";
+        j << "    \"w_length\": ";       jn(bd.w_length);             j << ",\n";
+        j << "    \"headline_delta_auth\": "; jn(dp.bulk_headline_delta * bd.w_length); j << ",\n";
+        // length-coupling AGE/AUTHENTICITY indicator (NOT a damage estimate): sign of OLS slope of the
+        // recovered δ_l vs read length. −1 = δ falls with length (fragmented ancient DNA, the classic
+        // aDNA signature); 0 = flat (young or contamination-dominated); +1 = rises (artifact-suspect).
+        // Read ALONGSIDE: deamination.d_max_5/3prime (ABSOLUTE terminal C→T — catches flat-young damage
+        // like 1610 CE samples that the length-coupled bulk δ conservatively reports as 0), and the
+        // library_artifact_* flags. The bulk δ is the length-coupled, artifact-screened view; d_max is
+        // the absolute view; together they are complementary (each catches libraries the other misses).
+        j << "    \"length_coupling\": ";       jn(static_cast<double>(bd.length_coupling)); j << ",\n";
+        j << "    \"length_coupling_slope\": "; jn(bd.length_coupling_slope);                j << ",\n";
+        // mixture P2: reference-free per-ancient-read deamination intensity (analog of metaDMG A_b);
+        // −1 ⇒ undetermined (no usable co-occurrence signal or artifact-gated). d_max_se = its SE.
+        j << "    \"d_max_ancient\": ";  jn(bd.d_max_ancient);        j << ",\n";
+        j << "    \"d_max_se\": ";       jn(bd.d_max_se);             j << ",\n";
+        j << "    \"d_max_raw\": ";      jn(bd.d_max_raw);            j << ",\n";
+        j << "    \"kappa\": [";
+        for (int r = 0; r < 2; ++r) {
+            j << "[";
+            for (int c = 0; c < 2; ++c) {
+                jn(bd.kappa[r][c]);
+                if (c < 1) j << ", ";
+            }
+            j << "]";
+            if (r < 1) j << ", ";
+        }
+        j << "],\n";
+        j << "    \"bins\": [";
+        for (size_t b = 0; b < bd.bins.size(); ++b) {
+            const auto& bb = bd.bins[b];
+            if (b > 0) j << ",";
+            j << "\n      {";
+            j << "\"length_lo\": "    << bb.length_lo
+              << ", \"length_hi\": "  << bb.length_hi
+              << ", \"median_len\": "; jn(bb.median_len, 4);
+            j << ", \"n_reads\": "    << bb.n_reads
+              << ", \"delta\": ";     jn(bb.delta);
+            j << ", \"delta_auth\": "; jn(bb.delta * bd.w_length);
+            j << ", \"identified\": " << (bb.identified ? "true" : "false")
+              << ", \"borrowed\": "   << (bb.borrowed ? "true" : "false");
+            j << ", \"k_eff\": [";    jn(bb.k_eff[0], 4);  j << ", ";  jn(bb.k_eff[1], 4);  j << "]";
+            j << ", \"r_damage\": ["; jn(bb.r_damage[0]);  j << ", ";  jn(bb.r_damage[1]);  j << "]";
+            j << ", \"delta_ell0\": "; jn(bb.delta_ell0);
+            j << ", \"s0\": ";         jn(bb.s0);
+            j << ", \"profile_delta\": [";
+            for (size_t p = 0; p < bb.profile_delta.size(); ++p) {
+                jn(bb.profile_delta[p]);
+                if (p + 1 < bb.profile_delta.size()) j << ", ";
+            }
+            j << "], \"profile_loglik\": [";
+            for (size_t p = 0; p < bb.profile_loglik.size(); ++p) {
+                jn(bb.profile_loglik[p]);
+                if (p + 1 < bb.profile_loglik.size()) j << ", ";
+            }
+            // mixture P2: eligibility-conditioned ancient/modern split. pi_ancient = δ_l/d_max (ancient
+            // read fraction); [pi_lo,pi_hi] = 95% interval (−1 ⇒ undetermined). joint_cov is the raw
+            // (GC-confounded) co-occurrence diagnostic; the verdict uses the conditioned d_max/π.
+            j << "], \"joint_n\": " << static_cast<long long>(bb.joint_n);
+            j << ", \"joint_mean\": ["; jn(bb.joint_mean[0], 4); j << ", "; jn(bb.joint_mean[1], 4); j << "]";
+            j << ", \"joint_cov\": "; jn(bb.joint_cov, 6);
+            j << ", \"pi_ancient\": "; jn(bb.pi_ancient, 4);
+            j << ", \"pi_lo\": "; jn(bb.pi_lo, 4);
+            j << ", \"pi_hi\": "; jn(bb.pi_hi, 4);
+            j << "}";
+        }
+        if (!bd.bins.empty()) j << "\n    ";
+        j << "]\n";
+        j << "  },\n";
+    }
 
     // ── Damage types ──────────────────────────────────────────────────────────
     {

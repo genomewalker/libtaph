@@ -30,6 +30,9 @@ struct JointDamageResult {
     float rmse = 0.0f;           // Root mean squared error of fit
     int n_positions = 15;        // Number of positions used
     uint64_t n_trials = 0;       // Total binomial trials (for BIC)
+    float z_delta = 0.0f;        // Wald z for δ̂ from observed Fisher information
+    float se_delta = 0.0f;       // se(δ̂) from the same curvature
+    int n_informative = 0;       // 5' Channel-A positions with cov≥100 & excess > 2·noise
     bool valid = false;          // Sufficient data for estimation
 };
 
@@ -273,6 +276,40 @@ inline JointDamageResult JointDamageModel::fit(const JointDamageSuffStats& stats
     }
     result.rmse = n_obs > 0 ? std::sqrt(sse / n_obs) : 0.0f;
     result.n_positions = n_obs;
+
+    // Wald z for δ̂ from the observed Fisher information I(δ̂) = -d²ℓ/dδ², via a
+    // boundary-safe central second difference with λ, a_max and baselines held at
+    // their fitted optima. δ̂ pinned to the lower boundary (0) or a non-concave
+    // neighbourhood (I ≤ 0) yields z = 0 — no Wald signal to report.
+    if (result.delta_max > 1e-6f) {
+        const float h = DELTA_MAX_LIMIT / N_DELTA;
+        float dl = std::clamp(result.delta_max - h, 0.0f, DELTA_MAX_LIMIT);
+        float dr = std::clamp(result.delta_max + h, 0.0f, DELTA_MAX_LIMIT);
+        float hl = result.delta_max - dl;
+        float hr = dr - result.delta_max;
+        if (hl > 1e-9f && hr > 1e-9f) {
+            float ll_l = log_likelihood(stats, dl, result.lambda, result.a_max,
+                                        result.b_tc, result.b_ag, result.b_stop);
+            float ll_r = log_likelihood(stats, dr, result.lambda, result.a_max,
+                                        result.b_tc, result.b_ag, result.b_stop);
+            float fisher = -2.0f * (hr * ll_l - (hl + hr) * result.log_lik_m1 + hl * ll_r) /
+                           (hl * hr * (hl + hr));
+            if (fisher > 0.0f) {
+                result.se_delta = 1.0f / std::sqrt(fisher);
+                result.z_delta = result.delta_max / result.se_delta;
+            }
+        }
+    }
+
+    // Informative positions: 5' Channel-A coverage ≥ 100 AND observed terminal
+    // excess over the interior baseline exceeds 2× its binomial sampling noise.
+    for (int p = 0; p < 15; ++p) {
+        if (stats.n_tc[p] < 100) continue;
+        float obs = static_cast<float>(stats.k_tc[p]) / stats.n_tc[p];
+        float se_pos = std::sqrt(std::max(result.b_tc * (1.0f - result.b_tc), 1e-8f) /
+                                 static_cast<float>(stats.n_tc[p]));
+        if (obs - result.b_tc > 2.0f * se_pos) ++result.n_informative;
+    }
 
     return result;
 }

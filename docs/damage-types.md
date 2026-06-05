@@ -537,7 +537,8 @@ reported fields above but are not written to JSON directly.
   Separates genuine deamination from GC-composition artefacts and produces the adjusted
   estimate that feeds into `d_metamatch`.
 - **Mixture model (K-component EM):** EM over GC-stratified reads to separate ancient from
-  modern components. When converged, `mixture_d_reference` feeds into `d_max_combined`.
+  modern components. Identifiability requires δ-separated, weight-bearing classes; fits that
+  fail this gate report `status: undetermined` and no longer feed `d_max_combined`.
 - **Codon-position tracking:** C→T rate at codon positions 0, 1, 2; supplementary wobble
   diagnostic.
 - **Adapter offset detection:** Per-end fit window shift of 1–3 bp when adapter remnants

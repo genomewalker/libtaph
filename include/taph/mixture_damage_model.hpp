@@ -25,7 +25,7 @@ struct MixtureDamageResult {
     // Summary statistics
     float d_population = 0.0f;   // E[δ] = Σ_k π_k · δ_max,k
     float d_ancient = 0.0f;      // E[δ | δ > τ] (ancient tail, τ=5%)
-    float d_reference = 0.0f;    // E[δ | GC > 50%] (metaDMG proxy)
+    float d_population_highgc = 0.0f;  // E[δ | GC >= 50%] — high-GC-weighted mean (diagnostic only, NOT a reference comparator)
     float pi_ancient = 0.0f;     // P(class with δ > τ)
 
     // Model fit
@@ -62,7 +62,7 @@ struct SuperRead {
 class MixtureDamageModel {
 public:
     static constexpr float ANCIENT_THRESHOLD = 0.05f;  // τ for d_ancient
-    static constexpr int REFERENCE_GC_MIN = 5;         // GC >= 50% for d_reference
+    static constexpr int HIGH_GC_MIN = 5;              // first GC bin counted as high GC (>= 50%)
     static constexpr int MAX_ITER = 100;
     static constexpr float CONVERGENCE_TOL = 1e-6f;
     static constexpr int N_RESTARTS = 5;
@@ -397,23 +397,44 @@ inline MixtureDamageResult MixtureDamageModel::fit_k(
 
     result.d_ancient = result.pi_ancient > 0.01f ? ancient_weighted_sum / result.pi_ancient : 0.0f;
 
-    // d_reference = E[δ | GC >= 50%]
+    // d_population_highgc = E[δ | GC >= 50%] — a high-GC-weighted mean of the
+    // per-class δ. It is a population summary, NOT an independent "reference"
+    // damage comparator: it reuses the same δ that produce d_ancient, so the old
+    // d_ancient − d_reference contrast was structurally uninformative. Diagnostic only.
     float ref_num = 0.0f, ref_den = 0.0f;
     for (int k = 0; k < K; ++k) {
         float p_gc_high = 0.0f;
-        for (int b = REFERENCE_GC_MIN; b < N_GC_BINS; ++b) {
+        for (int b = HIGH_GC_MIN; b < N_GC_BINS; ++b) {
             p_gc_high += static_cast<float>(p_gc[k][b]);
         }
         ref_num += result.pi[k] * p_gc_high * result.delta_max[k];
         ref_den += result.pi[k] * p_gc_high;
     }
-    result.d_reference = ref_den > 0.01f ? ref_num / ref_den : 0.0f;
+    result.d_population_highgc = ref_den > 0.01f ? ref_num / ref_den : 0.0f;
 
-    // Standard errors are not tracked here, so identifiability falls back to a
-    // bounded mixing-fraction check after EM convergence.
-    result.identifiable = result.converged &&
-                          result.pi_ancient > 0.02f &&
-                          result.pi_ancient < 0.98f;
+    // Identifiability gate. The old π∈(0.02,0.98) bound round-defaulted onto the
+    // 0.01 δ-grid. Standard errors are not tracked in this EM, so identifiability
+    // is a structural check on resolvable ancient/modern structure: there must be
+    // at least one weight-bearing MODERN class (δ ≤ ANCIENT_THRESHOLD) AND one
+    // weight-bearing ANCIENT class (δ > ANCIENT_THRESHOLD), δ-separated by at least
+    // IDENTIFIABLE_MIN_DELTA_SEPARATION. "Weight-bearing" = π ≥ IDENTIFIABLE_MIN_PI.
+    // This rejects the all-ancient collapse (pi_ancient → 1, d_ancient == d_population):
+    // with no modern reference class there is no separation to identify.
+    result.identifiable = false;
+    if (result.converged && K >= 2) {
+        bool has_modern = false, has_ancient = false;
+        float dmax_hi = -1.0f;
+        float dmax_lo = std::numeric_limits<float>::infinity();
+        for (int k = 0; k < K; ++k) {
+            if (result.pi[k] < IDENTIFIABLE_MIN_PI) continue;
+            if (result.delta_max[k] > ANCIENT_THRESHOLD) has_ancient = true;
+            else                                         has_modern  = true;
+            if (result.delta_max[k] > dmax_hi) dmax_hi = result.delta_max[k];
+            if (result.delta_max[k] < dmax_lo) dmax_lo = result.delta_max[k];
+        }
+        result.identifiable = has_modern && has_ancient &&
+                              (dmax_hi - dmax_lo) >= IDENTIFIABLE_MIN_DELTA_SEPARATION;
+    }
 
     // Compute BIC
     // Parameters: (K-1) mixing + K delta_max + K*9 GC categorical + 2 shared = 11K + 1

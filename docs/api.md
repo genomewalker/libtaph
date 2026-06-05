@@ -259,7 +259,7 @@ Available after `finalize_sample_profile`. Requires at least one GC bin with suf
 | `mixture_pi_ancient` | `float` | Fraction of C-sites in high-damage components |
 | `mixture_d_ancient` | `float` | Expected damage rate among ancient reads (δ > 5%) |
 | `mixture_d_population` | `float` | Population-average damage rate across all C-sites |
-| `mixture_d_reference` | `float` | Damage rate in GC > 50% bins (metaDMG proxy) |
+| `mixture_d_population_highgc` | `float` | High-GC-weighted mean of per-class δ (GC ≥ 50%); diagnostic only, not a reference comparator |
 | `mixture_K` | `int` | Number of mixture components selected by BIC |
 | `mixture_converged` | `bool` | Whether the EM algorithm converged |
 | `gc_stratified_valid` | `bool` | At least one GC bin has a valid estimate |

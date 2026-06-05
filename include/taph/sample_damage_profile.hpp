@@ -4,6 +4,7 @@
 #include "types.hpp"
 #include "joint_damage_model.hpp"
 #include "mixture_damage_model.hpp"
+#include "bulk_damage_model.hpp"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -983,6 +984,42 @@ struct SampleDamageProfile {
 
     std::array<GCBinStats, N_GC_BINS> gc_bins = {};
 
+    // ── Bulk damage law (Phase 1): per-length-bin terminal counts ─────────────
+    // The bulk count-level law needs per-read-length terminal substitution
+    // counts at both ends. The pooled *_freq_* arrays and the GC bins carry no
+    // length structure, so accumulate fine fixed length bins here during the
+    // streaming pass; finalize_sample_profile aggregates them into data-driven
+    // adaptive (quantile) length bins for BulkDamageModel::fit.
+    static constexpr int LEN_FINE_MIN = 30;   // reads < 30 rejected upstream
+    static constexpr int LEN_FINE_W   = 5;    // fine bin width (bp)
+    static constexpr int N_LEN_FINE   = 40;   // covers [30, 230); >= 230 -> top bin
+
+    struct LenBinStats {
+        std::array<uint64_t, 15> t_counts = {};          // 5' terminal
+        std::array<uint64_t, 15> c_counts = {};
+        std::array<uint64_t, 15> a_counts = {};
+        std::array<uint64_t, 15> g_counts = {};
+        std::array<uint64_t, 15> t_counts_3prime = {};   // 3' terminal (i=0 last base)
+        std::array<uint64_t, 15> c_counts_3prime = {};
+        std::array<uint64_t, 15> a_counts_3prime = {};
+        std::array<uint64_t, 15> g_counts_3prime = {};
+        uint64_t t_interior = 0, c_interior = 0, a_interior = 0, g_interior = 0;
+        uint64_t n_reads = 0;
+        uint64_t len_sum = 0;   // sum of read lengths (mean-length ordering key)
+
+        // Per-read eligibility-stratified damage co-occurrence (mixture P2). JStrat keys {n, Σk5, Σk3,
+        // Σk5·k3} by the per-read damage-channel site counts (S5,S3) over JP=5 terminal positions
+        // (damage-invariant ⇒ conditioning removes the GC confound). ds/ss resolved at aggregation.
+        JStrat jstrat_ds, jstrat_ss;
+    };
+    std::array<LenBinStats, N_LEN_FINE> len_bins = {};
+
+    static int len_fine_bin(size_t len) {
+        if (len < static_cast<size_t>(LEN_FINE_MIN)) return 0;
+        int b = static_cast<int>((len - static_cast<size_t>(LEN_FINE_MIN)) / LEN_FINE_W);
+        return b < N_LEN_FINE ? b : N_LEN_FINE - 1;
+    }
+
     // Aggregated GC-stratified results
     float gc_stratified_d_max_weighted = 0.0f;  // Weighted average across bins
     float gc_stratified_d_max_peak = 0.0f;      // Max d_max across valid bins
@@ -1007,14 +1044,23 @@ struct SampleDamageProfile {
     float joint_delta_bic = 0.0f;      // BIC_M0 - BIC_M1 (positive = damage)
     float joint_bayes_factor = 0.0f;   // BF_10 ≈ exp(ΔBIC/2)
     float joint_p_damage = 0.0f;       // P(damage | data)
+    float joint_z_delta = 0.0f;        // Wald z for δ̂ (observed Fisher information)
+    int   joint_n_informative = 0;     // informative 5' positions (cov≥100 & excess > 2·noise)
     bool joint_model_valid = false;    // Sufficient data for joint model
+
+    // ── Bulk damage law (Phase 1) result: threshold-free δ(L) ─────────────────
+    // Count-level binomial GLM over data-driven length bins (BulkDamageModel).
+    // Emitted as the `bulk_damage` JSON block; not yet wired into d_max_combined.
+    BulkDamageResult bulk_damage;
+    double bulk_headline_delta = 0.0;  // read-weighted δ̂ over identified length bins
+    bool   bulk_attempted = false;     // fit ran (>= 1 valid length bin)
 
     // Mixture model results (K-component EM over GC-stratified bins)
     int mixture_K = 0;                 // Number of classes selected by BIC
     int mixture_n_components = 0;      // Number of classes selected by BIC
     float mixture_d_population = 0.0f; // E[δ] over all C-sites
     float mixture_d_ancient = 0.0f;    // E[δ | δ > 5%] (ancient tail)
-    float mixture_d_reference = 0.0f;  // E[δ | GC > 50%] (metaDMG proxy)
+    float mixture_d_population_highgc = 0.0f;  // E[δ | GC >= 50%] — high-GC-weighted mean (diagnostic only)
     float mixture_pi_ancient = 0.0f;   // Fraction of C-sites in high-damage classes
     float mixture_bic = 0.0f;          // BIC for model selection
     bool mixture_converged = false;    // Did EM converge?

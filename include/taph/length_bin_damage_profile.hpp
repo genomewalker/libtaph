@@ -33,7 +33,7 @@ struct LengthBinDamageProfile {
 
     // GC mixture model
     double mixture_d_damaged    = 0.0;
-    double mixture_d_reference  = 0.0;
+    double mixture_d_population_highgc = 0.0;
     double mixture_d_population = 0.0;
     double mixture_pi_damaged   = 0.0;
     int    mixture_n_components = 0;
@@ -43,6 +43,11 @@ struct LengthBinDamageProfile {
     std::array<double,  N_GC_BINS> gc_d_max{};
     std::array<int64_t, N_GC_BINS> gc_n_reads{};
     std::array<double,  N_GC_BINS> gc_p_damaged{};
+    // Per-GC-bin per-position T/(T+C) rates (5' end, positions 0-14).
+    // gc_per_pos_ct[g][p] = t_counts[p] / (t_counts[p] + c_counts[p]) in GC bin g.
+    // -1.0 when coverage < 100. Enables lambda estimation per GC bin (exponential
+    // decay check: real ancient damage has lambda ~0.3-0.5; composition artifacts are flat).
+    std::array<std::array<double, N_POS>, N_GC_BINS> gc_per_pos_ct{};
 
     // Per-read LLR unmixing
     int64_t n_damaged   = 0;

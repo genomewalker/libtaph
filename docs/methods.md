@@ -294,7 +294,7 @@ The reported outputs summarize different biological questions:
 - `mixture_pi_ancient`: fraction of C-sites assigned to high-damage classes (`delta_max > 5%`)
 - `mixture_d_ancient`: expected damage rate among the high-damage component only
 - `mixture_d_population`: population-average damage across all C-sites
-- `mixture_d_reference`: expected damage restricted to GC >= 50% classes, intended as a rough proxy for the GC-rich fraction that reference-based tools often emphasize
+- `mixture_d_population_highgc`: high-GC-weighted mean of the per-class δ (GC >= 50% classes). It reuses the same δ that produce `mixture_d_ancient`, so it is a diagnostic population summary, not an independent reference comparator
 - `mixture_K`: number of classes selected by BIC
 
 The full GC-stratified model is therefore not just a refinement of the global call. It is an attempt to separate "how damaged are the ancient molecules?" from "what fraction of the sample is ancient at all?" Those are distinct questions in mixed environmental samples, and collapsing them into one global `d_max` can be misleading.
