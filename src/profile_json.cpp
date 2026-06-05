@@ -1843,13 +1843,20 @@ void profile_to_json(const SampleDamageProfile& dp,
             j << "      \"inferred_lesion\": ";
             if (s.inferred_lesion) j << "\"" << s.inferred_lesion << "\""; else j << "null";
             j << ",\n";
+            j << "      \"strand\": \""
+              << (s.strand == StrandFrame::TOP_5P ? "top_5prime" :
+                  s.strand == StrandFrame::TOP_3P ? "top_3prime" : "complement") << "\",\n";
+            // Biochem A: the deamination-shadow confound travels IN-BAND with the channel's claim,
+            // not only in the count table. True for F (an established bottom-strand 8-oxoG lesion whose
+            // z denominator folds in the C->T deamination shadow); false for the empirical channels.
+            j << "      \"z_deamination_shadow_in_denominator\": " << (s.shadow_in_z ? "true" : "false") << ",\n";
         };
 
         // Channel F
         j << "    {\n";
         emit_channel_meta(stop_channel_spec('F'));
         j << "      \"detected\": " << jbool(ch_f_detected) << ",\n";
-        j << "      \"applicable\": " << (!is_ss ? "true" : "false") << ",\n";
+        j << "      \"applicable\": " << ((!is_ss || stop_channel_spec('F').applicable_in_ss) ? "true" : "false") << ",\n";
         j << "      \"valid\": " << jbool(dp.channel_f_valid) << ",\n";
         j << "      \"baseline_rate\": "; jfloat(dp.ca_stop_rate_baseline); j << ",\n";
         j << "      \"terminal_rate\": "; jfloat(dp.ca_stop_rate_terminal); j << ",\n";
@@ -1865,7 +1872,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    {\n";
         emit_channel_meta(stop_channel_spec('G'));
         j << "      \"detected\": " << jbool(ch_g_detected) << ",\n";
-        j << "      \"applicable\": " << (!is_ss ? "true" : "false") << ",\n";
+        j << "      \"applicable\": " << ((!is_ss || stop_channel_spec('G').applicable_in_ss) ? "true" : "false") << ",\n";
         j << "      \"valid\": " << jbool(dp.channel_g_valid) << ",\n";
         j << "      \"baseline_rate\": "; jfloat(dp.cg_stop_rate_baseline); j << ",\n";
         j << "      \"terminal_rate\": "; jfloat(dp.cg_stop_rate_terminal); j << ",\n";

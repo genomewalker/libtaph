@@ -12,11 +12,6 @@
 
 namespace taph {
 
-enum class ChannelMechanism {
-    DEAMINATION_OX_SHADOW,     // F: C->A complement-strand 8-oxoG, deamination-confounded
-    STOP_ENRICHMENT_EMPIRICAL, // G/H: terminal stop-enrichment with no established named lesion
-};
-
 enum class MechanismStatus { ESTABLISHED, EMPIRICAL };
 
 enum class StrandFrame { TOP_5P, TOP_3P, COMPLEMENT };
@@ -36,7 +31,6 @@ struct ChannelSpec {
     const char*      json_name;             // emitted legend "name"
     const char*      json_description;      // emitted legend "description"
     const char*      json_mechanism;        // emitted legend "mechanism" string
-    ChannelMechanism mechanism;
     MechanismStatus  mechanism_status;
     const char*      observable_name;       // measured substitution, e.g. "C_to_A_complement_asymmetry"
     const char*      inferred_lesion;       // earned lesion or nullptr (G/H assert none)
@@ -57,7 +51,7 @@ inline constexpr std::array<ChannelSpec, 3> kStopChannels5p = {{
     { "F", 'F', "8_oxog_complement",
       "C to A oxidative stop codons (TCA/TCG/TAC/TGC); bottom-strand 8-oxoguanine",
       "oxidative_guanine_8_oxog",
-      ChannelMechanism::DEAMINATION_OX_SHADOW, MechanismStatus::ESTABLISHED,
+      MechanismStatus::ESTABLISHED,
       "C_to_A_complement_asymmetry", "bottom_strand_8oxoG", StrandFrame::COMPLEMENT,
       /*has_deam_shadow*/ true, /*shadow_in_z*/ true, /*shadow_in_rate*/ false,
       /*has_mh_stratification*/ true, /*n_strata*/ 3, /*applicable_in_ss*/ false,
@@ -66,7 +60,7 @@ inline constexpr std::array<ChannelSpec, 3> kStopChannels5p = {{
     { "G", 'G', "cg_stop_enrichment",
       "C to G stop codons (TCA/TAC to TGA/TAG); empirical terminal stop-enrichment. NOT an earned hydantoin assignment (hydantoins are guanine over-oxidation products; this is a complement-strand C to G observation)",
       "empirical_stop_enrichment",
-      ChannelMechanism::STOP_ENRICHMENT_EMPIRICAL, MechanismStatus::EMPIRICAL,
+      MechanismStatus::EMPIRICAL,
       "C_to_G_stop_enrichment", nullptr, StrandFrame::COMPLEMENT,
       /*has_deam_shadow*/ false, /*shadow_in_z*/ false, /*shadow_in_rate*/ false,
       /*has_mh_stratification*/ false, /*n_strata*/ 1, /*applicable_in_ss*/ false,
@@ -75,7 +69,7 @@ inline constexpr std::array<ChannelSpec, 3> kStopChannels5p = {{
     { "H", 'H', "at_stop_enrichment",
       "A to T stop codons (AAA/AAG/AGA to TAA/TAG/TGA); empirical terminal stop-enrichment. No established direct adenine-oxidation to A to T pathway",
       "empirical_stop_enrichment",
-      ChannelMechanism::STOP_ENRICHMENT_EMPIRICAL, MechanismStatus::EMPIRICAL,
+      MechanismStatus::EMPIRICAL,
       "A_to_T_stop_enrichment", nullptr, StrandFrame::TOP_5P,
       /*has_deam_shadow*/ false, /*shadow_in_z*/ false, /*shadow_in_rate*/ false,
       /*has_mh_stratification*/ false, /*n_strata*/ 1, /*applicable_in_ss*/ false,

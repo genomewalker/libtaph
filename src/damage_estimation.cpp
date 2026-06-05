@@ -61,7 +61,11 @@ static StopChannelCountTable make_stop_count_table(const ChannelSpec& spec,
     ct.raw_rate_term = (tp + ts > 0.0) ? ts / (tp + ts) : 0.0;
     ct.raw_rate_int  = (ip + is > 0.0) ? is / (ip + is) : 0.0;
     ct.pre_clamp_z = binom_z_raw(ct.z_num_term, ct.z_den_term, ct.z_num_int, ct.z_den_int);
-    ct.z_cap = static_cast<double>(SampleDamageProfile::kZCap);
+    // Cap policy is registry-driven: CLAMP_ZCAP (every current channel) == the prior hardcoded kZCap,
+    // so this is byte-identical today, but a NONE channel would now be uncapped instead of silently 12.
+    ct.z_cap = (spec.cap == CapPolicy::CLAMP_ZCAP)
+               ? static_cast<double>(SampleDamageProfile::kZCap)
+               : std::numeric_limits<double>::infinity();
     ct.cap_applied = std::isfinite(ct.pre_clamp_z) && std::abs(ct.pre_clamp_z) > ct.z_cap;
     ct.post_clamp_z = std::isfinite(ct.pre_clamp_z)
                       ? std::clamp(ct.pre_clamp_z, -ct.z_cap, ct.z_cap)
@@ -2541,7 +2545,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             const double* sha5_arr[3]  = { profile.ca_shadow_5prime_ctx0.data(), profile.ca_shadow_5prime_ctx1.data(), profile.ca_shadow_5prime_ctx2.data() };
             double mh_R = 0.0, mh_S = 0.0;
             double rbg_PR = 0.0, rbg_QS = 0.0, rbg_PQRS = 0.0;
-            for (int k = 0; k < 3; ++k) {
+            for (int k = 0; k < stop_channel_spec('F').n_strata; ++k) {  // registry-driven stratum count (F: 3)
                 double a = 0.0, b_val = 0.0;
                 for (int p = p0_tc_5; p < 5; ++p) {
                     double pre_k = pre5_arr[k][p] + (pre5b_arr[k] ? pre5b_arr[k][p] : 0.0);

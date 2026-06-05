@@ -84,4 +84,8 @@ if(TAPH_BUILD_TESTS)
     add_test(NAME count_table_golden
              COMMAND ${CMAKE_COMMAND} -E env bash
                      ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/run_count_table_golden.sh)
+    # Architecture A-bar: every ChannelSpec field must have a reader (wire-iff-consumer; no data needed).
+    add_test(NAME registry_field_readers
+             COMMAND ${CMAKE_COMMAND} -E env bash
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/registry_field_readers.sh)
 endif()
