@@ -70,6 +70,19 @@ static StopChannelCountTable make_stop_count_table(const ChannelSpec& spec,
     return ct;
 }
 
+// Single-stratum 2x2 odds ratio (terminal stop vs interior stop) with a Haldane-Anscombe +0.5
+// continuity correction for sparse cells. The four cells come straight from the Layer-0 count
+// table, so the OR is reproducible from the gated counts. Unlike the pooled-Bernoulli z (which is
+// inflated by correlated reads), an odds ratio is a descriptive effect size, so it is the primary
+// statistic for the single-stratum channels (G/H); F uses the Mantel-Haenszel common OR instead.
+static double stop_channel_or_haldane(const StopChannelCountTable& ct) {
+    double a = ct.z_num_term;                    // terminal stop
+    double b = ct.z_den_term - ct.z_num_term;    // terminal non-stop
+    double c = ct.z_num_int;                     // interior stop
+    double d = ct.z_den_int  - ct.z_num_int;     // interior non-stop
+    return ((a + 0.5) * (d + 0.5)) / ((b + 0.5) * (c + 0.5));
+}
+
 // LLR of exponential decay vs constant model over positions 1-9 (excludes pos 0 artifacts).
 // Negative return value signals inverted pattern (terminal lower than interior).
 static float compute_decay_llr(
@@ -2466,10 +2479,15 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                                     double pre_tot, double stop_tot,
                                     double pre_t, double stop_t, double pre_i, double stop_i,
                                     double shadow_t, double shadow_i,
-                                    float& out_z, float& baseline, float& term_r,
+                                    float& out_z, float& out_or, float& baseline, float& term_r,
                                     float& int_r, float& unif, bool& valid) -> StopChannelCountTable {
         StopChannelCountTable ct = make_stop_count_table(spec, pre_t, stop_t, pre_i, stop_i, shadow_t, shadow_i);
         out_z = static_cast<float>(ct.post_clamp_z);
+        // Effect size is selected by the registry: single-stratum channels (G/H) report the 2x2
+        // Haldane-Anscombe OR here; F's effect size is the Mantel-Haenszel common OR set separately.
+        out_or = (spec.variance == VarianceFamily::PLAIN_2x2_OR)
+                 ? static_cast<float>(stop_channel_or_haldane(ct))
+                 : std::numeric_limits<float>::quiet_NaN();
         fin_oxog(pre_tot, stop_tot, pre_t, stop_t, pre_i, stop_i, baseline, term_r, int_r, unif, valid);
         return ct;
     };
@@ -2507,9 +2525,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         double pre_i    = use_far ? pre_far    : pre_m;
         double stop_i   = use_far ? stop_far   : stop_m;
         double shadow_i = use_far ? shadow_far : shadow_m;
+        float f_or_discard = std::numeric_limits<float>::quiet_NaN();  // F's effect size is the MH common OR, set below
         StopChannelCountTable f_ct = compute_stop_channel(stop_channel_spec('F'),
                  pre5, stop5, pre_t, stop_t, pre_i, stop_i, shadow_t, shadow_i,
-                 profile.channel_f_z, profile.ca_stop_rate_baseline, profile.ca_stop_rate_terminal,
+                 profile.channel_f_z, f_or_discard, profile.ca_stop_rate_baseline, profile.ca_stop_rate_terminal,
                  profile.ca_stop_rate_interior, profile.ca_uniformity_ratio, profile.channel_f_valid);
 
         // Mantel-Haenszel stratified test: 3 context strata (TCA+TAC, TCG, TGC)
@@ -2596,7 +2615,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         double stop_i = (pre_far + stop_far >= 50) ? stop_far : stop_m;
         profile.count_tables.push_back(compute_stop_channel(stop_channel_spec('G'),
                  pre5, stop5, pre_t, stop_t, pre_i, stop_i, 0.0, 0.0,
-                 profile.channel_g_z, profile.cg_stop_rate_baseline, profile.cg_stop_rate_terminal,
+                 profile.channel_g_z, profile.channel_g_or, profile.cg_stop_rate_baseline, profile.cg_stop_rate_terminal,
                  profile.cg_stop_rate_interior, profile.cg_uniformity_ratio, profile.channel_g_valid));
 
         double pre3 = 0, stop3 = 0, pre_t3 = 0, stop_t3 = 0, pre_m3 = 0, stop_m3 = 0;
@@ -2633,7 +2652,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         double stop_i = (pre_far + stop_far >= 50) ? stop_far : stop_m;
         StopChannelCountTable h_ct = compute_stop_channel(stop_channel_spec('H'),
                  pre5, stop5, pre_t, stop_t, pre_i, stop_i, 0.0, 0.0,
-                 profile.channel_h_z, profile.at_stop_rate_baseline, profile.at_stop_rate_terminal,
+                 profile.channel_h_z, profile.channel_h_or, profile.at_stop_rate_baseline, profile.at_stop_rate_terminal,
                  profile.at_stop_rate_interior, profile.at_uniformity_ratio, profile.channel_h_valid);
         profile.channel_h_z_p2plus = binom_z(stop_t2, pre_t2 + stop_t2, stop_i, pre_i + stop_i);
         // C5: genuine A->T stop-enrichment should produce positive z at BOTH windows. When
@@ -6003,6 +6022,7 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
             pg, sg, profile.cg_pre_interior, profile.cg_stop_interior, 0.0, 0.0);
         replace_ct_row('G', g_ct);
         profile.channel_g_z = static_cast<float>(g_ct.post_clamp_z);
+        profile.channel_g_or = static_cast<float>(stop_channel_or_haldane(g_ct));
         profile.cg_stop_rate_terminal = static_cast<float>(g_ct.raw_rate_term);
         profile.cg_stop_rate_interior = static_cast<float>(g_ct.raw_rate_int);
         profile.channel_g_valid = (g_ct.z_den_term >= 10 && g_ct.z_den_int >= 10);
@@ -6014,6 +6034,7 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
             ph, sh, profile.at_pre_interior, profile.at_stop_interior, 0.0, 0.0);
         replace_ct_row('H', h_ct);
         profile.channel_h_z = static_cast<float>(h_ct.post_clamp_z);
+        profile.channel_h_or = static_cast<float>(stop_channel_or_haldane(h_ct));
         auto [ph2, sh2] = resum(profile.at_pre_terminal_p2plus_by_pfx,
                                  profile.at_stop_terminal_p2plus_by_pfx, skip5);
         profile.channel_h_z_p2plus = binom_z_clamped(sh2, ph2+sh2,

@@ -880,6 +880,7 @@ struct SampleDamageProfile {
     float cg_stop_rate_interior    = 0.0f;
     float cg_stop_rate_baseline    = 0.0f;
     float channel_g_z              = std::numeric_limits<float>::quiet_NaN();  // C1/C2: NaN = not computed; clamped when computed
+    float channel_g_or             = std::numeric_limits<float>::quiet_NaN();  // P4: 2x2 Haldane-Anscombe odds ratio (primary effect size; z is exploratory)
     float cg_uniformity_ratio      = 0.0f;
     float cg_stop_rate_terminal_3prime = 0.0f;
     float cg_stop_rate_interior_3prime = 0.0f;
@@ -910,6 +911,7 @@ struct SampleDamageProfile {
     float at_stop_rate_baseline    = 0.0f;
     float channel_h_z              = std::numeric_limits<float>::quiet_NaN();  // C1/C2: NaN = not computed; clamped when computed
     float channel_h_z_p2plus       = std::numeric_limits<float>::quiet_NaN();  // C1/C2: NaN = not computed; clamped when computed
+    float channel_h_or             = std::numeric_limits<float>::quiet_NaN();  // P4: 2x2 Haldane-Anscombe odds ratio (primary effect size; z is exploratory)
     float at_uniformity_ratio      = 0.0f;
     // C5: h_z and h_z_p2plus can have opposite signs; this flag (same-sign) lets
     // the emitter/consumer see the contradiction. AND-gate detection lives in the emitter.

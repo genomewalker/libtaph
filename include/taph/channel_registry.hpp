@@ -23,9 +23,10 @@ enum class StrandFrame { TOP_5P, TOP_3P, COMPLEMENT };
 
 // Primary effect-size / variance family for the channel's adjusted statistic.
 //   MANTEL_HAENSZEL_OR  - F: stratified over context; common OR + RBG variance is interpretable.
-//   POOLED_BERNOULLI    - G/H: single-stratum 2x2; a plain odds ratio is the right primary (P4),
-//                         the pooled-Bernoulli z stays exploratory.
-enum class VarianceFamily { POOLED_BERNOULLI, MANTEL_HAENSZEL_OR };
+//   PLAIN_2x2_OR        - G/H: single-stratum 2x2 odds ratio (Haldane-Anscombe +0.5) is the primary
+//                         effect size; the pooled-Bernoulli z stays exploratory (correlated reads).
+//   POOLED_BERNOULLI    - retained for channels whose primary statistic is still only the pooled z.
+enum class VarianceFamily { POOLED_BERNOULLI, MANTEL_HAENSZEL_OR, PLAIN_2x2_OR };
 
 enum class CapPolicy { CLAMP_ZCAP, NONE };
 
@@ -69,7 +70,7 @@ inline constexpr std::array<ChannelSpec, 3> kStopChannels5p = {{
       "C_to_G_stop_enrichment", nullptr, StrandFrame::COMPLEMENT,
       /*has_deam_shadow*/ false, /*shadow_in_z*/ false, /*shadow_in_rate*/ false,
       /*has_mh_stratification*/ false, /*n_strata*/ 1, /*applicable_in_ss*/ false,
-      VarianceFamily::POOLED_BERNOULLI, CapPolicy::CLAMP_ZCAP },
+      VarianceFamily::PLAIN_2x2_OR, CapPolicy::CLAMP_ZCAP },
 
     { "H", 'H', "at_stop_enrichment",
       "A to T stop codons (AAA/AAG/AGA to TAA/TAG/TGA); empirical terminal stop-enrichment. No established direct adenine-oxidation to A to T pathway",
@@ -78,7 +79,7 @@ inline constexpr std::array<ChannelSpec, 3> kStopChannels5p = {{
       "A_to_T_stop_enrichment", nullptr, StrandFrame::TOP_5P,
       /*has_deam_shadow*/ false, /*shadow_in_z*/ false, /*shadow_in_rate*/ false,
       /*has_mh_stratification*/ false, /*n_strata*/ 1, /*applicable_in_ss*/ false,
-      VarianceFamily::POOLED_BERNOULLI, CapPolicy::CLAMP_ZCAP },
+      VarianceFamily::PLAIN_2x2_OR, CapPolicy::CLAMP_ZCAP },
 }};
 
 inline constexpr const ChannelSpec& stop_channel_spec(char type) {

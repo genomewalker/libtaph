@@ -241,7 +241,7 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"effcov_terminal_noncpg\": " << dp.effcov_ct5_noncpg_like_terminal << ",\n";
     // C1: when log2_cpg_ratio is NaN (degenerate noncpg fit) compute_cpg_score returns its
     // zero-init {z=0,p=1} default — emit null so "not computed" is not read as z=0/p=1.
-    j << "      \"cpg_score_z\": " << std::setprecision(6) << nan_or(cpg.z) << ",\n";
+    j << "      \"cpg_score_z\": " << std::setprecision(6) << nan_or(clamp_z(cpg.z)) << ",\n";  // P4: capped to +/-kZCap (uniform with the channel z's; detection saturates well inside)
     j << "      \"cpg_score_p\": " << nan_or(cpg.p) << "\n";
     j << "    },\n";
     j << "    \"context_deamination\": {\n";
@@ -503,6 +503,7 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"cg_stop_rate_terminal\": " << dp.cg_stop_rate_terminal << ",\n";
     j << "    \"cg_uniformity_ratio\": " << dp.cg_uniformity_ratio << ",\n";
     j << "    \"channel_g_z\": "; emit_z(dp.channel_g_z, dp.channel_g_valid); j << ",\n";
+    j << "    \"channel_g_or\": " << nan_or(dp.channel_g_or) << ",\n";  // P4: 2x2 Haldane-Anscombe OR
     j << "    \"channel_g_applicable\": " << (!is_ss ? "true" : "false") << ",\n";
     j << "    \"cg_stop_rate_interior\": " << dp.cg_stop_rate_interior << ",\n";
     j << "    \"channel_g3_valid\": " << (dp.channel_g3_valid ? "true" : "false") << ",\n";
@@ -515,6 +516,7 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"at_stop_rate_terminal\": " << dp.at_stop_rate_terminal << ",\n";
     j << "    \"at_uniformity_ratio\": " << dp.at_uniformity_ratio << ",\n";
     j << "    \"channel_h_z\": ";        emit_z(dp.channel_h_z, dp.channel_h_valid);        j << ",\n";
+    j << "    \"channel_h_or\": " << nan_or(dp.channel_h_or) << ",\n";  // P4: 2x2 Haldane-Anscombe OR
     j << "    \"channel_h_z_p2plus\": "; emit_z(dp.channel_h_z_p2plus, dp.channel_h_valid); j << ",\n";
     j << "    \"at_stop_rate_interior\": " << dp.at_stop_rate_interior << ",\n";
     j << "    \"channel_h3_valid\": " << (dp.channel_h3_valid ? "true" : "false") << ",\n";
@@ -1867,7 +1869,8 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"baseline_rate\": "; jfloat(dp.cg_stop_rate_baseline); j << ",\n";
         j << "      \"terminal_rate\": "; jfloat(dp.cg_stop_rate_terminal); j << ",\n";
         j << "      \"uniformity_ratio\": "; jfloat(dp.cg_uniformity_ratio); j << ",\n";
-        j << "      \"z_score\": "; emit_z(dp.channel_g_z, dp.channel_g_valid); j << "\n";
+        j << "      \"z_score\": "; emit_z(dp.channel_g_z, dp.channel_g_valid); j << ",\n";
+        j << "      \"odds_ratio\": " << nan_or(dp.channel_g_or) << "\n";  // P4: 2x2 Haldane-Anscombe OR (primary effect size)
         j << "    },\n";
 
         // Channel H
@@ -1880,7 +1883,8 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"uniformity_ratio\": "; jfloat(dp.at_uniformity_ratio); j << ",\n";
         j << "      \"z_score\": "; emit_z(dp.channel_h_z, dp.channel_h_valid); j << ",\n";
         j << "      \"z_score_p2plus\": "; emit_z(dp.channel_h_z_p2plus, dp.channel_h_valid); j << ",\n";
-        j << "      \"z_consistent\": " << jbool(ch_h_z_consistent) << "\n";
+        j << "      \"z_consistent\": " << jbool(ch_h_z_consistent) << ",\n";
+        j << "      \"odds_ratio\": " << nan_or(dp.channel_h_or) << "\n";  // P4: 2x2 Haldane-Anscombe OR (primary effect size)
         j << "    }\n";
 
         j << "  ]\n";
