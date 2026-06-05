@@ -864,7 +864,7 @@ struct SampleDamageProfile {
     // golden regression gate diffs. Additive diagnostics; does not affect any emitted estimator.
     std::vector<StopChannelCountTable> count_tables;
 
-    // Channel G: C→G stop codon conversion (hydantoin-class advanced oxidation)
+    // Channel G: C->G stop codon conversion (empirical stop-enrichment; not an earned hydantoin assignment)
     // TCA (Ser) → TGA via C→G at codon pos 2
     // TAC (Tyr) → TAG via C→G at codon pos 3
     std::array<double, 15> convertible_tca_cg_5prime = {};
@@ -888,7 +888,7 @@ struct SampleDamageProfile {
     bool  channel_g_valid          = false;
     bool  channel_g3_valid         = false;
 
-    // Channel H: A→T stop codon conversion (adenine oxidation / trans-lesion artifact)
+    // Channel H: A->T stop codon conversion (empirical stop-enrichment; no established direct adenine-oxidation pathway)
     // AAA (Lys) → TAA via A→T at codon pos 1
     // AAG (Lys) → TAG via A→T at codon pos 1
     // AGA (Arg) → TGA via A→T at codon pos 1

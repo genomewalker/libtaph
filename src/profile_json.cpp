@@ -15,10 +15,10 @@ static constexpr float  kOxChannelZDetect = 3.0f;
 // C2: emitted-statistic clamp. z/G-test stats built from per-read/per-site counts as
 // independent Bernoulli trials scale ~sqrt(N) (correlated reads), reaching hundreds–thousands.
 // Detection gates use z>3, well inside ±12, so clamping the EMITTED value is behaviour-neutral.
-static constexpr double kZCap = 12.0;
 static inline double clamp_z(double z) {
     if (!std::isfinite(z)) return z;       // NaN/Inf handled by nan_or at emission
-    return z < -kZCap ? -kZCap : (z > kZCap ? kZCap : z);
+    const double cap = static_cast<double>(SampleDamageProfile::kZCap);  // single source of truth
+    return z < -cap ? -cap : (z > cap ? cap : z);
 }
 
 static const char* libtype_cstr(SampleDamageProfile::LibraryType t) {
@@ -1831,6 +1831,9 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"name\": \"8_oxog_complement\",\n";
         j << "      \"description\": \"C to A oxidative stop codons (TCA/TCG/TAC/TGC); bottom-strand 8-oxoguanine\",\n";
         j << "      \"mechanism\": \"oxidative_guanine_8_oxog\",\n";
+        j << "      \"observable\": \"C_to_A_complement_asymmetry\",\n";
+        j << "      \"mechanism_status\": \"established\",\n";
+        j << "      \"inferred_lesion\": \"bottom_strand_8oxoG\",\n";
         j << "      \"detected\": " << jbool(ch_f_detected) << ",\n";
         j << "      \"applicable\": " << (!is_ss ? "true" : "false") << ",\n";
         j << "      \"valid\": " << jbool(dp.channel_f_valid) << ",\n";
@@ -1847,9 +1850,12 @@ void profile_to_json(const SampleDamageProfile& dp,
         // Channel G
         j << "    {\n";
         j << "      \"channel\": \"G\",\n";
-        j << "      \"name\": \"hydantoin_oxidation\",\n";
-        j << "      \"description\": \"C to G stop codons (TCA/TAC to TGA/TAG); spiroiminodihydantoin / guanidinohydantoin\",\n";
-        j << "      \"mechanism\": \"oxidative_guanine_hydantoin\",\n";
+        j << "      \"name\": \"cg_stop_enrichment\",\n";
+        j << "      \"description\": \"C to G stop codons (TCA/TAC to TGA/TAG); empirical terminal stop-enrichment. NOT an earned hydantoin assignment (hydantoins are guanine over-oxidation products; this is a complement-strand C to G observation)\",\n";
+        j << "      \"mechanism\": \"empirical_stop_enrichment\",\n";
+        j << "      \"observable\": \"C_to_G_stop_enrichment\",\n";
+        j << "      \"mechanism_status\": \"empirical\",\n";
+        j << "      \"inferred_lesion\": null,\n";
         j << "      \"detected\": " << jbool(ch_g_detected) << ",\n";
         j << "      \"applicable\": " << (!is_ss ? "true" : "false") << ",\n";
         j << "      \"valid\": " << jbool(dp.channel_g_valid) << ",\n";
@@ -1862,9 +1868,12 @@ void profile_to_json(const SampleDamageProfile& dp,
         // Channel H
         j << "    {\n";
         j << "      \"channel\": \"H\",\n";
-        j << "      \"name\": \"adenine_oxidation\",\n";
-        j << "      \"description\": \"A to T stop codons (AAA/AAG/AGA to TAA/TAG/TGA); adenine oxidation or trans-lesion\",\n";
-        j << "      \"mechanism\": \"oxidative_adenine\",\n";
+        j << "      \"name\": \"at_stop_enrichment\",\n";
+        j << "      \"description\": \"A to T stop codons (AAA/AAG/AGA to TAA/TAG/TGA); empirical terminal stop-enrichment. No established direct adenine-oxidation to A to T pathway\",\n";
+        j << "      \"mechanism\": \"empirical_stop_enrichment\",\n";
+        j << "      \"observable\": \"A_to_T_stop_enrichment\",\n";
+        j << "      \"mechanism_status\": \"empirical\",\n";
+        j << "      \"inferred_lesion\": null,\n";
         j << "      \"detected\": " << jbool(ch_h_detected) << ",\n";
         j << "      \"valid\": " << jbool(dp.channel_h_valid) << ",\n";
         j << "      \"baseline_rate\": "; jfloat(dp.at_stop_rate_baseline); j << ",\n";

@@ -5,6 +5,7 @@
 #include "taph/hexamer_tables.hpp"
 #include "taph/library_interpretation.hpp"
 #include "taph/channel_count_table.hpp"
+#include "taph/channel_registry.hpp"
 #include <algorithm>
 #include <cmath>
 #include <array>
@@ -32,6 +33,15 @@ static inline double binom_z_raw(double k_t, double n_t, double k_i, double n_i)
     double var = p_pool * (1.0 - p_pool) * (1.0 / n_t + 1.0 / n_i);
     if (var < 1e-12) return std::numeric_limits<double>::quiet_NaN();
     return ((k_t / n_t) - (k_i / n_i)) / std::sqrt(var);
+}
+
+// The ONE clamped pooled-proportion z used by every stop-channel path (the primary pass AND the
+// adapter-prefix-exclusion recompute): clamp(binom_z_raw, +/-kZCap) with NaN preserved.
+static inline float binom_z_clamped(double k_t, double n_t, double k_i, double n_i) {
+    double z = binom_z_raw(k_t, n_t, k_i, n_i);
+    if (!std::isfinite(z)) return std::numeric_limits<float>::quiet_NaN();
+    const double cap = static_cast<double>(SampleDamageProfile::kZCap);
+    return static_cast<float>(std::clamp(z, -cap, cap));
 }
 
 // LLR of exponential decay vs constant model over positions 1-9 (excludes pos 0 artifacts).
@@ -2394,23 +2404,21 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     // gates use z>3 (well inside ±12), so clamping does not change any decision;
     // it only stops absurd hundreds/thousands magnitudes reaching consumers.
     auto binom_z = [](double k_t, double n_t, double k_i, double n_i) -> float {
-        double z = binom_z_raw(k_t, n_t, k_i, n_i);
-        if (!std::isfinite(z)) return std::numeric_limits<float>::quiet_NaN();
-        const double cap = static_cast<double>(SampleDamageProfile::kZCap);
-        return static_cast<float>(std::clamp(z, -cap, cap));
+        return binom_z_clamped(k_t, n_t, k_i, n_i);
     };
 
     // Build a Layer-0 count table for a stop channel: freezes the shadow-free 2x2 plus the exact
     // numerator/denominator that fed the pooled z, the pre-clamp z, and the cap decision. The golden
     // gate diffs these so a cap-masked z regression cannot hide behind the +/-kZCap clamp.
-    auto make_ct = [&](const char* id, char type,
-                       double tp, double ts, double ip, double is,
-                       bool shadow, double tsh, double ish) {
+    auto compute_ct = [&](const ChannelSpec& spec,
+                          double tp, double ts, double ip, double is,
+                          double tsh, double ish) {
         StopChannelCountTable ct;
-        ct.channel_id = id;  ct.channel_type = type;
+        ct.channel_id = spec.channel_id;  ct.channel_type = spec.channel_type;
         ct.term_pre = tp;  ct.term_stop = ts;  ct.int_pre = ip;  ct.int_stop = is;
-        ct.has_shadow = shadow;  ct.term_shadow = tsh;  ct.int_shadow = ish;
-        ct.shadow_in_z = shadow;  ct.shadow_in_rate = false;
+        ct.has_shadow = spec.has_deam_shadow;  ct.term_shadow = tsh;  ct.int_shadow = ish;
+        ct.shadow_in_z = spec.shadow_in_z;  ct.shadow_in_rate = spec.shadow_in_rate;
+        const bool shadow = spec.shadow_in_z;
         ct.z_num_term = ts;  ct.z_den_term = tp + ts + (shadow ? tsh : 0.0);
         ct.z_num_int  = is;  ct.z_den_int  = ip + is + (shadow ? ish : 0.0);
         ct.raw_rate_term = (tp + ts > 0.0) ? ts / (tp + ts) : 0.0;
@@ -2421,6 +2429,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         ct.post_clamp_z = std::isfinite(ct.pre_clamp_z)
                           ? std::clamp(ct.pre_clamp_z, -ct.z_cap, ct.z_cap)
                           : ct.pre_clamp_z;
+        ct.has_strata = spec.has_mh_stratification;
         return ct;
     };
 
@@ -2485,8 +2494,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         fin_oxog(pre5, stop5, pre_t, stop_t, pre_i, stop_i,
                  profile.ca_stop_rate_baseline, profile.ca_stop_rate_terminal,
                  profile.ca_stop_rate_interior, profile.ca_uniformity_ratio, profile.channel_f_valid);
-        StopChannelCountTable f_ct = make_ct("F", 'F', pre_t, stop_t, pre_i, stop_i, true, shadow_t, shadow_i);
-        f_ct.has_strata = true;
+        StopChannelCountTable f_ct = compute_ct(stop_channel_spec('F'), pre_t, stop_t, pre_i, stop_i, shadow_t, shadow_i);
 
         // Mantel-Haenszel stratified test: 3 context strata (TCA+TAC, TCG, TGC)
         // Removes terminal context-composition bias that inflates negative z.
@@ -2555,7 +2563,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                  profile.ca_stop_rate_interior_3prime, profile.ca_uniformity_ratio_3prime, profile.channel_f3_valid);
     }
 
-    // Channel G: C→G oxidation (hydantoin-class)
+    // Channel G: C->G terminal stop-enrichment (empirical; hydantoins are GUANINE over-oxidation
+    // products, not earned by a complement-strand C->G stop observation)
     {
         double pre5 = 0, stop5 = 0, pre_t = 0, stop_t = 0, pre_m = 0, stop_m = 0;
         for (int p = 0; p < 15; ++p) {
@@ -2573,7 +2582,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         fin_oxog(pre5, stop5, pre_t, stop_t, pre_i, stop_i,
                  profile.cg_stop_rate_baseline, profile.cg_stop_rate_terminal,
                  profile.cg_stop_rate_interior, profile.cg_uniformity_ratio, profile.channel_g_valid);
-        profile.count_tables.push_back(make_ct("G", 'G', pre_t, stop_t, pre_i, stop_i, false, 0.0, 0.0));
+        profile.count_tables.push_back(compute_ct(stop_channel_spec('G'), pre_t, stop_t, pre_i, stop_i, 0.0, 0.0));
 
         double pre3 = 0, stop3 = 0, pre_t3 = 0, stop_t3 = 0, pre_m3 = 0, stop_m3 = 0;
         for (int p = 0; p < 15; ++p) {
@@ -2588,7 +2597,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                  profile.cg_stop_rate_interior_3prime, profile.cg_uniformity_ratio_3prime, profile.channel_g3_valid);
     }
 
-    // Channel H: A→T oxidation; z_p2plus excludes p=0 and p=1 as sensitivity check
+    // Channel H: A->T terminal stop-enrichment (empirical; no established direct
+    // adenine-oxidation->A->T pathway); z_p2plus excludes p=0 and p=1 as sensitivity check
     {
         double pre5 = 0, stop5 = 0, pre_t = 0, stop_t = 0, pre_m = 0, stop_m = 0;
         double pre_t2 = 0, stop_t2 = 0;
@@ -2608,8 +2618,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         double stop_i = (pre_far + stop_far >= 50) ? stop_far : stop_m;
         profile.channel_h_z        = binom_z(stop_t,  pre_t  + stop_t,  stop_i, pre_i + stop_i);
         profile.channel_h_z_p2plus = binom_z(stop_t2, pre_t2 + stop_t2, stop_i, pre_i + stop_i);
-        profile.count_tables.push_back(make_ct("H", 'H', pre_t, stop_t, pre_i, stop_i, false, 0.0, 0.0));
-        // C5: genuine A->T oxidation should produce positive z at BOTH windows. When
+        profile.count_tables.push_back(compute_ct(stop_channel_spec('H'), pre_t, stop_t, pre_i, stop_i, 0.0, 0.0));
+        // C5: genuine A->T stop-enrichment should produce positive z at BOTH windows. When
         // h_z (incl. p0/p1) and h_z_p2plus (excl. p0/p1) disagree in sign, the signal
         // is artifact-driven at p0/p1. This flag surfaces that contradiction; the
         // detection gate (emitter) ANDs the two windows. NaN (not computed) -> false.
@@ -5931,17 +5941,8 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
     };
 
     // Interior baselines are not prefix-split; reuse existing values.
-    // binom_z recomputes z from new terminal counts vs unchanged interior.
-    // Mirrors the primary binom_z: NaN when not computed (C1), clamped to ±kZCap (C2).
-    auto binom_z_f = [](double k_t, double n_t, double k_i, double n_i) -> float {
-        if (n_t < 10.0 || n_i < 10.0) return std::numeric_limits<float>::quiet_NaN();
-        double p_pool = (k_t + k_i) / (n_t + n_i);
-        double var = p_pool * (1.0 - p_pool) * (1.0/n_t + 1.0/n_i);
-        if (var < 1e-12) return std::numeric_limits<float>::quiet_NaN();
-        double z = ((k_t/n_t) - (k_i/n_i)) / std::sqrt(var);
-        const double cap = static_cast<double>(SampleDamageProfile::kZCap);
-        return static_cast<float>(std::clamp(z, -cap, cap));
-    };
+    // Channel F/G/H z is recomputed from the adapter-excluded terminal counts vs unchanged interior
+    // via the single binom_z_clamped (the duplicated binom_z_f lambda was deleted in P3).
 
     uint32_t n_excl = 0;
 
@@ -5954,7 +5955,7 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
             if (!skip5[i]) shadow_f += profile.ca_deam_shadow_terminal_by_pfx[i];
         double ni_f_z = profile.ca_pre_interior + profile.ca_stop_interior + profile.ca_deam_shadow_interior;  // shadow only for z-score (matches primary binom_z)
         double ni_f   = profile.ca_pre_interior + profile.ca_stop_interior;                                     // shadow-free for rate (matches fin_oxog)
-        profile.channel_f_z = binom_z_f(sf, pf + sf + shadow_f,
+        profile.channel_f_z = binom_z_clamped(sf, pf + sf + shadow_f,
                                          profile.ca_stop_interior, ni_f_z);
         profile.ca_stop_rate_terminal = (pf+sf+shadow_f > 0) ? sf/(pf+sf+shadow_f) : 0.0;
         // C5: shadow-free denominator aligns ca_stop_rate_interior with fin_oxog formula;
@@ -5969,7 +5970,7 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
         auto [pg, sg] = resum(profile.cg_pre_terminal_by_pfx,
                                profile.cg_stop_terminal_by_pfx, skip5);
         double ni_g = profile.cg_pre_interior + profile.cg_stop_interior;
-        profile.channel_g_z = binom_z_f(sg, pg+sg,
+        profile.channel_g_z = binom_z_clamped(sg, pg+sg,
                                          profile.cg_stop_interior, ni_g);
         profile.cg_stop_rate_terminal = (pg+sg > 0) ? sg/(pg+sg) : 0.0;
         if (ni_g > 0) profile.cg_stop_rate_interior = static_cast<float>(profile.cg_stop_interior / ni_g);  // C3: refresh interior
@@ -5978,11 +5979,11 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
         auto [ph, sh] = resum(profile.at_pre_terminal_by_pfx,
                                profile.at_stop_terminal_by_pfx, skip5);
         double ni_h = profile.at_pre_interior + profile.at_stop_interior;
-        profile.channel_h_z = binom_z_f(sh, ph+sh,
+        profile.channel_h_z = binom_z_clamped(sh, ph+sh,
                                           profile.at_stop_interior, ni_h);
         auto [ph2, sh2] = resum(profile.at_pre_terminal_p2plus_by_pfx,
                                  profile.at_stop_terminal_p2plus_by_pfx, skip5);
-        profile.channel_h_z_p2plus = binom_z_f(sh2, ph2+sh2,
+        profile.channel_h_z_p2plus = binom_z_clamped(sh2, ph2+sh2,
                                                  profile.at_stop_interior, ni_h);
         profile.at_stop_rate_terminal = (ph+sh > 0) ? sh/(ph+sh) : 0.0;
         if (ni_h > 0) profile.at_stop_rate_interior = static_cast<float>(profile.at_stop_interior / ni_h);  // C3: refresh interior
