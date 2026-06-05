@@ -118,6 +118,8 @@ struct SampleDamageProfile {
     float dmax_ct5_noncpg_like = std::numeric_limits<float>::quiet_NaN();
     float cpg_ratio     = std::numeric_limits<float>::quiet_NaN();
     float log2_cpg_ratio = std::numeric_limits<float>::quiet_NaN();
+    bool  cpg_ratio_backwards = false;  // P5 QC: true only when cpg_ratio is computed AND < 1 (CpG deamination
+                                        // BELOW non-CpG) — anomalous for methylation-driven aDNA, flags artifact/mixture
 
     // Coverage diagnostics for context split
     float effcov_ct5_cpg_like_terminal    = 0.0f;

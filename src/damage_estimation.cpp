@@ -3131,6 +3131,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         if (fit_cpg.valid && fit_ncpg.valid && fit_ncpg.dmax >= 0.005f) {
             profile.cpg_ratio    = fit_cpg.dmax / fit_ncpg.dmax;
             profile.log2_cpg_ratio = std::log2((fit_cpg.dmax + 1e-6f) / (fit_ncpg.dmax + 1e-6f));
+            profile.cpg_ratio_backwards = (profile.cpg_ratio < 1.0f);  // P5 QC: methylated aDNA expects CpG > non-CpG
         }
 
         // oxoG 16-context finalization
@@ -3365,11 +3366,16 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     // baseline that does not trade off with d_max in the fit.
     auto estimate_briggs_params = [](const std::array<float, 15>& rates, float max_rate,
                                      int start_pos, float fixed_bg,
-                                     float& delta_s, float& delta_d, float& lambda, float& r_squared) {
+                                     float& delta_s, float& delta_d, float& lambda, float& r_squared,
+                                     bool& lambda_fitted) {
         delta_s = 0.0f;
         delta_d = 0.0f;
         lambda = 0.3f;
         r_squared = 0.0f;
+        lambda_fitted = false;  // P5: only the converged decay regression below sets this true. This
+                                // estimator produces the EMITTED lambda, so the emitter gate
+                                // (lambda_*_fitted ? value : null) now nulls the 0.3 bail-out sentinel
+                                // instead of leaking it as a real fit.
 
         if (max_rate < 0.02f) return;
         if (start_pos < 0 || start_pos > 5) start_pos = 0;
@@ -3418,6 +3424,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
         lambda = 1.0f - std::exp(slope);
         lambda = std::clamp(lambda, 0.05f, 0.95f);
+        lambda_fitted = true;  // P5: real decay fit converged (cleared every 0.3 sentinel guard above)
 
         float ss_tot = sum_y2 - (sum_y * sum_y) / sum_w;
         float intercept = (sum_y - slope * sum_x) / sum_w;
@@ -3507,12 +3514,14 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         estimate_briggs_params(profile.damage_rate_5prime, profile.max_damage_5prime,
                                start5, fb5,
                                profile.delta_s_5prime, profile.delta_d_5prime,
-                               profile.lambda_5prime, profile.r_squared_5prime);
+                               profile.lambda_5prime, profile.r_squared_5prime,
+                               profile.lambda_5prime_fitted);
 
         estimate_briggs_params(profile.damage_rate_3prime, profile.max_damage_3prime,
                                start3, fb3,
                                profile.delta_s_3prime, profile.delta_d_3prime,
-                               profile.lambda_3prime, profile.r_squared_3prime);
+                               profile.lambda_3prime, profile.r_squared_3prime,
+                               profile.lambda_3prime_fitted);
 
         // Headline area-excess + LR companion vs bg-only null over k..14.
         // Uses RAW per-position T/(T+C) rates (t_freq_5prime / a_freq_3prime,

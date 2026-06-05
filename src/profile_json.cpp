@@ -233,6 +233,7 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"dmax_ct5_noncpg\": "        << nan_or(dp.dmax_ct5_noncpg_like) << ",\n";
     j << "      \"cpg_ratio\": "              << nan_or(dp.cpg_ratio)            << ",\n";
     j << "      \"log2_cpg_ratio\": "         << nan_or(dp.log2_cpg_ratio)       << ",\n";
+    j << "      \"cpg_ratio_backwards\": "    << (dp.cpg_ratio_backwards ? "true" : "false") << ",\n";  // P5 QC
     j << "      \"baseline_cpg\": "           << nan_or(dp.fit_baseline_ct5_cpg_like)    << ",\n";
     j << "      \"baseline_noncpg\": "        << nan_or(dp.fit_baseline_ct5_noncpg_like) << ",\n";
     j << "      \"cov_terminal_cpg\": "       << std::setprecision(0) << dp.cov_ct5_cpg_like_terminal    << ",\n";
