@@ -109,7 +109,12 @@ struct BulkDamagePerBin {
 
     // threshold-free diagnostics, per end (0=5′,1=3′)
     std::array<double, 2> k_eff   = {0.0, 0.0};   // effective informative positions (IPR)
-    std::array<double, 2> r_damage = {0.0, 0.0};  // (D_ctrl−D_full)/D_ctrl on the damage channel
+    // (D_ctrl−D_full)/D_ctrl on the damage channel: fraction of the δ≡0 (artifact-only) deviance explained
+    // by adding terminal deamination. Normally ∈[0,1] (1 ⇒ δ fully explains the terminal excess; 0 ⇒ no
+    // improvement). The 0.0 here is BOTH the genuine "no improvement" value AND the not-computed default
+    // (no live cells / D_ctrl≤1e-12) — a consumer cannot distinguish them from this field alone; read it
+    // together with k_eff[e]>0 and identified/delta_ell0 to confirm the bin actually carried signal.
+    std::array<double, 2> r_damage = {0.0, 0.0};
     double delta_ell0 = 0.0;       // ℓ̂_l − ℓ(δ_l=0), nuisances re-profiled (full profile)
     double s0 = 1.0;               // exp(−delta_ell0) = L(δ_l=0)/L(δ̂_l)
 
@@ -123,6 +128,10 @@ struct BulkDamagePerBin {
     double joint_cov = 0.0;                     // marginal Cov(k5,k3) (diagnostic; GC-confounded)
     double pi_ancient = -1.0;                   // ancient read fraction π_l = δ_l/d_max (−1 = undetermined)
     double pi_lo = -1.0, pi_hi = -1.0;          // π_l 95% interval (threshold-free; spans → undetermined)
+    // C1 cross-file flag: true ONLY when the mixture split was identified for this bin and pi_ancient/
+    // pi_lo/pi_hi hold real probabilities in [0,1]. The −1.0 sentinels are internal-only; profile_json.cpp
+    // gates on this flag to emit JSON null instead of −1.0. Default false (reset in fit()).
+    bool   pi_identified = false;
 };
 
 // ----------------------------------------------------------------------------- whole-fit result
@@ -147,7 +156,11 @@ struct BulkDamageResult {
     // the per-bin profile-likelihood curvature → used as δ_auth = δ·w_length. (Undetermined → w≈0.5
     // when δ_L is too weakly determined to fix the slope sign.)
     double slope_m  = 0.0;
-    double w_length = 1.0;
+    // BEHAVIORAL CHANGE (C5): default 0.5 (undetermined), not 1.0. The slope-based update below is
+    // gated on n>=2 live bins; with exactly 1 live bin the whole block is skipped and w_length must
+    // read as undetermined (w≈0.5), NOT full authenticity (1.0). 1.0 over-certified headline_delta_auth
+    // and let the pi_ancient gate (w_length>0.5) pass on a single bin where the slope is undefined.
+    double w_length = 0.5;
 
     // Length-coupling DIAGNOSTIC (post-fit, NOT used in the fit). Sign of the slope of the recovered δ_l
     // against median read length over live bins: −1 ⇒ δ decreasing with length (classic length-coupled
@@ -163,6 +176,15 @@ struct BulkDamageResult {
     double d_max_ancient = -1.0;
     double d_max_se      = 0.0;
     double d_max_raw     = -1.0;   // pre-gate pooled estimate; >1 (non-physical) ⇒ railed ⇒ unidentified
+    // C1 cross-file flags (profile_json.cpp reads these to emit JSON null instead of the sentinels):
+    //   d_max_ancient_valid: true ONLY when the split was identified; then d_max_ancient∈(δmax,1) and
+    //     d_max_se is a real SE. When false, d_max_ancient=−1.0 and d_max_se=0.0 are NOT-COMPUTED
+    //     sentinels (se=0.0 must NOT read as zero uncertainty). Default false (reset in fit()).
+    //   d_max_raw_railed: true when d_max_raw is non-physical (<0 unset, or >1 railed). When true the
+    //     raw value must not be emitted as a rate. Default false (reset in fit()).
+    bool   d_max_ancient_valid = false;
+    bool   d_max_raw_railed    = false;
+    bool   lambda_at_boundary  = false;  // C4: true when lambda == LAMBDA_MAX (decay rate unidentifiable)
 };
 
 // ----------------------------------------------------------------------------- model / solver
@@ -638,6 +660,7 @@ inline BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s) {
     R.n_sweeps  = sweeps;
     R.log_lik   = log_lik(s, P);
     R.lambda   = P.lambda;
+    R.lambda_at_boundary = (P.lambda >= LAMBDA_MAX - 1e-9);
     // R.artifact = the damage-channel free terminal artifact a[0][e][p] (log-odds shift over β̂[l][0]) for
     // JSON. a[0][e][14]≡0 anchored. The p0 spike s[l][e] is length-dependent; fold its live-bin mean into
     // the p0 entry so the reported curve reflects the effective p0 shift used by the fit.
@@ -853,6 +876,9 @@ inline BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s) {
         double dmax_floor = 0.0;
         for (int l = 0; l < L; ++l) dmax_floor = std::max(dmax_floor, R.bins[l].delta);
         R.d_max_raw = dmax_raw;
+        // C1: railed when non-physical (unset <0, or >1 ⇒ conditional cov exceeds any mixture). Gates the
+        // JSON emitter to null instead of letting a >1 value be read as a rate.
+        R.d_max_raw_railed = !(dmax_raw >= 0.0 && dmax_raw <= 1.0);
         // Identified only when the shared d_max is INTERIOR: above max δ_l (so π<1) and strictly below
         // the probability bound. A solution railed at d_max→1 means the conditional covariance exceeds
         // what any mixture can produce — residual composition structure that (S5,S3)-conditioning did
@@ -863,6 +889,7 @@ inline BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s) {
             double dse  = std::sqrt(1.0 / sum_w);
             R.d_max_ancient = dmax;
             R.d_max_se = dse;
+            R.d_max_ancient_valid = true;   // C1: split identified ⇒ d_max_ancient/d_max_se are real
             for (int l = 0; l < L; ++l) {
                 double dl = R.bins[l].delta;
                 if (dl <= 1e-4) continue;
@@ -870,6 +897,7 @@ inline BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s) {
                 double hi = dmax + 1.96 * dse, lo = std::max(dl, dmax - 1.96 * dse);
                 R.bins[l].pi_lo = std::min(1.0, dl / hi);
                 R.bins[l].pi_hi = std::min(1.0, dl / lo);
+                R.bins[l].pi_identified = true;   // C1: this bin's π_l interval holds real probabilities
             }
         }
     }

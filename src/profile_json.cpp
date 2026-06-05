@@ -3,13 +3,23 @@
 #include "taph/length_bin_damage_profile.hpp"
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <ostream>
+#include <sstream>
 #include <string>
 
 namespace taph {
 
 static constexpr double kMinCov          = 100.0;
 static constexpr float  kOxChannelZDetect = 3.0f;
+// C2: emitted-statistic clamp. z/G-test stats built from per-read/per-site counts as
+// independent Bernoulli trials scale ~sqrt(N) (correlated reads), reaching hundreds–thousands.
+// Detection gates use z>3, well inside ±12, so clamping the EMITTED value is behaviour-neutral.
+static constexpr double kZCap = 12.0;
+static inline double clamp_z(double z) {
+    if (!std::isfinite(z)) return z;       // NaN/Inf handled by nan_or at emission
+    return z < -kZCap ? -kZCap : (z > kZCap ? kZCap : z);
+}
 
 static const char* libtype_cstr(SampleDamageProfile::LibraryType t) {
     switch (t) {
@@ -29,7 +39,9 @@ static const char* libtype_human(SampleDamageProfile::LibraryType t) {
 
 template<typename T>
 static std::string nan_or(T v) {
-    return std::isnan(static_cast<double>(v)) ? "null" : std::to_string(v);
+    // C1: null any non-finite sentinel — NaN AND ±Inf. std::isnan(Inf)==false would
+    // otherwise emit a bare `inf`/`-inf` token (invalid JSON) for any of the 11 call sites.
+    return std::isfinite(static_cast<double>(v)) ? std::to_string(v) : "null";
 }
 
 static std::string json_escape(const std::string& s) {
@@ -62,10 +74,15 @@ void profile_to_json(const SampleDamageProfile& dp,
                                         && (dp.d_max_5prime < 0.02f)
                                         && !d5_suppressed_early;
     float d_max_combined_out = dp.d_max_combined;
+    float d_metamatch_out     = dp.d_metamatch;
     const char* source_str_out = dp.d_max_source_str();
     if (d3_selection_biased_early) {
         d_max_combined_out = dp.d_max_5prime;
         source_str_out = "5prime_conservative_ss";
+        // C5: dp.d_metamatch was computed in damage_estimation.cpp from the pre-override
+        // d_max_combined; mirror the CircLigase override here so d_max_combined and d_metamatch
+        // stay internally consistent in the JSON. [behavioral change to emitted d_metamatch]
+        d_metamatch_out = dp.d_max_5prime;
     }
 
     // ── Pre-compute all derived scores ────────────────────────────────────────
@@ -124,6 +141,8 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "  \"library_auto_evaluable\": " << (dp.library_auto_evaluable ? "true" : "false") << ",\n";
     j << "  \"library_forced_type\": \"" << libtype_cstr(dp.library_forced_type) << "\",\n";
     j << "  \"library_bic_winner_model\": \"" << dp.library_bic_winner_model << "\",\n";
+    j << "  \"library_bic_winner_model_class\": \"" << dp.library_bic_winner_model_class << "\",\n";
+    j << "  \"library_p_is_pre_override\": " << (dp.library_p_is_pre_override ? "true" : "false") << ",\n";
     j << "  \"library_bic_second_model\": \"" << dp.library_bic_second_model << "\",\n";
     j << "  \"library_bic_margin\": " << std::setprecision(2) << dp.library_bic_margin << ",\n";
     j << "  \"library_p_ds_class_min\": " << std::setprecision(6) << dp.library_p_ds_class_min << ",\n";
@@ -163,19 +182,33 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"d_max_5prime\": " << std::setprecision(6) << dp.d_max_5prime << ",\n";
     j << "    \"d_max_3prime\": " << dp.d_max_3prime << ",\n";
     j << "    \"d_max_combined\": " << d_max_combined_out << ",\n";
-    j << "    \"d_metamatch\": " << dp.d_metamatch << ",\n";
+    j << "    \"d_metamatch\": " << d_metamatch_out << ",\n";
     j << "    \"source\": \"" << source_str_out << "\",\n";
-    j << "    \"lambda_5prime\": " << dp.lambda_5prime << ",\n";
-    j << "    \"lambda_3prime\": " << dp.lambda_3prime << ",\n";
+    j << "    \"lambda_5prime\": " << (dp.lambda_5prime_fitted ? std::to_string(dp.lambda_5prime) : "null") << ",\n";
+    j << "    \"lambda_3prime\": " << (dp.lambda_3prime_fitted ? std::to_string(dp.lambda_3prime) : "null") << ",\n";
     j << "    \"bg_5prime\": " << dp.fit_baseline_5prime << ",\n";
     j << "    \"bg_3prime\": " << dp.fit_baseline_3prime << ",\n";
     j << "    \"validated\": " << (dp.damage_validated ? "true" : "false") << ",\n";
     j << "    \"artifact\": " << (dp.damage_artifact ? "true" : "false") << ",\n";
     j << "    \"joint\": {\n";
-    j << "      \"delta_bic\": " << std::setprecision(6) << dp.joint_delta_bic << ",\n";
-    j << "      \"z_delta\": " << dp.joint_z_delta << ",\n";
-    j << "      \"p_damage\": " << dp.joint_p_damage << ",\n";
-    j << "      \"n_informative_positions\": " << dp.joint_n_informative << ",\n";
+    // C2: ΔBIC and Wald z both scale ~O(N) on correlated reads — exploratory, not a
+    // calibrated test. Clamp the EMITTED magnitude (ΔBIC→[-200,200], z→±kZCap) and flag
+    // saturation; p_damage uses a stable internal logistic on clamped ΔBIC/2, unaffected.
+    {
+        const double dbic = static_cast<double>(dp.joint_delta_bic);
+        const bool dbic_sat = std::isfinite(dbic) && std::abs(dbic) > 200.0;
+        const double dbic_emit = !std::isfinite(dbic) ? dbic
+                               : (dbic < -200.0 ? -200.0 : (dbic > 200.0 ? 200.0 : dbic));
+        const bool zdel_cap = dp.joint_z_delta_capped;
+        j << "      \"delta_bic\": " << nan_or(dbic_emit) << ",\n";
+        j << "      \"delta_bic_saturated\": " << (dbic_sat ? "true" : "false") << ",\n";
+        j << "      \"z_delta\": " << nan_or(clamp_z(dp.joint_z_delta)) << ",\n";
+        j << "      \"z_delta_capped\": " << (zdel_cap ? "true" : "false") << ",\n";
+    }
+    // C1: p_damage and n_informative_positions are reset-value zeros when valid=false;
+    // emit null so "not computed" is not read as a genuine probability/count estimate.
+    j << "      \"p_damage\": " << (dp.joint_model_valid ? std::to_string(dp.joint_p_damage) : "null") << ",\n";
+    j << "      \"n_informative_positions\": " << (dp.joint_model_valid ? std::to_string(dp.joint_n_informative) : "null") << ",\n";
     j << "      \"valid\": " << (dp.joint_model_valid ? "true" : "false") << "\n";
     j << "    },\n";
     const bool mix_gc_identified = dp.mixture_identifiable && dp.mixture_converged;
@@ -205,8 +238,10 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"cov_terminal_noncpg\": "    << dp.cov_ct5_noncpg_like_terminal << ",\n";
     j << "      \"effcov_terminal_cpg\": "    << dp.effcov_ct5_cpg_like_terminal    << ",\n";
     j << "      \"effcov_terminal_noncpg\": " << dp.effcov_ct5_noncpg_like_terminal << ",\n";
-    j << "      \"cpg_score_z\": " << std::setprecision(6) << cpg.z << ",\n";
-    j << "      \"cpg_score_p\": " << cpg.p << "\n";
+    // C1: when log2_cpg_ratio is NaN (degenerate noncpg fit) compute_cpg_score returns its
+    // zero-init {z=0,p=1} default — emit null so "not computed" is not read as z=0/p=1.
+    j << "      \"cpg_score_z\": " << std::setprecision(6) << nan_or(cpg.z) << ",\n";
+    j << "      \"cpg_score_p\": " << nan_or(cpg.p) << "\n";
     j << "    },\n";
     j << "    \"context_deamination\": {\n";
     j << "      \"dmax_AC\": " << nan_or(dp.dmax_ct5_by_upstream[SP::CTX_AC]) << ",\n";
@@ -215,26 +250,27 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"dmax_TC\": " << nan_or(dp.dmax_ct5_by_upstream[SP::CTX_TC]) << ",\n";
     j << "      \"dipyr_contrast\": " << nan_or(dp.dipyr_contrast) << ",\n";
 
-    j << "      \"heterogeneity_chi2\": " << std::setprecision(2) << dp.context_heterogeneity_chi2 << ",\n";
-    j << "      \"heterogeneity_p\": " << std::setprecision(4) << dp.context_heterogeneity_p << ",\n";
-    j << "      \"heterogeneity_detected\": " << (dp.context_heterogeneity_detected ? "true" : "false") << "\n";
+    // C1: emit null when context test was not run (valid_ctx_count<4 or mean_d<=0.001)
+    j << "      \"heterogeneity_chi2\": " << (dp.context_heterogeneity_computed ? nan_or(dp.context_heterogeneity_chi2) : std::string("null")) << ",\n";
+    j << "      \"heterogeneity_p\": " << (dp.context_heterogeneity_computed ? nan_or(dp.context_heterogeneity_p) : std::string("null")) << ",\n";
+    j << "      \"heterogeneity_detected\": " << (dp.context_heterogeneity_computed ? (dp.context_heterogeneity_detected ? "true" : "false") : "null") << "\n";
     j << "    },\n";
     j << "    \"per_pos_5prime_ct\": [";
     for (int p = 0; p < N_POS; ++p) {
-        double v = (dp.tc_total_5prime[p] >= kMinCov) ? dp.t_freq_5prime[p] : -1.0;
-        j << std::setprecision(6) << v;
+        // C1: emit null (not -1.0) when below kMinCov — a probability can't be negative.
+        if (dp.tc_total_5prime[p] >= kMinCov) j << std::setprecision(6) << dp.t_freq_5prime[p];
+        else                                  j << "null";
         if (p < N_POS - 1) j << ",";
     }
     j << "],\n";
     j << "    \"per_pos_3prime\": [";
     for (int p = 0; p < N_POS; ++p) {
-        double v;
-        if (is_ss)
-            v = (dp.tc_total_3prime[p] >= kMinCov)
-                    ? dp.t_freq_3prime[p] / dp.tc_total_3prime[p] : -1.0;
-        else
-            v = (dp.ag_total_3prime[p] >= kMinCov) ? dp.a_freq_3prime[p] : -1.0;
-        j << std::setprecision(6) << v;
+        // C1: emit null when coverage is below kMinCov instead of the -1.0 sentinel.
+        bool ok = is_ss ? (dp.tc_total_3prime[p] >= kMinCov)
+                        : (dp.ag_total_3prime[p] >= kMinCov);
+        if (!ok) j << "null";
+        else if (is_ss) j << std::setprecision(6) << (dp.t_freq_3prime[p] / dp.tc_total_3prime[p]);
+        else            j << std::setprecision(6) << dp.a_freq_3prime[p];
         if (p < N_POS - 1) j << ",";
     }
     j << (in.lsd && !in.lsd->bins.empty() ? "],\n" : "]\n");
@@ -288,7 +324,9 @@ void profile_to_json(const SampleDamageProfile& dp,
               << "}";
             j << ",\"gc_d_max\":[";
             for (int g = 0; g < LengthBinDamageProfile::N_GC_BINS; ++g) {
-                j << std::setprecision(6) << lb.gc_d_max[g];
+                // C1: -1.0 is the insufficient-coverage sentinel; d_max is in [0,1] → null.
+                if (lb.gc_d_max[g] < 0.0) j << "null";
+                else j << std::setprecision(6) << lb.gc_d_max[g];
                 if (g + 1 < LengthBinDamageProfile::N_GC_BINS) j << ",";
             }
             j << "],\"gc_n_reads\":[";
@@ -298,7 +336,10 @@ void profile_to_json(const SampleDamageProfile& dp,
             }
             j << "],\"gc_p_damaged\":[";
             for (int g = 0; g < LengthBinDamageProfile::N_GC_BINS; ++g) {
-                j << std::setprecision(6) << lb.gc_p_damaged[g];
+                // C1: -1.0 is the insufficient-coverage sentinel (gb.valid==false). A
+                // probability in [0,1] is never legitimately negative → emit null.
+                if (lb.gc_p_damaged[g] < 0.0f) j << "null";
+                else j << std::setprecision(6) << lb.gc_p_damaged[g];
                 if (g + 1 < LengthBinDamageProfile::N_GC_BINS) j << ",";
             }
             j << "],\"gc_per_pos_ct\":[";
@@ -314,7 +355,8 @@ void profile_to_json(const SampleDamageProfile& dp,
             }
             j << "]";
             auto dnan = [](double v) -> std::string {
-                return std::isnan(v) ? "null" : std::to_string(v);
+                // C1: null NaN AND ±Inf — a bare inf/-inf token is invalid JSON (isnan(Inf)==false).
+                return std::isfinite(v) ? std::to_string(v) : "null";
             };
             auto write_dnan_arr = [&](const std::array<double, LengthBinDamageProfile::N_POS>& arr) {
                 for (int p = 0; p < LengthBinDamageProfile::N_POS; ++p) {
@@ -370,7 +412,9 @@ void profile_to_json(const SampleDamageProfile& dp,
             j << "[";
             const auto& row = lsd.cell_w_ancient[b];
             for (int g = 0; g < LengthBinDamageProfile::N_GC_BINS; ++g) {
-                j << std::setprecision(6) << row[g];
+                // C1: -1.0 is the insufficient-coverage sentinel; w_ancient in [0,1] → null.
+                if (row[g] < 0.0) j << "null";
+                else j << std::setprecision(6) << row[g];
                 if (g + 1 < LengthBinDamageProfile::N_GC_BINS) j << ",";
             }
             j << "]";
@@ -393,16 +437,32 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"gt_bg_ci_lo\": " << std::setprecision(6) << dp.g_bg_fitted_ci_lo << ",\n";
     j << "    \"gt_bg_ci_hi\": " << dp.g_bg_fitted_ci_hi << ",\n";
     j << "    \"gt_fit_degenerate\": " << (dp.g_fit_degenerate ? "true" : "false") << ",\n";
+    j << "    \"gt_bg_fitted_unclamped\": " << dp.g_bg_fitted_unclamped << ",\n";
+    j << "    \"gt_bg_at_upper_boundary\": " << (dp.gt_bg_at_upper_boundary ? "true" : "false") << ",\n";
+    j << "    \"gt_decay_at_upper_boundary\": " << (dp.gt_decay_at_upper_boundary ? "true" : "false") << ",\n";
+    j << "    \"gt_term_zero_clamped\": " << (dp.gt_term_zero_clamped ? "true" : "false") << ",\n";
+    j << "    \"ox_theta_at_clamp\": " << (dp.ox_theta_at_clamp ? "true" : "false") << ",\n";
     j << "    \"gt_bg_interior_mean\": " << dp.g_bg_interior_mean << ",\n";
     j << "    \"s_gt\": " << dp.s_gt << ",\n";
+    // D/s_gt are applicable only to SS (Chargaff cancellation makes them ≈0 for DS).
+    j << "    \"d_applicable\": " << (is_ss ? "true" : "false") << ",\n";
     j << "    \"per_pos_5prime_gt\": [";
     for (int p = 0; p < N_POS; ++p) {
         double denom = dp.t_from_g_5prime[p] + dp.g_count_5prime[p];
-        double v = (denom >= kMinCov) ? dp.t_from_g_5prime[p] / denom : -1.0;
-        j << std::setprecision(6) << v;
+        // C1: emit null (not -1.0) for sub-kMinCov positions — out-of-range for a probability.
+        if (denom >= kMinCov) j << std::setprecision(6) << (dp.t_from_g_5prime[p] / denom);
+        else                  j << "null";
         if (p < N_POS - 1) j << ",";
     }
     j << "],\n";
+    // C1+C2: FGH binom z-scores. Emit null when the channel was not computed (validity flag false:
+    // the 0.0 default is indistinguishable from a genuine z=0), otherwise clamp to ±kZCap — these
+    // z's scale ~sqrt(N) on correlated reads (magnitudes of hundreds–thousands) and are exploratory,
+    // not calibrated p-values; the rate-difference / common_or fields carry the effect size.
+    auto emit_z = [&](double z, bool computed) {
+        if (computed && std::isfinite(z)) j << std::setprecision(6) << clamp_z(z);
+        else                              j << "null";
+    };
     j << "    \"channel_c_valid\": " << (dp.channel_c_valid ? "true" : "false") << ",\n";
     j << "    \"channel_c_detected\": " << (dp.ox_damage_detected ? "true" : "false") << ",\n";
     j << "    \"ox_is_artifact\": " << (dp.ox_is_artifact ? "true" : "false") << ",\n";
@@ -420,8 +480,15 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"ca_stop_rate_baseline\": " << std::setprecision(6) << dp.ca_stop_rate_baseline << ",\n";
     j << "    \"ca_stop_rate_terminal\": " << dp.ca_stop_rate_terminal << ",\n";
     j << "    \"ca_uniformity_ratio\": " << dp.ca_uniformity_ratio << ",\n";
-    j << "    \"channel_f_z\": " << dp.channel_f_z << ",\n";
-    j << "    \"channel_f_mh_z\": " << dp.channel_f_mh_z << ",\n";
+    j << "    \"channel_f_z\": ";    emit_z(dp.channel_f_z, dp.channel_f_valid);    j << ",\n";
+    j << "    \"channel_f_mh_z\": "; emit_z(dp.channel_f_mh_z, dp.channel_f_valid); j << ",\n";
+    // Transparency: the pooled channel_f_z pools across context strata and keeps the deamination
+    // shadow in its denominator, so it can sign-reverse vs the stratified MH z + odds ratio
+    // (Simpson's paradox). Detection sign-gates on agreement; this flag warns consumers not to read
+    // the raw pooled z as the effect direction when it disagrees with the MH-stratified result.
+    j << "    \"channel_f_pooled_mh_disagree\": "
+      << ((std::isfinite(dp.channel_f_z) && std::isfinite(dp.channel_f_mh_z)
+           && ((dp.channel_f_z >= 0.0f) != (dp.channel_f_mh_z >= 0.0f))) ? "true" : "false") << ",\n";
     j << "    \"channel_f_common_or\": " << dp.channel_f_common_or << ",\n";
     j << "    \"channel_f_applicable\": " << (!is_ss ? "true" : "false") << ",\n";
     j << "    \"ca_stop_rate_interior\": " << dp.ca_stop_rate_interior << ",\n";
@@ -434,7 +501,7 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"cg_stop_rate_baseline\": " << std::setprecision(6) << dp.cg_stop_rate_baseline << ",\n";
     j << "    \"cg_stop_rate_terminal\": " << dp.cg_stop_rate_terminal << ",\n";
     j << "    \"cg_uniformity_ratio\": " << dp.cg_uniformity_ratio << ",\n";
-    j << "    \"channel_g_z\": " << dp.channel_g_z << ",\n";
+    j << "    \"channel_g_z\": "; emit_z(dp.channel_g_z, dp.channel_g_valid); j << ",\n";
     j << "    \"channel_g_applicable\": " << (!is_ss ? "true" : "false") << ",\n";
     j << "    \"cg_stop_rate_interior\": " << dp.cg_stop_rate_interior << ",\n";
     j << "    \"channel_g3_valid\": " << (dp.channel_g3_valid ? "true" : "false") << ",\n";
@@ -446,8 +513,8 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"at_stop_rate_baseline\": " << std::setprecision(6) << dp.at_stop_rate_baseline << ",\n";
     j << "    \"at_stop_rate_terminal\": " << dp.at_stop_rate_terminal << ",\n";
     j << "    \"at_uniformity_ratio\": " << dp.at_uniformity_ratio << ",\n";
-    j << "    \"channel_h_z\": " << dp.channel_h_z << ",\n";
-    j << "    \"channel_h_z_p2plus\": " << dp.channel_h_z_p2plus << ",\n";
+    j << "    \"channel_h_z\": ";        emit_z(dp.channel_h_z, dp.channel_h_valid);        j << ",\n";
+    j << "    \"channel_h_z_p2plus\": "; emit_z(dp.channel_h_z_p2plus, dp.channel_h_valid); j << ",\n";
     j << "    \"at_stop_rate_interior\": " << dp.at_stop_rate_interior << ",\n";
     j << "    \"channel_h3_valid\": " << (dp.channel_h3_valid ? "true" : "false") << ",\n";
     j << "    \"at_stop_rate_terminal_3prime\": " << dp.at_stop_rate_terminal_3prime << ",\n";
@@ -458,10 +525,16 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"ox_gt_uniformity\": " << dp.ox_gt_uniformity << ",\n";
     j << "    \"ox_ca_rate_interior\": " << dp.ox_ca_rate_interior << ",\n";
     j << "    \"ox_ca_uniformity\": " << dp.ox_ca_uniformity << ",\n";
-    j << "    \"s_oxog\": " << std::setprecision(6)
-      << (in.has_oxog_score ? in.s_oxog : 0.0) << ",\n";
-    j << "    \"se_s_oxog\": " << (in.has_oxog_score ? in.se_s_oxog : 0.0) << ",\n";
-    j << "    \"ox_d_oriented\": " << std::setprecision(6) << in.d_oriented << ",\n";
+    // C1: gate the oxoG-score fields on has_oxog_score — emit null when uncomputed so a
+    // genuine 0.0 (no 8-oxoG signal) is distinguishable from "not computed". se_s_oxog=0.0
+    // as a fallback was especially misleading (signals zero-width CI). Surface the flag too.
+    auto emit_oxog = [&](double v) {
+        if (in.has_oxog_score && std::isfinite(v)) j << std::setprecision(6) << v; else j << "null";
+    };
+    j << "    \"has_oxog_score\": " << (in.has_oxog_score ? "true" : "false") << ",\n";
+    j << "    \"s_oxog\": ";        emit_oxog(in.s_oxog);    j << ",\n";
+    j << "    \"se_s_oxog\": ";     emit_oxog(in.se_s_oxog); j << ",\n";
+    j << "    \"ox_d_oriented\": "; emit_oxog(in.d_oriented); j << ",\n";
     j << "    \"s_oxog_16ctx\": [";
     for (int i = 0; i < 16; ++i) {
         float v = dp.s_oxog_16ctx[i];
@@ -476,22 +549,33 @@ void profile_to_json(const SampleDamageProfile& dp,
     }
     j << "],\n";
     {
+        // C2 weight-fix: s_i is a Binomial rate-difference with Var(s_i)≈1/cov_i, so the correct
+        // inverse-variance weight is w_i=cov_i and the IVW z = Σ(s_i·cov_i)/√(Σcov_i) (was √cov_i,
+        // which is not a z-score under any standard definition). The IVW z then scales ~√N on
+        // correlated reads, so it is also clamped to ±kZCap. C1: when no context is evaluable
+        // (all cov<500 ⇒ ctx_w2==0) emit null, not a bare 0.0 that reads as a real zero aggregate.
         double ctx_wsum = 0.0, ctx_w2 = 0.0;
-        int ctx_pos = 0;
+        int ctx_pos = 0, ctx_n_valid = 0;
         for (int i = 0; i < 16; ++i) {
             float v = dp.s_oxog_16ctx[i];
             double cov = static_cast<double>(dp.cov_oxog_16ctx[i]);
             if (std::isnan(v) || cov <= 0) continue;
-            double w = std::sqrt(cov);
-            ctx_wsum += v * w;
+            ctx_wsum += v * cov;   // w_i = cov_i (inverse-variance)
             ctx_w2   += cov;
+            ++ctx_n_valid;
             if (v > 0) ++ctx_pos;
         }
-        double ctx_z = (ctx_w2 > 0) ? ctx_wsum / std::sqrt(ctx_w2) : 0.0;
         j << "    \"oxog_ctx_n_positive\": " << ctx_pos << ",\n";
-        j << "    \"oxog_ctx_z\": " << std::setprecision(4) << ctx_z << ",\n";
-        j << "    \"oxog_score_z\": " << std::setprecision(6) << oxog_is.z << ",\n";
-        j << "    \"oxog_score_p\": " << std::setprecision(6) << oxog_is.p << ",\n";
+        j << "    \"oxog_ctx_n_valid\": " << ctx_n_valid << ",\n";
+        // exploratory; clamped, not a calibrated p-value (correlated reads)
+        if (ctx_w2 > 0) j << "    \"oxog_ctx_z\": " << std::setprecision(4)
+                          << clamp_z(ctx_wsum / std::sqrt(ctx_w2)) << ",\n";
+        else            j << "    \"oxog_ctx_z\": null,\n";
+        // C1/C3: gate on has_oxog_score (not computed) and is_ss (RC parity assumption fails
+        // for single-strand reads, producing systematic false-positive scores).
+        j << "    \"oxog_score_rc_parity_ok\": " << (!is_ss ? "true" : "false") << ",\n";
+        j << "    \"oxog_score_z\": "; emit_oxog(!is_ss ? clamp_z(oxog_is.z) : std::numeric_limits<double>::quiet_NaN()); j << ",\n";
+        j << "    \"oxog_score_p\": "; emit_oxog(!is_ss ? oxog_is.p : std::numeric_limits<double>::quiet_NaN()); j << ",\n";
     }
     if (std::isnan(otr.cosine))
         j << "    \"oxog_context_cosine\": null,\n";
@@ -536,7 +620,7 @@ void profile_to_json(const SampleDamageProfile& dp,
               << ",\"z_score\":" << lb.channel_h_z
               << ",\"z_score_p2plus\":" << lb.channel_h_z_p2plus
               << ",\"valid\":" << (lb.channel_h_valid ? "true" : "false")
-              << ",\"detected\":" << (lb.channel_h_valid && (lb.channel_h_z > kOxChannelZDetect || lb.channel_h_z_p2plus > kOxChannelZDetect) ? "true" : "false") << "}"
+              << ",\"detected\":" << (lb.channel_h_valid && lb.channel_h_z > kOxChannelZDetect && lb.channel_h_z_p2plus > kOxChannelZDetect ? "true" : "false") << "}"  // C5: OR→AND, see top-level gate [behavioral change]
               << "}";
         }
         j << "],\n";
@@ -567,11 +651,14 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"n_cells_used\": " << otm.n_cells_used << ",\n";
     j << "    \"beta1\": " << std::setprecision(6) << otm.beta1 << ",\n";
     j << "    \"beta1_se\": " << otm.beta1_se << ",\n";
-    j << "    \"beta1_z\": " << otm.beta1_z << ",\n";
+    // exploratory; clamped, not a calibrated p-value (correlated reads)
+    j << "    \"beta1_z\": " << clamp_z(otm.beta1_z) << ",\n";
     j << "    \"beta2\": " << otm.beta2 << ",\n";
     j << "    \"beta2_se\": " << otm.beta2_se << ",\n";
-    j << "    \"beta2_z\": " << otm.beta2_z << ",\n";
+    // exploratory; clamped, not a calibrated p-value (correlated reads)
+    j << "    \"beta2_z\": " << clamp_z(otm.beta2_z) << ",\n";
     j << "    \"alpha\": " << otm.alpha << ",\n";
+    j << "    \"sigma2\": " << otm.sigma2 << ",\n";   // residual variance — makes the SEs auditable
     j << "    \"delta_beta\": " << otm.delta_beta << ",\n";
     j << "    \"markers_consistent\": " << (otm.markers_consistent ? "true" : "false") << "\n";
     j << "  },\n";
@@ -591,6 +678,10 @@ void profile_to_json(const SampleDamageProfile& dp,
     }
     j << "],\n";
     {
+        // C2: signed-root G-test on aggregate (correlated) pair counts O/E — scales ~sqrt(pairs),
+        // not a calibrated p-value. Clamp the emitted z to ±kZCap and floor p at DBL_MIN so it
+        // never underflows to a literal 0.0 (which happened for every >50M-read library, damaged
+        // or modern alike). short_log2oe (emitted above) is the primary interpretable effect size.
         double O = dp.interior_ct_cluster_short_obs;
         double E = dp.interior_ct_cluster_short_exp;
         double sz = 0.0, sp = 1.0;
@@ -598,8 +689,18 @@ void profile_to_json(const SampleDamageProfile& dp,
             double sign_val = (O >= E) ? 1.0 : -1.0;
             sz = sign_val * std::sqrt(2.0 * (O * std::log(O / E) - (O - E)));
             sp = 0.5 * std::erfc(sz / std::sqrt(2.0));
+            // floor at DBL_MIN: |sz|>~38 underflows erfc to exactly 0.0 for any large library
+            if (sp < std::numeric_limits<double>::min()) sp = std::numeric_limits<double>::min();
         }
-        j << "    \"short_score_z\": " << std::setprecision(6) << sz << ",\n";
+        // exploratory; clamped, not a calibrated p-value (correlated reads)
+        // C5 label fix: this is the signed-root G-test (likelihood-ratio statistic), NOT the
+        // within-read Bernoulli z (short_z). Same value was published under two `*_z` names with
+        // wildly different magnitudes (e.g. short_z=1.34 vs short_score_z=248.7). Emit honest
+        // short_g_stat/short_lr_p; keep short_score_z/short_score_p as deprecated aliases.
+        const double sz_emit = clamp_z(sz);
+        j << "    \"short_g_stat\": " << std::setprecision(6) << sz_emit << ",\n";
+        j << "    \"short_lr_p\": " << sp << ",\n";
+        j << "    \"short_score_z\": " << std::setprecision(6) << sz_emit << ",\n";
         j << "    \"short_score_p\": " << sp << "\n";
     }
     j << "  },\n";
@@ -684,8 +785,10 @@ void profile_to_json(const SampleDamageProfile& dp,
                             nf += pos_arr[p][prev*16 + F*4 + next];
                             nt += pos_arr[p][prev*16 + T*4 + next];
                         }
-                    double r = (nf + nt > 0) ? (double)nt / (nf + nt) : -1.0;
-                    j << std::fixed << std::setprecision(6) << r;
+                    // C1: pos 0 has no left-flank context (nf+nt==0) — emit null, not -1.0,
+                    // so the structurally-missing terminus element is unambiguous downstream.
+                    if (nf + nt > 0) j << std::fixed << std::setprecision(6) << ((double)nt / (nf + nt));
+                    else             j << "null";
                     if (p < 14) j << ",";
                 }
                 j << "]" << (s < 11 ? "," : "") << "\n";
@@ -766,7 +869,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         auto interior_mean = [](const std::array<double,15>& r, int plat) -> double {
             double s = 0.0; int n = 0;
             for (int p = plat; p < 15; ++p) if (r[p] >= 0) { s += r[p]; n++; }
-            return n > 0 ? s/n : -1.0;
+            return n > 0 ? s/n : std::numeric_limits<double>::quiet_NaN();
         };
 
         // Weighted log-linear OLS: log(excess) = log(A) - lambda*p, w = excess.
@@ -779,9 +882,9 @@ void profile_to_json(const SampleDamageProfile& dp,
                 double lx = std::log(ex);
                 sw+=ex; swx+=ex*p; swy+=ex*lx; swxx+=ex*p*p; swxy+=ex*p*lx;
             }
-            if (sw < 1e-12) return -1.0;
+            if (sw < 1e-12) return std::numeric_limits<double>::quiet_NaN();
             double det = sw*swxx - swx*swx;
-            if (std::abs(det) < 1e-18) return -1.0;
+            if (std::abs(det) < 1e-18) return std::numeric_limits<double>::quiet_NaN();
             return -(sw*swxy - swx*swy) / det;
         };
 
@@ -801,10 +904,10 @@ void profile_to_json(const SampleDamageProfile& dp,
                         for (int nx = 0; nx < 4; ++nx)
                             ic[b] += arr[p][pv*16 + b*4 + nx];
             uint64_t tt=tc[0]+tc[1]+tc[2]+tc[3], it=ic[0]+ic[1]+ic[2]+ic[3];
-            if (!tt || !it) return -1.0;
+            if (!tt || !it) return std::numeric_limits<double>::quiet_NaN();
             double depl   = (double)ic[F]/it - (double)tc[F]/tt;
             double enrich = (double)tc[T]/tt  - (double)ic[T]/it;
-            if (depl <= 0.0 || enrich <= 0.0) return -1.0;
+            if (depl <= 0.0 || enrich <= 0.0) return std::numeric_limits<double>::quiet_NaN();
             return depl / enrich;
         };
 
@@ -814,12 +917,12 @@ void profile_to_json(const SampleDamageProfile& dp,
             pos_rates(arr, 1, 3, ct_r);
             int   plat   = find_plateau(ct_r);
             double ct_bg  = interior_mean(ct_r, plat);
-            double ct_lam = (ct_bg >= 0) ? fit_lambda(ct_r, plat, ct_bg) : -1.0;
+            double ct_lam = std::isfinite(ct_bg) ? fit_lambda(ct_r, plat, ct_bg) : std::numeric_limits<double>::quiet_NaN();
 
             j << "    \"" << end_key << "\": {\n";
             j << "      \"interior_start_pos\": " << plat << ",\n";
             j << "      \"ct_interior_rate\": "   << std::fixed << std::setprecision(6) << ct_bg  << ",\n";
-            j << "      \"ct_decay_lambda\": "    << ct_lam << ",\n";
+            j << "      \"ct_decay_lambda\": "    << nan_or(ct_lam) << ",\n";
             j << "      \"channels\": {";
             bool first = true;
             for (int s = 0; s < 12; ++s) {
@@ -827,18 +930,18 @@ void profile_to_json(const SampleDamageProfile& dp,
                 std::array<double,15> r;
                 pos_rates(arr, F, T, r);
                 double bg  = interior_mean(r, plat);
-                double tex = (r[1] >= 0 && bg >= 0) ? r[1] - bg : -1.0;
-                double lam = (bg >= 0) ? fit_lambda(r, plat, bg) : -1.0;
-                double lr  = (lam > 0 && ct_lam > 0) ? lam / ct_lam : -1.0;
+                double tex = (r[1] >= 0 && std::isfinite(bg)) ? r[1] - bg : std::numeric_limits<double>::quiet_NaN();
+                double lam = std::isfinite(bg) ? fit_lambda(r, plat, bg) : std::numeric_limits<double>::quiet_NaN();
+                double lr  = (std::isfinite(lam) && lam > 0 && std::isfinite(ct_lam) && ct_lam > 0) ? lam / ct_lam : std::numeric_limits<double>::quiet_NaN();
                 double bal = coupled_bal(arr, F, T, plat);
                 if (!first) j << ",";
                 first = false;
                 j << "\n        \"" << SUBS12[s].name << "\":"
-                  << "{\"interior_rate\":"      << std::fixed << std::setprecision(6) << bg
-                  << ",\"terminal_excess\":"    << tex
-                  << ",\"decay_lambda\":"       << lam
-                  << ",\"lambda_ratio_vs_ct\":" << lr
-                  << ",\"coupled_balance\":"    << bal << "}";
+                  << "{\"interior_rate\":"      << std::fixed << std::setprecision(6) << nan_or(bg)
+                  << ",\"terminal_excess\":"    << nan_or(tex)
+                  << ",\"decay_lambda\":"       << nan_or(lam)
+                  << ",\"lambda_ratio_vs_ct\":" << nan_or(lr)
+                  << ",\"coupled_balance\":"    << nan_or(bal) << "}";
             }
             j << "\n      }\n    }";
         };
@@ -991,14 +1094,20 @@ void profile_to_json(const SampleDamageProfile& dp,
     // scorer (fused into the oxoG pass). Comparable to metaDMG "damaged fraction".
     j << "  \"ancient_fraction\": {\n";
     j << "    \"valid\": " << (dp.damaged_fraction_valid ? "true" : "false") << ",\n";
+    // C1: d_max_5prime/3prime use the mixture identity d_anc = d_bulk / π, which amplifies
+    // noise as π → 0. Below π=0.1 the identity estimate is unreliable → null + flag; the
+    // OLS-fit fields stay the trustworthy source. *_fit/lambda are nulled when the fit failed.
+    const bool identity_amplified =
+        dp.damaged_fraction_pi > 0.0f && dp.damaged_fraction_pi < 0.1f;
+    j << "    \"identity_amplified\": " << (identity_amplified ? "true" : "false") << ",\n";
     j << std::setprecision(6);
     j << "    \"ancient\": {\n";
-    j << "      \"d_max_5prime\": " << dp.damaged_fraction_d5 << ",\n";
-    j << "      \"d_max_3prime\": " << dp.damaged_fraction_d3 << ",\n";
-    j << "      \"d_max_5prime_fit\": " << dp.damaged_fraction_d5_fit << ",\n";
-    j << "      \"lambda_5prime\": " << dp.damaged_fraction_lambda5 << ",\n";
-    j << "      \"d_max_3prime_fit\": " << dp.damaged_fraction_d3_fit << ",\n";
-    j << "      \"lambda_3prime\": " << dp.damaged_fraction_lambda3 << ",\n";
+    j << "      \"d_max_5prime\": " << (identity_amplified ? std::string("null") : nan_or(dp.damaged_fraction_d5)) << ",\n";
+    j << "      \"d_max_3prime\": " << (identity_amplified ? std::string("null") : nan_or(dp.damaged_fraction_d3)) << ",\n";
+    j << "      \"d_max_5prime_fit\": " << nan_or(dp.damaged_fraction_d5_fit) << ",\n";
+    j << "      \"lambda_5prime\": " << nan_or(dp.damaged_fraction_lambda5) << ",\n";
+    j << "      \"d_max_3prime_fit\": " << nan_or(dp.damaged_fraction_d3_fit) << ",\n";
+    j << "      \"lambda_3prime\": " << nan_or(dp.damaged_fraction_lambda3) << ",\n";
     j << "      \"fraction\": " << dp.damaged_fraction_pi << ",\n";
     j << "      \"n_reads\": " << dp.damaged_fraction_n << ",\n";
     j << "      \"rate_5prime\": [";
@@ -1009,12 +1118,12 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "]\n";
     j << "    },\n";
     j << "    \"modern\": {\n";
-    j << "      \"d_max_5prime\": " << dp.modern_fraction_d5 << ",\n";
-    j << "      \"d_max_3prime\": " << dp.modern_fraction_d3 << ",\n";
-    j << "      \"d_max_5prime_fit\": " << dp.modern_fraction_d5_fit << ",\n";
-    j << "      \"lambda_5prime\": " << dp.modern_fraction_lambda5 << ",\n";
-    j << "      \"d_max_3prime_fit\": " << dp.modern_fraction_d3_fit << ",\n";
-    j << "      \"lambda_3prime\": " << dp.modern_fraction_lambda3 << ",\n";
+    j << "      \"d_max_5prime\": " << (dp.modern_fraction_d5_computed ? std::to_string(dp.modern_fraction_d5) : "null") << ",\n";
+    j << "      \"d_max_3prime\": " << (dp.modern_fraction_d3_computed ? std::to_string(dp.modern_fraction_d3) : "null") << ",\n";
+    j << "      \"d_max_5prime_fit\": " << nan_or(dp.modern_fraction_d5_fit) << ",\n";
+    j << "      \"lambda_5prime\": " << nan_or(dp.modern_fraction_lambda5) << ",\n";
+    j << "      \"d_max_3prime_fit\": " << nan_or(dp.modern_fraction_d3_fit) << ",\n";
+    j << "      \"lambda_3prime\": " << nan_or(dp.modern_fraction_lambda3) << ",\n";
     j << "      \"rate_5prime\": [";
     for (int p = 0; p < 15; ++p) { if (p) j << ","; j << dp.modern_fraction_rate5[p]; }
     j << "],\n";
@@ -1207,7 +1316,14 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "        \"residual_outputs\": [\"position0_base_composition\"],\n";
         j << "        \"confounded_outputs\": [" << (d3_confounded ? "\"d_max_3\"" : "") << "],\n";
         j << "        \"selection_biased_outputs\": [" << (d3_selection_biased ? "\"d_max_3\"" : "") << "],\n";
-        j << "        \"suspect_outputs\": [" << (ss_extreme_asym ? "\"d_max_combined\"" : "") << "]\n";
+        const bool ds_bilateral_inversion_unreliable =
+            !is_ss
+            && dp.inverted_pattern_5prime && dp.inverted_pattern_3prime
+            && !dp.position_0_artifact_5prime && !dp.position_0_artifact_3prime
+            && dp.damage_validated;
+        j << "        \"suspect_outputs\": ["
+          << ((ss_extreme_asym || ds_bilateral_inversion_unreliable) ? "\"d_max_combined\"" : "")
+          << "]\n";
         j << "      },\n";
 
         // terminal_hexamer_bias
@@ -1380,16 +1496,23 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"p_bias_final\": " << dp.library_p_bias_final << ",\n";
     j << "    \"p_winner_final\": " << dp.library_p_winner_final << ",\n";
     j << "    \"evaluable\": " << (dp.library_type_evaluable ? "true" : "false") << ",\n";
+    // C1: a failed-validity submodel stores kInvalidBIC (1e300); emitted raw it is a valid JSON
+    // number (10^299) that external softmax/plot/threshold tools cannot tell from a real BIC.
+    // Emit null for any non-finite or sentinel-magnitude (>1e200) value.
+    auto jbic = [&](double v) {
+        if (std::isfinite(v) && std::abs(v) < 1e200) j << std::setprecision(2) << v;
+        else                                         j << "null";
+    };
     j << "    \"library_submodel_bic\": {\n";
-    j << "      \"M_bias\": "        << std::setprecision(2) << dp.library_bic_M_bias        << ",\n";
-    j << "      \"M_DS_symm\": "     << dp.library_bic_M_DS_symm     << ",\n";
-    j << "      \"M_DS_spike\": "    << dp.library_bic_M_DS_spike    << ",\n";
-    j << "      \"M_DS_symm_art\": " << dp.library_bic_M_DS_symm_art << ",\n";
-    j << "      \"M_SS_comp\": "     << dp.library_bic_M_SS_comp     << ",\n";
-    j << "      \"M_SS_orig\": "     << dp.library_bic_M_SS_orig     << ",\n";
-    j << "      \"M_SS_asym\": "     << dp.library_bic_M_SS_asym     << ",\n";
-    j << "      \"M_SS_full\": "     << dp.library_bic_M_SS_full     << ",\n";
-    j << "      \"M_DS_asym_art\": " << dp.library_bic_M_DS_asym_art << "\n";
+    j << "      \"M_bias\": ";        jbic(dp.library_bic_M_bias);        j << ",\n";
+    j << "      \"M_DS_symm\": ";     jbic(dp.library_bic_M_DS_symm);     j << ",\n";
+    j << "      \"M_DS_spike\": ";    jbic(dp.library_bic_M_DS_spike);    j << ",\n";
+    j << "      \"M_DS_symm_art\": "; jbic(dp.library_bic_M_DS_symm_art); j << ",\n";
+    j << "      \"M_SS_comp\": ";     jbic(dp.library_bic_M_SS_comp);     j << ",\n";
+    j << "      \"M_SS_orig\": ";     jbic(dp.library_bic_M_SS_orig);     j << ",\n";
+    j << "      \"M_SS_asym\": ";     jbic(dp.library_bic_M_SS_asym);     j << ",\n";
+    j << "      \"M_SS_full\": ";     jbic(dp.library_bic_M_SS_full);     j << ",\n";
+    j << "      \"M_DS_asym_art\": "; jbic(dp.library_bic_M_DS_asym_art); j << "\n";
     j << "    },\n";
     j << "    \"library_bic_winner_model\": \"" << dp.library_bic_winner_model << "\",\n";
     j << "    \"library_bic_second_model\": \"" << dp.library_bic_second_model << "\",\n";
@@ -1489,6 +1612,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"n_sweeps\": "   << bd.n_sweeps << ",\n";
         j << "    \"log_lik\": ";        jn(bd.log_lik);              j << ",\n";
         j << "    \"lambda\": ";         jn(bd.lambda);               j << ",\n";
+        j << "    \"lambda_at_boundary\": " << (bd.lambda_at_boundary ? "true" : "false") << ",\n";
         j << "    \"headline_delta\": "; jn(dp.bulk_headline_delta);  j << ",\n";
         // threshold-free length-coupling weight: w_length∈[0,1] = P(terminal-damage mass falls with read
         // length); slope_m = OLS slope of m(L)=δ_L·L (≤0 authentic terminal decay, ≫0 pervasive artifact).
@@ -1507,9 +1631,18 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"length_coupling_slope\": "; jn(bd.length_coupling_slope);                j << ",\n";
         // mixture P2: reference-free per-ancient-read deamination intensity (analog of metaDMG A_b);
         // −1 ⇒ undetermined (no usable co-occurrence signal or artifact-gated). d_max_se = its SE.
-        j << "    \"d_max_ancient\": ";  jn(bd.d_max_ancient);        j << ",\n";
-        j << "    \"d_max_se\": ";       jn(bd.d_max_se);             j << ",\n";
-        j << "    \"d_max_raw\": ";      jn(bd.d_max_raw);            j << ",\n";
+        // C1: gate on the producer's validity flags (bulk_damage_model.hpp). When the mixture
+        // split is not identified d_max_ancient=-1.0 and d_max_se=0.0 are NOT-COMPUTED sentinels
+        // (se=0.0 deceptively reads as a zero-width CI) — emit null. d_max_raw>1 is non-physical
+        // (railed); emit null and surface the railed flag so the state is machine-readable.
+        if (bd.d_max_ancient_valid) { j << "    \"d_max_ancient\": "; jn(bd.d_max_ancient); j << ",\n";
+                                      j << "    \"d_max_se\": ";      jn(bd.d_max_se);      j << ",\n"; }
+        else                        { j << "    \"d_max_ancient\": null,\n";
+                                      j << "    \"d_max_se\": null,\n"; }
+        j << "    \"d_max_ancient_valid\": " << (bd.d_max_ancient_valid ? "true" : "false") << ",\n";
+        if (bd.d_max_raw_railed) j << "    \"d_max_raw\": null,\n";
+        else                   { j << "    \"d_max_raw\": "; jn(bd.d_max_raw); j << ",\n"; }
+        j << "    \"d_max_raw_railed\": " << (bd.d_max_raw_railed ? "true" : "false") << ",\n";
         j << "    \"kappa\": [";
         for (int r = 0; r < 2; ++r) {
             j << "[";
@@ -1554,9 +1687,16 @@ void profile_to_json(const SampleDamageProfile& dp,
             j << "], \"joint_n\": " << static_cast<long long>(bb.joint_n);
             j << ", \"joint_mean\": ["; jn(bb.joint_mean[0], 4); j << ", "; jn(bb.joint_mean[1], 4); j << "]";
             j << ", \"joint_cov\": "; jn(bb.joint_cov, 6);
-            j << ", \"pi_ancient\": "; jn(bb.pi_ancient, 4);
-            j << ", \"pi_lo\": "; jn(bb.pi_lo, 4);
-            j << ", \"pi_hi\": "; jn(bb.pi_hi, 4);
+            // C1: gate on the producer's per-bin pi_identified flag. The -1.0 defaults are
+            // out-of-range for a probability and would read as a negative fraction; emit null.
+            if (bb.pi_identified) {
+                j << ", \"pi_ancient\": "; jn(bb.pi_ancient, 4);
+                j << ", \"pi_lo\": ";      jn(bb.pi_lo, 4);
+                j << ", \"pi_hi\": ";      jn(bb.pi_hi, 4);
+            } else {
+                j << ", \"pi_ancient\": null, \"pi_lo\": null, \"pi_hi\": null";
+            }
+            j << ", \"pi_identified\": " << (bb.pi_identified ? "true" : "false");
             j << "}";
         }
         if (!bd.bins.empty()) j << "\n    ";
@@ -1575,10 +1715,22 @@ void profile_to_json(const SampleDamageProfile& dp,
               / static_cast<double>(dp.ca_stop_rate_baseline)
             : -1.0;
 
-        bool ch_f_detected = dp.channel_f_valid && dp.channel_f_z > kOxChannelZDetect;
+        // C5: require channel_f_z (pooled) and channel_f_mh_z (MH stratified) to agree in sign
+        // before firing detection. The pooled z is confounded by terminal context-composition
+        // differences (Simpson's paradox); MH removes that bias. Mirroring the channel_h OR→AND fix.
+        bool ch_f_z_consistent = std::isfinite(dp.channel_f_z) && std::isfinite(dp.channel_f_mh_z)
+                                 && ((dp.channel_f_z >= 0.0f) == (dp.channel_f_mh_z >= 0.0f));
+        bool ch_f_detected = dp.channel_f_valid && dp.channel_f_z > kOxChannelZDetect
+                             && ch_f_z_consistent;
         bool ch_g_detected = dp.channel_g_valid && dp.channel_g_z > kOxChannelZDetect;
+        // C5: OR→AND. channel_h_z_p2plus (positions 2-4 only) exists to exclude the p0/p1
+        // artifact; the OR gate let an artifact-driven positive channel_h_z fire detection while
+        // p2plus was strongly negative (kapk, rocs). Require BOTH windows to agree. h_z_consistent
+        // surfaces sign agreement so callers see the (now-required) consistency. [behavioral change]
         bool ch_h_detected = dp.channel_h_valid &&
-            (dp.channel_h_z > kOxChannelZDetect || dp.channel_h_z_p2plus > kOxChannelZDetect);
+            dp.channel_h_z > kOxChannelZDetect && dp.channel_h_z_p2plus > kOxChannelZDetect;
+        bool ch_h_z_consistent =
+            (dp.channel_h_z >= 0.0f) == (dp.channel_h_z_p2plus >= 0.0f);
         bool ch_d_detected = std::abs(dp.ox_gt_asymmetry) > 0.01f;
 
         j << "  \"damage_types\": [\n";
@@ -1589,9 +1741,16 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"name\": \"cytosine_deamination\",\n";
         j << "      \"description\": \"C to T post-mortem deamination at terminal positions\",\n";
         j << "      \"mechanism\": \"hydrolytic_deamination\",\n";
-        j << "      \"detected\": " << jbool(dp.damage_validated) << ",\n";
+        // C5: `detected` was a tautological alias for damage_validated (the joint-model verdict),
+        // which returns False on heavily-damaged libraries (d_max>10%) due to the position-0
+        // artifact interaction — contradicting d_max_5prime/3prime printed right beside it. Define
+        // `detected` as a direct effect-size gate (consistent with damage_status), and keep the
+        // strict joint-model verdict as joint_model_validated. [behavioral change to `detected`]
+        bool ch_a_detected = (dp.d_max_5prime > 0.02f || dp.d_max_3prime > 0.02f);
+        j << "      \"detected\": " << jbool(ch_a_detected) << ",\n";
         j << "      \"d_max_5prime\": "; jfloat(dp.d_max_5prime); j << ",\n";
         j << "      \"d_max_3prime\": "; jfloat(dp.d_max_3prime); j << ",\n";
+        j << "      \"joint_model_validated\": " << jbool(dp.damage_validated) << ",\n";
         j << "      \"validated\": " << jbool(dp.damage_validated) << "\n";
         j << "    },\n";
 
@@ -1601,18 +1760,28 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"name\": \"stop_codon_conversion\",\n";
         j << "      \"description\": \"CAA/CAG/CGA to TAA/TAG/TGA via C to T; reference-free damage validator\",\n";
         j << "      \"mechanism\": \"hydrolytic_deamination\",\n";
-        j << "      \"detected\": " << jbool(dp.channel_b_valid && !dp.channel_b_inverted) << ",\n";
+        // C5: `detected` was `channel_b_valid && !channel_b_inverted`, but channel_b_inverted
+        // only becomes true inside the WLS block (terminal total_exposure>1000). When valid is
+        // set on interior coverage but the WLS was skipped, detected fired with no fit done.
+        // channel_b_quantifiable is set true ONLY when the WLS ran and slope c>0. [behavioral change]
+        j << "      \"detected\": " << jbool(dp.channel_b_quantifiable) << ",\n";
         j << "      \"valid\": " << jbool(dp.channel_b_valid) << ",\n";
         j << "      \"lrt_5prime\": "; jfloat(dp.stop_decay_llr_5prime); j << ",\n";
+        j << "      \"lrt_5prime_capped\": " << (std::abs(dp.stop_decay_llr_5prime) >= SampleDamageProfile::kLlrCap ? "true" : "false") << ",\n";
         j << "      \"d_max_estimate\": "; jfloat(dp.d_max_from_channel_b); j << ",\n";
         j << "      \"inverted\": " << jbool(dp.channel_b_inverted) << ",\n";
         j << "      \"per_type\": {\n";
         j << "        \"lrt_taa\": "; jfloat(dp.stop_decay_llr_taa_5prime); j << ",\n";
+        j << "        \"lrt_taa_capped\": " << (std::abs(dp.stop_decay_llr_taa_5prime) >= SampleDamageProfile::kLlrCap ? "true" : "false") << ",\n";
         j << "        \"lrt_tag\": "; jfloat(dp.stop_decay_llr_tag_5prime); j << ",\n";
+        j << "        \"lrt_tag_capped\": " << (std::abs(dp.stop_decay_llr_tag_5prime) >= SampleDamageProfile::kLlrCap ? "true" : "false") << ",\n";
         j << "        \"lrt_tga\": "; jfloat(dp.stop_decay_llr_tga_5prime); j << ",\n";
+        j << "        \"lrt_tga_capped\": " << (std::abs(dp.stop_decay_llr_tga_5prime) >= SampleDamageProfile::kLlrCap ? "true" : "false") << ",\n";
         j << "        \"n_caa\": " << static_cast<long long>(dp.n_convertible_caa) << ",\n";
         j << "        \"n_cag\": " << static_cast<long long>(dp.n_convertible_cag) << ",\n";
         j << "        \"n_cga\": " << static_cast<long long>(dp.n_convertible_cga) << ",\n";
+        j << "        \"valid_taa\": " << jbool(dp.channel_b_valid_taa) << ",\n";
+        j << "        \"valid_tag\": " << jbool(dp.channel_b_valid_tag) << ",\n";
         j << "        \"valid_tga\": " << jbool(dp.channel_b_valid_tga) << "\n";
         j << "      }\n";
         j << "    },\n";
@@ -1636,6 +1805,10 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"name\": \"chargaff_gt_asymmetry\",\n";
         j << "      \"description\": \"Strand-asymmetric G to T / C to A excess; reference-free 8-oxoG cross-check\",\n";
         j << "      \"mechanism\": \"oxidative_guanine_8_oxog\",\n";
+        // C4-style applicability: D and s_gt cancel for DS libraries by Chargaff's second parity
+        // rule (T/(T+G)≈A/(A+C) on both strands), so D is applicable only to SS. Parallel to the
+        // F/G `applicable` field, but inverted: applicable = is_ss (true SS, false DS).
+        j << "      \"applicable\": " << (is_ss ? "true" : "false") << ",\n";
         j << "      \"detected\": " << jbool(ch_d_detected) << ",\n";
         j << "      \"D\": "; jfloat(dp.ox_gt_asymmetry); j << ",\n";
         j << "      \"s_gt\": "; jfloat(dp.s_gt); j << "\n";
@@ -1664,8 +1837,9 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"baseline_rate\": "; jfloat(dp.ca_stop_rate_baseline); j << ",\n";
         j << "      \"terminal_rate\": "; jfloat(dp.ca_stop_rate_terminal); j << ",\n";
         j << "      \"uniformity_ratio\": "; jfloat(dp.ca_uniformity_ratio); j << ",\n";
-        j << "      \"z_score\": "; jfloat(dp.channel_f_z); j << ",\n";
-        j << "      \"mh_z\": "; jfloat(dp.channel_f_mh_z); j << ",\n";
+        j << "      \"z_score\": "; emit_z(dp.channel_f_z, dp.channel_f_valid); j << ",\n";
+        j << "      \"mh_z\": "; emit_z(dp.channel_f_mh_z, dp.channel_f_valid); j << ",\n";
+        j << "      \"z_consistent\": " << jbool(ch_f_z_consistent) << ",\n";
         j << "      \"common_or\": "; jfloat(dp.channel_f_common_or); j << ",\n";
         j << "      \"cf_ratio\": "; jfloat(cf_ratio); j << "\n";
         j << "    },\n";
@@ -1682,7 +1856,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"baseline_rate\": "; jfloat(dp.cg_stop_rate_baseline); j << ",\n";
         j << "      \"terminal_rate\": "; jfloat(dp.cg_stop_rate_terminal); j << ",\n";
         j << "      \"uniformity_ratio\": "; jfloat(dp.cg_uniformity_ratio); j << ",\n";
-        j << "      \"z_score\": "; jfloat(dp.channel_g_z); j << "\n";
+        j << "      \"z_score\": "; emit_z(dp.channel_g_z, dp.channel_g_valid); j << "\n";
         j << "    },\n";
 
         // Channel H
@@ -1696,13 +1870,58 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"baseline_rate\": "; jfloat(dp.at_stop_rate_baseline); j << ",\n";
         j << "      \"terminal_rate\": "; jfloat(dp.at_stop_rate_terminal); j << ",\n";
         j << "      \"uniformity_ratio\": "; jfloat(dp.at_uniformity_ratio); j << ",\n";
-        j << "      \"z_score\": "; jfloat(dp.channel_h_z); j << ",\n";
-        j << "      \"z_score_p2plus\": "; jfloat(dp.channel_h_z_p2plus); j << "\n";
+        j << "      \"z_score\": "; emit_z(dp.channel_h_z, dp.channel_h_valid); j << ",\n";
+        j << "      \"z_score_p2plus\": "; emit_z(dp.channel_h_z_p2plus, dp.channel_h_valid); j << ",\n";
+        j << "      \"z_consistent\": " << jbool(ch_h_z_consistent) << "\n";
         j << "    }\n";
 
         j << "  ]\n";
     }
     j << "}\n";
+}
+
+void count_tables_to_jsonl(const SampleDamageProfile& dp, std::ostream& out) {
+    out << std::setprecision(17);
+    auto e = [&](double v) { if (std::isfinite(v)) out << v; else out << "null"; };
+    auto b = [&](bool v) { out << (v ? "true" : "false"); };
+    for (const auto& ct : dp.count_tables) {
+        out << "{\"channel_id\":\"" << ct.channel_id << "\""
+            << ",\"channel_type\":\"" << ct.channel_type << "\"";
+        out << ",\"term_pre\":";       e(ct.term_pre);
+        out << ",\"term_stop\":";      e(ct.term_stop);
+        out << ",\"int_pre\":";        e(ct.int_pre);
+        out << ",\"int_stop\":";       e(ct.int_stop);
+        out << ",\"has_shadow\":";     b(ct.has_shadow);
+        out << ",\"term_shadow\":";    e(ct.term_shadow);
+        out << ",\"int_shadow\":";     e(ct.int_shadow);
+        out << ",\"shadow_in_z\":";    b(ct.shadow_in_z);
+        out << ",\"shadow_in_rate\":"; b(ct.shadow_in_rate);
+        out << ",\"z_num_term\":";     e(ct.z_num_term);
+        out << ",\"z_den_term\":";     e(ct.z_den_term);
+        out << ",\"z_num_int\":";      e(ct.z_num_int);
+        out << ",\"z_den_int\":";      e(ct.z_den_int);
+        out << ",\"raw_rate_term\":";  e(ct.raw_rate_term);
+        out << ",\"raw_rate_int\":";   e(ct.raw_rate_int);
+        out << ",\"pre_clamp_z\":";    e(ct.pre_clamp_z);
+        out << ",\"z_cap\":";          e(ct.z_cap);
+        out << ",\"cap_applied\":";    b(ct.cap_applied);
+        out << ",\"post_clamp_z\":";   e(ct.post_clamp_z);
+        if (ct.has_strata) {
+            out << ",\"strata\":[";
+            for (size_t k = 0; k < ct.strata.size(); ++k) {
+                const auto& s = ct.strata[k];
+                if (k) out << ",";
+                out << "{\"stratum_id\":" << s.stratum_id;
+                out << ",\"a_term_stop\":";  e(s.a_term_stop);
+                out << ",\"b_term_other\":"; e(s.b_term_other);
+                out << ",\"c_int_stop\":";   e(s.c_int_stop);
+                out << ",\"d_int_other\":";  e(s.d_int_other);
+                out << "}";
+            }
+            out << "]";
+        }
+        out << "}\n";
+    }
 }
 
 } // namespace taph

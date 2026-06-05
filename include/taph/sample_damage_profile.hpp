@@ -5,6 +5,7 @@
 #include "joint_damage_model.hpp"
 #include "mixture_damage_model.hpp"
 #include "bulk_damage_model.hpp"
+#include "channel_count_table.hpp"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -30,6 +31,17 @@ struct SampleDamageProfile {
 
     enum CtContext : int { CPG_LIKE = 0, NONCPG_LIKE = 1 };
     enum UpstreamContext : int { CTX_AC = 0, CTX_CC = 1, CTX_GC = 2, CTX_TC = 3 };
+
+    // C2: emitted clamp for explosive/uncalibrated test statistics (binom_z,
+    // MH z, etc.). Detection gates use z>3, well inside ±12, so clamping the
+    // EMITTED magnitude does not change any detection decision; it only prevents
+    // absurd sqrt(N)-scaled magnitudes (hundreds–thousands) from reaching
+    // consumers as if calibrated. Exploratory, not a calibrated p-value.
+    static constexpr float kZCap = 12.0f;
+    // C2: raw binomial-LLR sums scale linearly with N (|LLR|≈1e5–1e6 on the panel)
+    // and are NOT chi-squared(1) calibrated. Clamp the emitted LLR magnitude so
+    // consumers do not read it as a p-value; the sign/effect-size remains informative.
+    static constexpr float kLlrCap = 50.0f;
 
     // Position-specific base counts at 5' end (positions 0-14)
     // Using double to avoid float precision loss at >16M reads
@@ -149,9 +161,11 @@ struct SampleDamageProfile {
     // Derived contrasts
     float dipyr_contrast = std::numeric_limits<float>::quiet_NaN();  // mean(CC,TC) - mean(AC,GC); upstream (5') base; correct CPD geometry
 
-    float context_heterogeneity_chi2 = 0.0f;  // chi-squared for context uniformity
-    float context_heterogeneity_p    = 1.0f;  // p-value
+    float context_heterogeneity_chi2 = 0.0f;  // C2: coverage-weighted index, clamped to kZCap (NOT a calibrated chi2(3))
+    float context_heterogeneity_chi2_raw = 0.0f;  // C2: unclamped coverage-scaled sum (∝ reads; non-distribution-free)
+    float context_heterogeneity_p    = 1.0f;  // nominal p-value only; not calibrated (prefer dipyr_contrast effect size)
     bool  context_heterogeneity_detected = false;  // true if p < 0.05
+    bool  context_heterogeneity_computed = false;  // true only when valid_ctx_count==4 and mean_d>0.001
 
     // oxoG 16-context interior panel
     std::array<float, N_OXOG16> oxog16_t        = {};
@@ -254,6 +268,8 @@ struct SampleDamageProfile {
     // Estimated decay constants (sample-specific)
     float lambda_5prime = 0.3f;  // Decay constant for 5' end (estimated from data)
     float lambda_3prime = 0.3f;  // Decay constant for 3' end (estimated from data)
+    bool  lambda_5prime_fitted = false;  // D22: true only when the fit updated lambda_5prime (distinguishes converged fit from 0.3 init)
+    bool  lambda_3prime_fitted = false;  // D22: true only when the fit updated lambda_3prime
 
     // Briggs damage model parameters: δ(pos) = δ_s·P_overhang(pos) + δ_d·(1-P_overhang(pos))
     float delta_s_5prime = 0.0f;  // Single-stranded deamination rate at 5' end
@@ -341,7 +357,20 @@ struct SampleDamageProfile {
     // === ADDITIVE: P1-A calibrated call quality ===
     std::string library_bic_winner_model;     // e.g. "M_DS_symm_art"
     std::string library_bic_second_model;
-    double      library_bic_margin = 0.0;     // second_BIC - winner_BIC (>=0; bigger = more confident)
+    // NOTE: library_bic_margin scales linearly with read depth (ΔBIC ≈ n·2·ΔLLR/read);
+    // it is NOT comparable across libraries of different coverage. Use the per-read
+    // companion below for cross-library confidence comparison.
+    double      library_bic_margin = 0.0;     // second_BIC - winner_BIC (>=0; bigger = more confident, same-library only)
+    double      library_bic_margin_per_read = 0.0;  // margin / bg_denominator_5prime (coverage-normalised; comparable across libraries)
+    // C5: top-level winner-model can contradict library_type after a post-hoc veto.
+    // These co-locate the resolving signals so the contradiction is machine-visible
+    // without reading the nested bic section.
+    std::string library_bic_winner_model_class;   // "ds" | "ss" | "bias" of winner_model
+    std::string library_bic_override_reason;      // mirror of final_library_bic_override_reason ("" if none)
+    // C5: library_p_ds/p_ss/p_bias are PRE-override diagnostic posteriors; after a
+    // veto they can disagree with library_type. True when an override fired, telling
+    // consumers these raw probs must not be read as a type-confidence score (use *_final).
+    bool        library_p_is_pre_override = false;
     float       library_p_ds_class_min   = 0.0f;  // softmax over best-BIC-per-class only
     float       library_p_ss_class_min   = 0.0f;
     float       library_p_bias_class_min = 0.0f;
@@ -463,6 +492,21 @@ struct SampleDamageProfile {
     enum class DamageStatus { ABSENT, WEAK, PRESENT };
     DamageStatus damage_status = DamageStatus::ABSENT;
 
+    // C5: which evidence path set damage_status. Lets consumers tell an empirical
+    // excess-CI confirmation from a fit-amplitude-only WEAK (inverted/inward 5'
+    // pattern where both CI lower bounds return -1 but the fit amplitude is real).
+    enum class DamageStatusBasis { NONE, CI_5PRIME, CI_3PRIME, FIT_AMPLITUDE_ONLY };
+    DamageStatusBasis damage_status_basis = DamageStatusBasis::NONE;
+
+    const char* damage_status_basis_str() const {
+        switch (damage_status_basis) {
+            case DamageStatusBasis::CI_5PRIME:          return "ci_5prime";
+            case DamageStatusBasis::CI_3PRIME:          return "ci_3prime";
+            case DamageStatusBasis::FIT_AMPLITUDE_ONLY: return "fit_amplitude_only";
+            default:                                    return "none";
+        }
+    }
+
     // Inverted pattern: terminal T/(T+C) < interior (reference-free detection unreliable)
     bool inverted_pattern_5prime = false;  // 5' terminal T/(T+C) < interior
     bool inverted_pattern_3prime = false;  // 3' terminal A/(A+G) < interior
@@ -540,12 +584,15 @@ struct SampleDamageProfile {
     std::array<float, 15> modern_fraction_rate3{};   // signal/denom for modern 3'
     bool    modern_fraction_leakage_5prime = false;
     bool    modern_fraction_leakage_3prime = false;
+    bool    modern_fraction_d5_computed = false;  // true only when mod_tc5[0] >= 50
+    bool    modern_fraction_d3_computed = false;  // true only when mod_n3[0]  >= 50
 
     // Track source of d_max_combined estimate
     enum class DmaxSource { AVERAGE, MIN_ASYMMETRY, MAX_SS_ASYMMETRY,
                             FIVE_PRIME_ONLY, THREE_PRIME_ONLY,
                             FIVE_PRIME_CONSERVATIVE_SS,
-                            CHANNEL_B_STRUCTURAL, CHANNEL_B3_STRUCTURAL, NONE };
+                            CHANNEL_B_STRUCTURAL, CHANNEL_B3_STRUCTURAL,
+                            JOINT_BILATERAL, NONE };
     DmaxSource d_max_source = DmaxSource::AVERAGE;
 
     const char* d_max_source_str() const {
@@ -558,6 +605,7 @@ struct SampleDamageProfile {
             case DmaxSource::FIVE_PRIME_CONSERVATIVE_SS: return "5prime_conservative_ss";
             case DmaxSource::CHANNEL_B_STRUCTURAL:     return "channel_b_structural";
             case DmaxSource::CHANNEL_B3_STRUCTURAL:    return "channel_b3_structural";
+            case DmaxSource::JOINT_BILATERAL:          return "joint_bilateral_inversion";
             case DmaxSource::NONE:                     return "none";
             default:                                   return "unknown";
         }
@@ -675,6 +723,11 @@ struct SampleDamageProfile {
     double n_convertible_cag = 0.0;  // CAG+TAG interior total
     double n_convertible_cga = 0.0;  // CGA+TGA interior total
     bool channel_b_valid_tga = false;  // True if CGA exposure sufficient for TGA-specific LLR
+    // D24: symmetrical per-type validity flags (only valid_tga existed). True when
+    // the type-specific interior exposure (n_convertible_caa / n_convertible_cag)
+    // reaches 50; emitter nulls lrt_taa / lrt_tag otherwise.
+    bool channel_b_valid_taa = false;  // True if CAA exposure sufficient for TAA-specific LLR
+    bool channel_b_valid_tag = false;  // True if CAG exposure sufficient for TAG-specific LLR
 
     // Channel B structural d_max from multi-position stop codon conversion
     // WLS model: r_p = b0 + (1-b0) * d_max * exp(-λp)
@@ -728,6 +781,11 @@ struct SampleDamageProfile {
     float ox_stop_rate_interior = 0.0f;
     float ox_uniformity_ratio = 0.0f;   // terminal/interior (≈1 = uniform = real oxidation)
     bool channel_c_valid = false;
+    // Channel C positional-coverage validity (C1/C3). channel_c_valid gates only the
+    // interior baseline; these gate the terminal/interior positional rates and the
+    // uniformity ratio so the emitter can null an uncomputed value vs a measured one.
+    bool ox_stop_rate_positional_computed = false;  // terminal+mid positional rates computed
+    bool ox_uniformity_ratio_computed     = false;  // ox_uniformity_ratio actually measured
 
     // Channel C3': G→T stop codon conversion at 3' end (validates oxidation at 3' overhang)
     // Symmetric to Channel B3' (G→A stops at 3') but for G→T transversions.
@@ -745,6 +803,9 @@ struct SampleDamageProfile {
     float ox_stop_baseline_3prime = 0.0f;
     float ox_uniformity_ratio_3prime = 0.0f;
     bool  channel_c3_valid = false;
+    // C1: ox_uniformity_ratio_3prime default 0.0f is an ambiguous sentinel; emitter
+    // nulls it when this flag is false (mirrors the 5' ox_uniformity_ratio_computed).
+    bool  ox_uniformity_ratio_3prime_computed = false;
 
 
     // Channel F: C→A oxidation stop codon tracking (complement-strand G→T).
@@ -785,8 +846,11 @@ struct SampleDamageProfile {
     float ca_stop_rate_baseline     = 0.0f;
     float ca_stop_rate_terminal     = 0.0f;
     float ca_stop_rate_interior     = 0.0f;
-    float channel_f_z               = 0.0f;
-    float channel_f_mh_z            = 0.0f;
+    // C1/C2: binom_z fields default to NaN (not 0.0f) so 'not computed' is
+    // distinguishable from a genuine z==0; producer clamps the computed value to
+    // [-kZCap, kZCap] (exploratory, not a calibrated p-value — correlated reads).
+    float channel_f_z               = std::numeric_limits<float>::quiet_NaN();
+    float channel_f_mh_z            = std::numeric_limits<float>::quiet_NaN();
     float channel_f_common_or       = 0.0f;
     float ca_uniformity_ratio       = 0.0f;
     float ca_stop_rate_baseline_3prime = 0.0f;
@@ -795,6 +859,10 @@ struct SampleDamageProfile {
     float ca_uniformity_ratio_3prime   = 0.0f;
     bool  channel_f_valid           = false;
     bool  channel_f3_valid          = false;
+
+    // Layer-0 stop-channel count tables (F/G/H, 5' and 3') — the pre-clamp source of truth the
+    // golden regression gate diffs. Additive diagnostics; does not affect any emitted estimator.
+    std::vector<StopChannelCountTable> count_tables;
 
     // Channel G: C→G stop codon conversion (hydantoin-class advanced oxidation)
     // TCA (Ser) → TGA via C→G at codon pos 2
@@ -811,7 +879,7 @@ struct SampleDamageProfile {
     float cg_stop_rate_terminal    = 0.0f;
     float cg_stop_rate_interior    = 0.0f;
     float cg_stop_rate_baseline    = 0.0f;
-    float channel_g_z              = 0.0f;
+    float channel_g_z              = std::numeric_limits<float>::quiet_NaN();  // C1/C2: NaN = not computed; clamped when computed
     float cg_uniformity_ratio      = 0.0f;
     float cg_stop_rate_terminal_3prime = 0.0f;
     float cg_stop_rate_interior_3prime = 0.0f;
@@ -840,9 +908,12 @@ struct SampleDamageProfile {
     float at_stop_rate_terminal    = 0.0f;
     float at_stop_rate_interior    = 0.0f;
     float at_stop_rate_baseline    = 0.0f;
-    float channel_h_z              = 0.0f;
-    float channel_h_z_p2plus       = 0.0f;
+    float channel_h_z              = std::numeric_limits<float>::quiet_NaN();  // C1/C2: NaN = not computed; clamped when computed
+    float channel_h_z_p2plus       = std::numeric_limits<float>::quiet_NaN();  // C1/C2: NaN = not computed; clamped when computed
     float at_uniformity_ratio      = 0.0f;
+    // C5: h_z and h_z_p2plus can have opposite signs; this flag (same-sign) lets
+    // the emitter/consumer see the contradiction. AND-gate detection lives in the emitter.
+    bool  channel_h_z_consistent   = false;
     float at_stop_rate_terminal_3prime = 0.0f;
     float at_stop_rate_interior_3prime = 0.0f;
     float at_stop_rate_baseline_3prime = 0.0f;
@@ -879,15 +950,29 @@ struct SampleDamageProfile {
     float ox_gt_baseline = 0.0f;
     float ox_gt_uniformity = 0.0f;
     float ox_gt_asymmetry = 0.0f;
+    // C1: ox_gt_uniformity default 0.0f is ambiguous (no companion validity flag).
+    bool  ox_gt_uniformity_computed = false;
 
     float ox_ca_rate_terminal = 0.0f;
     float ox_ca_rate_interior = 0.0f;
     float ox_ca_baseline = 0.0f;
     float ox_ca_uniformity = 0.0f;
 
+    // Channel D Chargaff-contrast validity (C1). True only when both interior
+    // baselines reach coverage (gt_base_total>=500 AND ca_base_total>=500); gates
+    // D / tg_interior / ac_interior / s_gt to null when false.
+    bool  d_computed = false;
+
     float ox_d_max = 0.0f;
     bool ox_damage_detected = false;
     bool ox_is_artifact = false;
+    // C5: ox_damage_detected is written by two disagreeing paths (codon block sets
+    // it WITH ox_d_max; GT model-fit overwrites it WITHOUT ox_d_max). Keep both
+    // verdicts explicit so channel_c_detected and ox_d_max can stay coherent.
+    // ox_d_max remains coupled to the codon path (feeds the preservation gate via
+    // ox_is_artifact). ox_damage_detected continues to hold the model-fit verdict.
+    bool ox_damage_detected_codon = false;  // codon-block (G→T stop) verdict; coupled to ox_d_max
+    bool ox_damage_detected_model = false;  // GT model-fit (s_gt / best_B) verdict
 
     // Two-marker oxidation bins: s1 (C→T 5' pos 1-3) × s2 (G→A 3' pos 1-3) × GC × length.
     // Used for the deamination-coupled G→T regression (β₁ and β₂ consistency check).
@@ -922,6 +1007,13 @@ struct SampleDamageProfile {
     float g_bg_fitted_ci_hi  = 0.0f;  // WLS CI95 upper bound on B
     float g_bg_interior_mean = 0.0f;  // interior-mean G→T (positions 5-14, fallback when degenerate)
     bool  g_fit_degenerate   = false; // true when best_mu <= 0.10 (flat model preferred)
+    // Boundary/degeneracy flags for the GT exponential-background fit (C4).
+    // Emitter gates g_decay_fitted/g_bg_fitted/ox_theta to null when these fire.
+    bool  gt_decay_at_upper_boundary = false;  // best_mu == grid max (true mu unidentifiable)
+    bool  gt_term_zero_clamped       = false;  // best_A clamped to 0 -> decay meaningless
+    bool  gt_bg_at_upper_boundary    = false;  // B_raw > 0.5 -> background clamped at 0.5
+    float g_bg_fitted_unclamped      = 0.0f;   // B_raw point estimate (auditable when clamped)
+    bool  ox_theta_at_clamp          = false;  // g_bg_fitted at 0.5 clamp while degenerate
     float s_gt = 0.0f;               // B - ox_ca_baseline: Chargaff contrast (signal for SS; ~0 for DS)
 
     // Channel E: depurination (purine loss at strand breaks)
@@ -930,6 +1022,9 @@ struct SampleDamageProfile {
     float purine_enrichment_5prime = 0.0f;
     float purine_enrichment_3prime = 0.0f;
     bool depurination_detected = false;
+    // Channel E validity (C1): true only when total_terminal > 100 AND purine_baseline > 0.01.
+    // Emitter nulls rate_interior/enrichment_* and three-states `detected` when false.
+    bool channel_e_valid = false;
 
     // GC-stratified damage: separate estimation per GC bin (interior GC to avoid bias)
     static constexpr int N_GC_BINS = 10;  // 0-10%, 10-20%, ..., 90-100%
@@ -1021,7 +1116,8 @@ struct SampleDamageProfile {
     }
 
     // Aggregated GC-stratified results
-    float gc_stratified_d_max_weighted = 0.0f;  // Weighted average across bins
+    float gc_stratified_d_max_weighted = 0.0f;  // C-site-weighted mean of CT-only b.d_max (Channel A rate; source="average")
+    float gc_stratified_d_max_joint = 0.0f;     // C5: C-site-weighted mean of max(Channel A, Channel B) per bin (can exceed d_max_5prime)
     float gc_stratified_d_max_peak = 0.0f;      // Max d_max across valid bins
     int gc_peak_bin = -1;                        // Which bin has peak damage
     bool gc_stratified_valid = false;            // At least one bin has valid estimate
@@ -1045,6 +1141,7 @@ struct SampleDamageProfile {
     float joint_bayes_factor = 0.0f;   // BF_10 ≈ exp(ΔBIC/2)
     float joint_p_damage = 0.0f;       // P(damage | data)
     float joint_z_delta = 0.0f;        // Wald z for δ̂ (observed Fisher information)
+    bool  joint_z_delta_capped = false; // |raw Wald z| exceeded Z_CAP before clamping
     int   joint_n_informative = 0;     // informative 5' positions (cov≥100 & excess > 2·noise)
     bool joint_model_valid = false;    // Sufficient data for joint model
 
@@ -1079,7 +1176,8 @@ struct SampleDamageProfile {
     float preservation_f5          = 0.0f;  // 5' terminal damage factor
     float preservation_f3          = 0.0f;  // 3' terminal damage factor
     float preservation_f_coh       = 0.0f;  // mixture coherence factor
-    float preservation_f_cpg       = 0.0f;  // CpG age-bias factor
+    float preservation_f_cpg       = std::numeric_limits<float>::quiet_NaN();  // D21: NaN default so an early exit does not feed a wrong 0.0 into the geo-mean
+    bool  cpg_ratio_evaluable      = false;  // D21: true when f_cpg came from the computed CpG-ratio branch, false when the 0.3 uninformative prior was used
     float preservation_evidence    = 0.0f;  // geometric mean of factors
     float preservation_reliability = 0.0f;  // g_N * g_fit * g_ox
     float preservation_score       = 0.0f;  // evidence * reliability [0,1]

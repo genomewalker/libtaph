@@ -4,6 +4,7 @@
 #include "taph/codon_tables.hpp"
 #include "taph/hexamer_tables.hpp"
 #include "taph/library_interpretation.hpp"
+#include "taph/channel_count_table.hpp"
 #include <algorithm>
 #include <cmath>
 #include <array>
@@ -20,6 +21,17 @@ static inline double binomial_ll(double k, double n, double p) {
     if (n < 1 || p <= 0 || p >= 1) return 0.0;
     // Log-likelihood: k*log(p) + (n-k)*log(1-p) + constant (ignored for LLR)
     return k * std::log(p) + (n - k) * std::log(1.0 - p);
+}
+
+// Unclamped two-sample pooled-proportion z (terminal vs interior). The clamped binom_z used in the
+// channel blocks is clamp(binom_z_raw, +/-kZCap); exposing the raw value lets the Layer-0 count
+// table record pre_clamp_z so the golden gate sees z regressions the clamp would otherwise mask.
+static inline double binom_z_raw(double k_t, double n_t, double k_i, double n_i) {
+    if (n_t < 10.0 || n_i < 10.0) return std::numeric_limits<double>::quiet_NaN();
+    double p_pool = (k_t + k_i) / (n_t + n_i);
+    double var = p_pool * (1.0 - p_pool) * (1.0 / n_t + 1.0 / n_i);
+    if (var < 1e-12) return std::numeric_limits<double>::quiet_NaN();
+    return ((k_t / n_t) - (k_i / n_i)) / std::sqrt(var);
 }
 
 // LLR of exponential decay vs constant model over positions 1-9 (excludes pos 0 artifacts).
@@ -1545,6 +1557,7 @@ struct CtCtxFit {
     float effcov_terminal = 0.0f, effcov_interior = 0.0f;
     int   fit_positions = 0;
     bool  valid = false;
+    bool  lower_boundary = false;  // C4: fit ran but dmax clamped to lower wall; valid=false for individual emission, but contributes 0 to contrasts
 };
 
 static CtCtxFit fit_ct5_ctx_amplitude(
@@ -1611,7 +1624,12 @@ static CtCtxFit fit_ct5_ctx_amplitude(
     // Boundary check: d near 1.0 means the optimizer hit the upper wall —
     // the true optimum is outside [0,1] or the signal is indistinguishable
     // from noise. Report as invalid rather than a misleading saturated value.
-    fit.valid = (fit.dmax < 0.98f);
+    // C4: also reject the LOWER wall — with no terminal elevation in this context
+    // the search converges to dmax≈0.0 with valid=true, emitting a numeric 0.0 that
+    // is indistinguishable from a genuine zero. Treat a lower-boundary fit as
+    // undetectable signal so the consumer sees null (the dmax==NaN guard downstream).
+    fit.lower_boundary = (fit.dmax <= 1e-4f);
+    fit.valid = (!fit.lower_boundary && fit.dmax < 0.98f);
     return fit;
 }
 
@@ -1755,20 +1773,32 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     {
         JointDamageSuffStats jstats;
 
+        // BEHAVIORAL CHANGE (C5): mask 5' position 0 from the joint model when an
+        // adapter-remnant composition artifact is flagged there. The artifact
+        // depletes T at pos0 / enriches pos1, producing a non-monotone profile
+        // that defeats the exponential-decay model (M1) and zeroes p_damage even
+        // on heavily damaged libraries. Mirrors the p0_tc_5 mask already applied
+        // to channels F/G/H. Zeroing the suff-stat counts excludes pos0 from both
+        // the M0 and M1 likelihoods without shifting any other position's data.
+        const int p0_jt = profile.position_0_artifact_5prime ? 1 : 0;
+
         // Channel A: T/(T+C) at 5' end (raw counts still in t_freq_5prime, c_freq_5prime)
         for (int p = 0; p < 15; ++p) {
+            if (p < p0_jt) { jstats.k_tc[p] = 0; jstats.n_tc[p] = 0; continue; }
             jstats.k_tc[p] = static_cast<uint64_t>(profile.t_freq_5prime[p]);
             jstats.n_tc[p] = static_cast<uint64_t>(profile.t_freq_5prime[p] + profile.c_freq_5prime[p]);
         }
 
         // Control: A/(A+G) at 5' end
         for (int p = 0; p < 15; ++p) {
+            if (p < p0_jt) { jstats.k_ag[p] = 0; jstats.n_ag[p] = 0; continue; }
             jstats.k_ag[p] = static_cast<uint64_t>(profile.a_freq_5prime[p]);
             jstats.n_ag[p] = static_cast<uint64_t>(profile.a_freq_5prime[p] + profile.g_freq_5prime[p]);
         }
 
         // Channel B: stop codon conversions (TAA+TAG+TGA) / (CAA+CAG+CGA + TAA+TAG+TGA)
         for (int p = 0; p < 15; ++p) {
+            if (p < p0_jt) { jstats.k_stop[p] = 0; jstats.n_stop[p] = 0; continue; }
             double stops = profile.convertible_taa_5prime[p] +
                           profile.convertible_tag_5prime[p] +
                           profile.convertible_tga_5prime[p];
@@ -1808,6 +1838,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         profile.joint_bayes_factor = jresult.bayes_factor;
         profile.joint_p_damage = jresult.p_damage;
         profile.joint_z_delta = jresult.z_delta;
+        profile.joint_z_delta_capped = jresult.z_delta_capped;
         profile.joint_n_informative = jresult.n_informative;
         profile.joint_model_valid = jresult.valid;
 
@@ -1960,13 +1991,24 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             : profile.stop_conversion_rate_baseline;
 
         if (profile.channel_b_valid) {
-            float baseline_b = local_baseline;
+            // D25: use the interior 30+ baseline (stop_conversion_rate_baseline)
+            // instead of the local positions 5-14 window. Positions 5-14 are still
+            // inside the exponential damage decay for ss / broad-lambda ds libraries
+            // (up to ~22% of peak amplitude at pos 5), inflating the local baseline
+            // above the true interior rate and producing false channel_b_inverted.
+            float baseline_b = profile.stop_conversion_rate_baseline;
             float lambda_b = fit_lambda_5p;
+
+            // D25: when a pos0 adapter-remnant artifact is flagged, start the
+            // amplitude/LLR loops at position 1 (mirrors the p0_tc_5 mask used by
+            // channels F/G/H) so the depleted-T/enriched-pos1 composition artifact
+            // does not corrupt the amplitude estimate or LLR.
+            const int p0_b = profile.position_0_artifact_5prime ? 1 : 0;
 
             // Amplitude from positions 0-4: include pos 0 since steep decay (AT-rich)
             // concentrates signal there and excluding it causes false negatives
             double sum_excess = 0.0, sum_weight = 0.0;
-            for (int i = 0; i < 5; ++i) {
+            for (int i = p0_b; i < 5; ++i) {
                 if (stop_exposure[i] > 50) {
                     double weight = std::exp(-lambda_b * i);
                     double excess = stop_rate[i] - baseline_b;
@@ -1979,7 +2021,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
             // LLR for exponential vs constant (include pos 0 for same reason as above)
             double ll_exp = 0.0, ll_const = 0.0;
-            for (int p = 0; p < 10; ++p) {
+            for (int p = p0_b; p < 10; ++p) {  // D25: skip pos0 under adapter artifact
                 if (stop_exposure[p] < 50) continue;
 
                 double n = stop_exposure[p];
@@ -2005,6 +2047,11 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             if (amplitude_b < 0) {
                 profile.stop_decay_llr_5prime = -std::abs(profile.stop_decay_llr_5prime);
             }
+            // C2: raw binomial LLR scales with N; clamp the emitted magnitude to
+            // ±kLlrCap (exploratory, not a calibrated chi-squared(1) p-value).
+            profile.stop_decay_llr_5prime = std::clamp(
+                profile.stop_decay_llr_5prime,
+                -SampleDamageProfile::kLlrCap, SampleDamageProfile::kLlrCap);
 
             // Per-stop-type LLRs (same model, but with type-specific counts)
             {
@@ -2013,6 +2060,11 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 profile.n_convertible_cag = profile.convertible_cag_interior + profile.convertible_tag_interior;
                 profile.n_convertible_cga = profile.convertible_cga_interior + profile.convertible_tga_interior;
                 profile.channel_b_valid_tga = (profile.n_convertible_cga >= 50.0);
+                // D24: symmetrical per-type validity for TAA/TAG (only valid_tga
+                // existed). Lets the emitter null lrt_taa/lrt_tag on insufficient
+                // type-specific interior exposure instead of emitting a 0.0 sentinel.
+                profile.channel_b_valid_taa = (profile.n_convertible_caa >= 50.0);
+                profile.channel_b_valid_tag = (profile.n_convertible_cag >= 50.0);
 
                 struct StopType {
                     const std::array<double,15>* pre;
@@ -2033,11 +2085,11 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                     }
                     double t_baseline = (t_pre_int + t_stop_int > 10)
                         ? t_stop_int / (t_pre_int + t_stop_int)
-                        : static_cast<double>(local_baseline);
+                        : static_cast<double>(profile.stop_conversion_rate_baseline);  // D25: interior 30+ baseline, not pos5-14 local
 
                     // Amplitude from positions 0-4
                     double t_sum_excess = 0, t_sum_weight = 0;
-                    for (int i = 0; i < 5; ++i) {
+                    for (int i = p0_b; i < 5; ++i) {  // D25: skip pos0 under adapter artifact
                         double t_exp = (*t.pre)[i] + (*t.stop)[i];
                         if (t_exp > 10) {
                             double w = std::exp(-lambda_b * i);
@@ -2058,7 +2110,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                         t_ll_exp   += binomial_ll(t_k, t_n, t_p_exp);
                         t_ll_const += binomial_ll(t_k, t_n, t_p_const);
                     }
-                    *t.llr_out = static_cast<float>(t_amp < 0 ? -(t_ll_exp - t_ll_const) : (t_ll_exp - t_ll_const));
+                    // C2: clamp per-type LLR magnitude (scales with N; not chi2(1)).
+                    *t.llr_out = std::clamp(
+                        static_cast<float>(t_amp < 0 ? -(t_ll_exp - t_ll_const) : (t_ll_exp - t_ll_const)),
+                        -SampleDamageProfile::kLlrCap, SampleDamageProfile::kLlrCap);
                 }
             }
 
@@ -2173,12 +2228,17 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
         profile.ox_uniformity_ratio = 1.0f;
         if (ox_total_terminal > 50 && ox_total_mid > 50) {
+            // C1: positional terminal/interior rates actually measured here.
+            profile.ox_stop_rate_positional_computed = true;
             profile.ox_stop_rate_terminal = static_cast<float>(ox_stop_terminal / ox_total_terminal);
             profile.ox_stop_rate_interior = static_cast<float>(ox_stop_mid / ox_total_mid);
 
             // Uniformity ratio: terminal/interior (≈1 for uniform oxidation)
             if (profile.ox_stop_rate_interior > 0.001f) {
                 profile.ox_uniformity_ratio = profile.ox_stop_rate_terminal / profile.ox_stop_rate_interior;
+                // C1: 1.0f is also a genuine uniform value — flag the real measurement
+                // so the emitter can distinguish it from the not-computed default.
+                profile.ox_uniformity_ratio_computed = true;
             }
         }
 
@@ -2187,14 +2247,27 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         // Use stricter threshold if deamination is present (correlated damage)
         // Deamination enriches ALL terminal damage, including G→T via adjacent effects
         float threshold = 0.02f;  // 2% excess required (was 0.5%)
-        if (profile.d_max_combined > 0.05f || profile.damage_validated) {
+        // C5: d_max_combined is computed ~2000 lines later (still 0.0 here), so the
+        // original guard was dead code. joint_delta_max (the joint-model MLE damage
+        // rate, set above at the joint fit) is the live pre-computed deamination
+        // level available at this point. Behavioral: the stricter 5% threshold now
+        // actually engages when joint deamination >5% (previously only via damage_validated).
+        if (profile.joint_delta_max > 0.05f || profile.damage_validated) {
             threshold = 0.05f;  // 5% excess if deamination present
         }
 
         bool elevated = ox_stop_excess > threshold;
-        bool uniform = profile.ox_uniformity_ratio > 0.85f && profile.ox_uniformity_ratio < 1.15f;
+        // C5: require the uniformity ratio to be actually measured — the 1.0f
+        // not-computed default would otherwise pass this band trivially.
+        bool uniform = profile.ox_uniformity_ratio_computed
+                       && profile.ox_uniformity_ratio > 0.85f
+                       && profile.ox_uniformity_ratio < 1.15f;
 
         if (profile.channel_c_valid && elevated && uniform) {
+            // C5: codon-block verdict is coupled to ox_d_max. Record it in the
+            // dedicated *_codon field; ox_damage_detected is the legacy field that
+            // the GT model-fit block (below, ~line 2615) authoritatively overwrites.
+            profile.ox_damage_detected_codon = true;
             profile.ox_damage_detected = true;
             profile.ox_d_max = std::max(0.0f, ox_stop_excess);  // fraction [0,1], consistent with other d_max fields
         }
@@ -2202,11 +2275,13 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         // Terminal much higher than interior suggests deamination cross-contamination, not true G→T
         if (profile.ox_uniformity_ratio > 1.5f) {
             profile.ox_is_artifact = true;
+            profile.ox_damage_detected_codon = false;
             profile.ox_damage_detected = false;  // Override - not true oxidation
         }
 
         if (profile.ox_uniformity_ratio < 0.7f) {
             profile.ox_is_artifact = true;
+            profile.ox_damage_detected_codon = false;
             profile.ox_damage_detected = false;
         }
     }
@@ -2238,9 +2313,11 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         if (ox_pre_mid3 + ox_stop_mid3 > 50) {
             profile.ox_stop_rate_interior_3prime = static_cast<float>(
                 ox_stop_mid3 / (ox_pre_mid3 + ox_stop_mid3));
-            if (profile.ox_stop_rate_interior_3prime > 1e-6f && profile.ox_stop_rate_terminal_3prime > 0.0f)
+            if (profile.ox_stop_rate_interior_3prime > 1e-6f && profile.ox_stop_rate_terminal_3prime > 0.0f) {
                 profile.ox_uniformity_ratio_3prime =
                     profile.ox_stop_rate_terminal_3prime / profile.ox_stop_rate_interior_3prime;
+                profile.ox_uniformity_ratio_3prime_computed = true;  // C1: real measurement
+            }
         }
     }
 
@@ -2265,8 +2342,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         if (t_term + g_term >= 200.0) profile.ox_gt_rate_terminal = static_cast<float>(t_term / (t_term + g_term));
         if (t_mid  + g_mid  >= 200.0) {
             profile.ox_gt_rate_interior = static_cast<float>(t_mid / (t_mid + g_mid));
-            if (profile.ox_gt_rate_interior > 0.001f && profile.ox_gt_rate_terminal > 0.0f)
+            if (profile.ox_gt_rate_interior > 0.001f && profile.ox_gt_rate_terminal > 0.0f) {
                 profile.ox_gt_uniformity = profile.ox_gt_rate_terminal / profile.ox_gt_rate_interior;
+                profile.ox_gt_uniformity_computed = true;  // C1: real measurement vs 0.0f default
+            }
         }
 
         // A/(A+C) at positions 0-4 (terminal) and 5-14 (mid-read)
@@ -2281,8 +2360,12 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         }
 
         // Chargaff asymmetry: excess T/(T+G) over A/(A+C) at interior (= Chargaff deviation)
-        if (gt_base_total >= 500.0 && ca_base_total >= 500.0)
+        // C1: d_computed certifies D / tg_interior / ac_interior / s_gt together;
+        // both interior baselines must reach coverage for the contrast to be real.
+        if (gt_base_total >= 500.0 && ca_base_total >= 500.0) {
             profile.ox_gt_asymmetry = profile.ox_gt_baseline - profile.ox_ca_baseline;
+            profile.d_computed = true;
+        }
     }
 
     // Pre-compute hexamer_excess_tc early so Channel F/G/H adapter skip can use it.
@@ -2303,27 +2386,66 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
     // Binomial z-score: terminal stop rate vs resolved interior reference.
     // Caller must resolve far-interior vs mid-read fallback before calling.
+    // C1: returns NaN (not 0.0f) when the computation cannot run, so 'not computed'
+    // is distinguishable from a genuine z==0.
+    // C2: the emitted magnitude is clamped to ±kZCap. This z treats correlated
+    // reads (PCR dups, admixture, composition) as independent Bernoulli trials, so
+    // it scales ~sqrt(N) and is exploratory, NOT a calibrated p-value. Detection
+    // gates use z>3 (well inside ±12), so clamping does not change any decision;
+    // it only stops absurd hundreds/thousands magnitudes reaching consumers.
     auto binom_z = [](double k_t, double n_t, double k_i, double n_i) -> float {
-        if (n_t < 10.0 || n_i < 10.0) return 0.0f;
-        double p_pool = (k_t + k_i) / (n_t + n_i);
-        double var = p_pool * (1.0 - p_pool) * (1.0/n_t + 1.0/n_i);
-        if (var < 1e-12) return 0.0f;
-        return static_cast<float>(((k_t/n_t) - (k_i/n_i)) / std::sqrt(var));
+        double z = binom_z_raw(k_t, n_t, k_i, n_i);
+        if (!std::isfinite(z)) return std::numeric_limits<float>::quiet_NaN();
+        const double cap = static_cast<double>(SampleDamageProfile::kZCap);
+        return static_cast<float>(std::clamp(z, -cap, cap));
+    };
+
+    // Build a Layer-0 count table for a stop channel: freezes the shadow-free 2x2 plus the exact
+    // numerator/denominator that fed the pooled z, the pre-clamp z, and the cap decision. The golden
+    // gate diffs these so a cap-masked z regression cannot hide behind the +/-kZCap clamp.
+    auto make_ct = [&](const char* id, char type,
+                       double tp, double ts, double ip, double is,
+                       bool shadow, double tsh, double ish) {
+        StopChannelCountTable ct;
+        ct.channel_id = id;  ct.channel_type = type;
+        ct.term_pre = tp;  ct.term_stop = ts;  ct.int_pre = ip;  ct.int_stop = is;
+        ct.has_shadow = shadow;  ct.term_shadow = tsh;  ct.int_shadow = ish;
+        ct.shadow_in_z = shadow;  ct.shadow_in_rate = false;
+        ct.z_num_term = ts;  ct.z_den_term = tp + ts + (shadow ? tsh : 0.0);
+        ct.z_num_int  = is;  ct.z_den_int  = ip + is + (shadow ? ish : 0.0);
+        ct.raw_rate_term = (tp + ts > 0.0) ? ts / (tp + ts) : 0.0;
+        ct.raw_rate_int  = (ip + is > 0.0) ? is / (ip + is) : 0.0;
+        ct.pre_clamp_z = binom_z_raw(ct.z_num_term, ct.z_den_term, ct.z_num_int, ct.z_den_int);
+        ct.z_cap = static_cast<double>(SampleDamageProfile::kZCap);
+        ct.cap_applied = std::isfinite(ct.pre_clamp_z) && std::abs(ct.pre_clamp_z) > ct.z_cap;
+        ct.post_clamp_z = std::isfinite(ct.pre_clamp_z)
+                          ? std::clamp(ct.pre_clamp_z, -ct.z_cap, ct.z_cap)
+                          : ct.pre_clamp_z;
+        return ct;
     };
 
     // Shared finalization: fills baseline, terminal rate, interior rate, uniformity.
     // pre_i/stop_i is the already-resolved interior reference (far or mid-read).
+    // C3: validity must certify exactly the metrics a consumer reads under it.
+    // valid is now atomic: true only when the baseline (total>=200) AND the
+    // terminal window (pre_t+stop_t>50) AND the interior reference (pre_i+stop_i>50)
+    // are all covered, so term_r / int_r / unif can never stay at their 0.0f
+    // default while valid==true.
     auto fin_oxog = [](double pre_tot, double stop_tot,
                        double pre_t,   double stop_t,
                        double pre_i,   double stop_i,
                        float& baseline, float& term_r, float& int_r, float& unif, bool& valid) {
         double total = pre_tot + stop_tot;
-        if (total >= 200.0) { valid = true; baseline = static_cast<float>(stop_tot / total); }
-        if (pre_t  + stop_t  > 50) term_r = static_cast<float>(stop_t  / (pre_t  + stop_t));
-        if (pre_i  + stop_i  > 50) {
+        bool have_base = (total >= 200.0);
+        bool have_term = (pre_t + stop_t > 50);
+        bool have_int  = (pre_i + stop_i > 50);
+        if (have_base) baseline = static_cast<float>(stop_tot / total);
+        if (have_term) term_r = static_cast<float>(stop_t  / (pre_t  + stop_t));
+        if (have_int) {
             int_r = static_cast<float>(stop_i / (pre_i + stop_i));
             if (int_r > 1e-6f && term_r > 0.0f) unif = term_r / int_r;
         }
+        valid = have_base && have_term && have_int;
     };
 
     // Channels F, G, H: resolve interior reference (far-interior pos 30+ if ≥50 counts,
@@ -2363,6 +2485,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         fin_oxog(pre5, stop5, pre_t, stop_t, pre_i, stop_i,
                  profile.ca_stop_rate_baseline, profile.ca_stop_rate_terminal,
                  profile.ca_stop_rate_interior, profile.ca_uniformity_ratio, profile.channel_f_valid);
+        StopChannelCountTable f_ct = make_ct("F", 'F', pre_t, stop_t, pre_i, stop_i, true, shadow_t, shadow_i);
+        f_ct.has_strata = true;
 
         // Mantel-Haenszel stratified test: 3 context strata (TCA+TAC, TCG, TGC)
         // Removes terminal context-composition bias that inflates negative z.
@@ -2383,6 +2507,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 }
                 double c = profile.ca_stop_interior_by_ctx[k];
                 double d = profile.ca_pre_interior_by_ctx[k] + profile.ca_shadow_interior_by_ctx[k];
+                f_ct.strata[k] = StopChannelStratum{k, a, b_val, c, d};
                 double N = a + b_val + c + d;
                 if (N < 8.0) continue;
                 double R = a * d / N;
@@ -2401,11 +2526,19 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 double var_log_or = rbg_PR   / (2.0 * mh_R * mh_R)
                                   + rbg_PQRS / (2.0 * mh_R * mh_S)
                                   + rbg_QS   / (2.0 * mh_S * mh_S);
-                if (var_log_or > 1e-15)
-                    profile.channel_f_mh_z = static_cast<float>(log_or / std::sqrt(var_log_or));
+                if (var_log_or > 1e-15) {
+                    // C2: RBG variance sums O(N) terms, so this Mantel-Haenszel z is
+                    // explosive (|z|≈2000–9000 on the panel) and NOT a calibrated
+                    // p-value. Clamp the emitted magnitude to ±kZCap; channel_f_common_or
+                    // (the common odds ratio, set below) is the interpretable effect size.
+                    double mh_z = log_or / std::sqrt(var_log_or);
+                    const double cap = static_cast<double>(SampleDamageProfile::kZCap);
+                    profile.channel_f_mh_z = static_cast<float>(std::clamp(mh_z, -cap, cap));
+                }
                 profile.channel_f_common_or = static_cast<float>(common_or);
             }
         }
+        profile.count_tables.push_back(std::move(f_ct));
 
         double pre3 = 0, stop3 = 0, pre_t3 = 0, stop_t3 = 0, pre_m3 = 0, stop_m3 = 0;
         for (int p = 0; p < 15; ++p) {
@@ -2440,6 +2573,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         fin_oxog(pre5, stop5, pre_t, stop_t, pre_i, stop_i,
                  profile.cg_stop_rate_baseline, profile.cg_stop_rate_terminal,
                  profile.cg_stop_rate_interior, profile.cg_uniformity_ratio, profile.channel_g_valid);
+        profile.count_tables.push_back(make_ct("G", 'G', pre_t, stop_t, pre_i, stop_i, false, 0.0, 0.0));
 
         double pre3 = 0, stop3 = 0, pre_t3 = 0, stop_t3 = 0, pre_m3 = 0, stop_m3 = 0;
         for (int p = 0; p < 15; ++p) {
@@ -2474,6 +2608,14 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         double stop_i = (pre_far + stop_far >= 50) ? stop_far : stop_m;
         profile.channel_h_z        = binom_z(stop_t,  pre_t  + stop_t,  stop_i, pre_i + stop_i);
         profile.channel_h_z_p2plus = binom_z(stop_t2, pre_t2 + stop_t2, stop_i, pre_i + stop_i);
+        profile.count_tables.push_back(make_ct("H", 'H', pre_t, stop_t, pre_i, stop_i, false, 0.0, 0.0));
+        // C5: genuine A->T oxidation should produce positive z at BOTH windows. When
+        // h_z (incl. p0/p1) and h_z_p2plus (excl. p0/p1) disagree in sign, the signal
+        // is artifact-driven at p0/p1. This flag surfaces that contradiction; the
+        // detection gate (emitter) ANDs the two windows. NaN (not computed) -> false.
+        profile.channel_h_z_consistent =
+            std::isfinite(profile.channel_h_z) && std::isfinite(profile.channel_h_z_p2plus) &&
+            ((profile.channel_h_z >= 0.0f) == (profile.channel_h_z_p2plus >= 0.0f));
         fin_oxog(pre5, stop5, pre_t, stop_t, pre_i, stop_i,
                  profile.at_stop_rate_baseline, profile.at_stop_rate_terminal,
                  profile.at_stop_rate_interior, profile.at_uniformity_ratio, profile.channel_h_valid);
@@ -2514,6 +2656,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             static constexpr float mu_grid[] = {0.05f, 0.1f, 0.2f, 0.3f, 0.5f, 0.7f, 1.0f, 1.5f, 2.0f, 3.0f};
             float best_sse = 1e30f, best_A = 0.0f, best_mu = 0.3f, best_B = 0.0f;
             float best_A_raw = 0.0f;
+            float best_B_raw = 0.0f;
 
             for (float mu : mu_grid) {
                 float sx2=0, sx=0, sxy=0, sy=0, sw=0;
@@ -2543,6 +2686,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                     best_sse = sse;
                     best_A = A; best_mu = mu; best_B = B;
                     best_A_raw = A_raw;
+                    best_B_raw = B_raw;
                 }
             }
 
@@ -2551,6 +2695,12 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             profile.g_decay_fitted = best_mu;
             if (profile.ox_ca_baseline > 0.0f)
                 profile.s_gt = best_B - profile.ox_ca_baseline;
+
+            // C4: decay rate selected at the grid maximum -> true mu unidentifiable.
+            profile.gt_decay_at_upper_boundary = (best_mu == mu_grid[9]);
+            // C4: background clamped at the 0.5 ceiling; keep unclamped point estimate.
+            profile.gt_bg_at_upper_boundary = (best_B_raw > 0.5f);
+            profile.g_bg_fitted_unclamped   = best_B_raw;
 
             // Interior-mean fallback (positions 5-14)
             {
@@ -2562,6 +2712,18 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             }
 
             profile.g_fit_degenerate = (best_mu <= 0.10f);
+            // C4: zero terminal amplitude (inverted/no terminal excess) makes the
+            // decay rate meaningless -> null the decay and flag the fit degenerate.
+            if (best_A == 0.0f) {
+                profile.gt_term_zero_clamped = true;
+                profile.g_fit_degenerate     = true;
+                profile.g_decay_fitted       = 0.0f;
+            }
+
+            // C4: ox_theta (== g_bg_fitted, the 8-oxoG background B) pinned at the
+            // 0.5 clamp while the fit is degenerate is a lower bound, not a point
+            // estimate. Emitter flags it; g_bg_fitted_unclamped holds the raw magnitude.
+            profile.ox_theta_at_clamp = (profile.g_bg_fitted >= 0.5f && profile.g_fit_degenerate);
 
             // WLS CI95 on B at fixed best_mu.
             // Linear model: y_p = A*x_p + B, x_p = exp(-best_mu*p).
@@ -2592,8 +2754,13 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                     float sigma2 = sse_ci / static_cast<float>(np - 2);
                     float var_B  = sigma2 * sx2 / det;
                     float se_B   = std::sqrt(std::max(0.0f, var_B));
-                    profile.g_bg_fitted_ci_lo = std::max(0.0f, best_B - 1.96f * se_B);
-                    profile.g_bg_fitted_ci_hi = std::min(0.5f, best_B + 1.96f * se_B);
+                    // C4: center the CI on the unclamped WLS estimate B_hat (not the
+                    // clamped best_B) and drop the 0.5 cap on the upper bound. Centering
+                    // on best_B shifted the whole interval down by (B_hat-0.5) and hard-
+                    // capped ci_hi at 0.5 whenever B was clamped, making it uninformative.
+                    // T/(T+G) is a proportion in [0,1], so >0.5 is valid (GC-rich/oxidised).
+                    profile.g_bg_fitted_ci_lo = std::max(0.0f, B_hat - 1.96f * se_B);
+                    profile.g_bg_fitted_ci_hi = std::min(1.0f, B_hat + 1.96f * se_B);
                 }
             }
 
@@ -2602,9 +2769,11 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // For DS: B elevated above ca_baseline indicates library-level oxidation.
             const bool is_ss_lib = (profile.library_type ==
                                     taph::SampleDamageProfile::LibraryType::SINGLE_STRANDED);
-            // SS: Chargaff contrast (s_gt = B - ca_baseline) is the valid signal.
-            // DS: B and ca_baseline rise together so s_gt cancels; use best_B directly.
-            float signal    = is_ss_lib ? profile.s_gt : best_B;
+            // s_gt = best_B - ox_ca_baseline (Chargaff contrast) is the valid 8-oxoG signal
+            // for both SS and DS: under no OxoG it is ~0; under OxoG it is positive.
+            // Using best_B directly for DS compared a raw frequency (~0.43) against a
+            // near-zero threshold, firing trivially for any non-degenerate DS library.
+            float signal    = profile.s_gt;
             float threshold = is_ss_lib ? 0.004f : 0.006f;
 
             // Require the terminal component to also be non-trivial (rules out flat noise)
@@ -2612,7 +2781,13 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             bool elevated   = signal > threshold;
             bool not_inverted = best_A_raw >= 0.0f;
 
-            profile.ox_damage_detected = has_data && elevated && not_inverted;
+            // C5: the GT model-fit verdict overwrites ox_damage_detected (the legacy
+            // field surfaced as channel_c_detected) but does NOT touch ox_d_max, which
+            // stays coupled to the codon-block verdict (ox_damage_detected_codon /
+            // ox_is_artifact). Record the model verdict explicitly so the two can be
+            // reconciled by consumers.
+            profile.ox_damage_detected_model = has_data && elevated && not_inverted;
+            profile.ox_damage_detected = profile.ox_damage_detected_model;
         }
     }
 
@@ -2792,7 +2967,14 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             }
             const double signal_se = std::sqrt(std::max(0.0, signal_var));
             const double control_se = std::sqrt(std::max(0.0, control_var));
-            const double delta_se = std::sqrt(std::max(0.0, delta_var));
+            // C2 (behavioral): the fixed-effect binomial delta_var ignores between-bin
+            // heterogeneity (I²≈0.99 across the panel), so z scaled ~sqrt(n_reads)
+            // (|z|≈300–550). Apply the standard DerSimonian-Laird random-effects floor
+            // adjusted_var = max(delta_var, q/sw): when q=0 / single bin it degrades to
+            // the binomial variance (no change). This bounds z by the effective number
+            // of independent bins, not by read count.
+            const double adjusted_var = std::max(delta_var, sw > 0.0 ? q / sw : delta_var);
+            const double delta_se = std::sqrt(std::max(0.0, adjusted_var));
             const double excess = std::max(0.0, delta);
             const double z = delta_se > 0.0 ? delta / delta_se : 0.0;
             const double effective_bins = sw2 > 0.0 ? (sw * sw) / sw2 : 0.0;
@@ -2815,12 +2997,18 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             profile.oxidation_like_artifact_suspect =
                 control > std::max(0.002, std::abs(signal) * 0.75);
 
-            const double z_score = 1.0 - std::exp(-std::max(0.0, z) / 5.0);
+            // C5 (behavioral): reliability_score must measure ESTIMATION QUALITY
+            // (data sufficiency), not signal direction. The old formula multiplied by
+            // (1-exp(-max(0,z)/5)), which is 0 whenever z<=0 — and z is negative for
+            // every non-oxidised library by construction, so reliability_score was
+            // structurally always 0. Drop the z_score factor; the signed verdict lives
+            // in oxidation_like_z. bin_score / het_penalty / artifact_penalty already
+            // capture data quality and are each in [0,1].
             const double bin_score = std::min(1.0, effective_bins / 6.0);
             const double het_penalty = 1.0 - 0.5 * heterogeneity;
             const double artifact_penalty = profile.oxidation_like_artifact_suspect ? 0.5 : 1.0;
             profile.oxidation_like_reliability =
-                static_cast<float>(std::clamp(z_score * bin_score * het_penalty *
+                static_cast<float>(std::clamp(bin_score * het_penalty *
                                               artifact_penalty, 0.0, 1.0));
             }
         }
@@ -2838,6 +3026,9 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         double purine_baseline = profile.baseline_a_freq + profile.baseline_g_freq;
 
         if (total_terminal > 100 && purine_baseline > 0.01) {
+            // C1: channel_e_valid certifies rate_interior / enrichment_* together,
+            // so the emitter can null them (and three-state `detected`) when the gate fails.
+            profile.channel_e_valid = true;
             profile.purine_rate_interior = static_cast<float>(purine_baseline);
 
             profile.purine_enrichment_5prime = profile.ctrl_shift_5prime;
@@ -2851,11 +3042,15 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     }
 
     // Update lambda from fit if reasonable
-    if (fit_lambda_5p > 0.05f && fit_lambda_5p < 0.5f) {
+    // D22: inclusive bounds match the fit's internal clamp range [0.05,0.50]; a steep
+    // decay clamped to exactly 0.5 is a real fit result, not the 0.3 init sentinel.
+    if (fit_lambda_5p >= 0.05f && fit_lambda_5p <= 0.5f) {
         profile.lambda_5prime = fit_lambda_5p;
+        profile.lambda_5prime_fitted = true;
     }
-    if (fit_lambda_3p > 0.05f && fit_lambda_3p < 0.5f) {
+    if (fit_lambda_3p >= 0.05f && fit_lambda_3p <= 0.5f) {
         profile.lambda_3prime = fit_lambda_3p;
+        profile.lambda_3prime_fitted = true;
     }
 
     // Context-split amplitude fits (CpG-like vs non-CpG-like)
@@ -2921,8 +3116,11 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             profile.cov_ct5_terminal_by_upstream[uctx] = fit.cov_terminal;
             profile.cov_ct5_interior_by_upstream[uctx] = fit.cov_interior;
 
-            if (fit.valid && fit.dmax >= 0.0f) {
-                dmax_sum += fit.dmax;
+            // C4: lower-boundary fit contributes 0 to the contrast (the correct signal-absent value)
+            // but still counts toward valid_ctx_count because coverage was sufficient to run the fit.
+            const float dmax_for_contrast = fit.valid ? fit.dmax : (fit.lower_boundary ? 0.0f : std::numeric_limits<float>::quiet_NaN());
+            if (std::isfinite(dmax_for_contrast)) {
+                dmax_sum += dmax_for_contrast;
                 ++valid_ctx_count;
             }
         }
@@ -2954,9 +3152,20 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                         chi2 += cov * (d - mean_d) * (d - mean_d) / (mean_d * (1.0f - mean_d) + 1e-6f);
                     }
                 }
-                profile.context_heterogeneity_chi2 = chi2;
-                // Approximate p-value (chi2 with 3 df)
-                // Using simple threshold: chi2 > 7.81 → p < 0.05
+                // C2: this is a coverage-weighted sum (each term ∝ cov_i), so the
+                // statistic grows ~O(total reads) and is NOT a distribution-free
+                // chi²(3). The p-value lookup below is therefore only nominal — at
+                // high coverage any real between-context difference trivially exceeds
+                // 7.81. Treat context_heterogeneity_chi2 as a coverage-scaled index,
+                // not a calibrated test statistic (consumers should prefer the
+                // effect-size contrast dipyr_contrast). Detection logic unchanged.
+                // C2: keep the unclamped coverage-scaled value for audit, but emit the
+                // primary statistic clamped to kZCap so consumers do not read an
+                // explosive magnitude as a calibrated chi². Detection still gates on the
+                // raw value (7.81 < kZCap, so the call is unchanged).
+                profile.context_heterogeneity_chi2_raw = chi2;
+                profile.context_heterogeneity_chi2 = std::min(chi2, SampleDamageProfile::kZCap);
+                // Nominal p-value (chi² with 3 df); not calibrated — see note above.
                 profile.context_heterogeneity_detected = (chi2 > 7.81f);
                 // Store approximate p-value (very rough)
                 if (chi2 < 0.58f) profile.context_heterogeneity_p = 0.9f;
@@ -2965,6 +3174,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 else if (chi2 < 7.81f) profile.context_heterogeneity_p = 0.05f;
                 else if (chi2 < 11.34f) profile.context_heterogeneity_p = 0.01f;
                 else profile.context_heterogeneity_p = 0.001f;
+                profile.context_heterogeneity_computed = true;
             }
         }
     }
@@ -3004,10 +3214,19 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         profile.interior_ct_cluster_short_asym_log2oe =
             profile.interior_ct_cluster_short_log2oe - ag_log2oe;
 
+        // C2: short_z is a CT-vs-AG asymmetry contrast whose denominator is a
+        // within-read Bernoulli pair variance that underestimates the true variance
+        // (T-sites within a read share one deamination rate -> positive correlation),
+        // so the magnitude is not a calibrated p-value and is not comparable across
+        // ds/ss library types. It measures CT-SPECIFIC asymmetry, not total CT
+        // clustering intensity — short_log2oe / short_asym_log2oe are the primary
+        // effect-size metrics. Clamp the emitted magnitude to ±kZCap.
         const double denom = std::sqrt(var_ct_s + var_ag_s + 1e-12);
         const double num   = (static_cast<double>(obs_ct_s) - exp_ct_s)
                            - (static_cast<double>(obs_ag_s) - exp_ag_s);
-        profile.interior_ct_cluster_short_z = static_cast<float>(num / denom);
+        const double scz_cap = static_cast<double>(SampleDamageProfile::kZCap);
+        profile.interior_ct_cluster_short_z =
+            static_cast<float>(std::clamp(num / denom, -scz_cap, scz_cap));
     }
 
     // Step 3: Per-position damage rates using fit baseline
@@ -3952,6 +4171,14 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                     if (sec_i >= 0) {
                         profile.library_bic_second_model = cands[sec_i].name;
                         profile.library_bic_margin = cands[sec_i].bic - cands[win_i].bic;
+                        // MED: raw margin scales with read depth (ΔBIC ≈ n·2·ΔLLR/read)
+                        // and is not comparable across libraries. Emit a coverage-
+                        // normalised companion (bg_denominator_5prime is the winning
+                        // model's 5' trial count, set earlier in finalize).
+                        profile.library_bic_margin_per_read =
+                            (profile.bg_denominator_5prime > 0.0)
+                                ? profile.library_bic_margin / profile.bg_denominator_5prime
+                                : 0.0;
                     }
                 }
                 // Class-min softmax: best-BIC representative per class only.
@@ -4118,6 +4345,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 default:                                                lt_class = "unknown"; break;
             }
             profile.final_library_bic_winner_model = cw;
+            // C5: surface the winner-model class at the top level so a
+            // library_bic_winner_model vs library_type contradiction (after a veto)
+            // is machine-visible without parsing the nested bic section.
+            profile.library_bic_winner_model_class = cw_class;
             if (cw_class == lt_class) {
                 profile.final_library_bic_override_reason.clear();
             } else if (lt_class == "unknown") {
@@ -4132,6 +4363,14 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 profile.final_library_bic_override_reason =
                     "post_hoc_veto_" + cw_class + "_to_" + lt_class;
             }
+            // C5: top-level mirror of the override reason so the veto signal is
+            // co-located with library_bic_winner_model / library_type.
+            profile.library_bic_override_reason = profile.final_library_bic_override_reason;
+            // C5: raw library_p_ds/p_ss/p_bias are pre-override posteriors; flag when an
+            // override fired so consumers read library_p_*_final, not the raw probs, as
+            // the type confidence.
+            profile.library_p_is_pre_override =
+                !profile.final_library_bic_override_reason.empty();
             // F3: post-veto final probabilities. One-hot when override fired
             // (veto/rescue/UNKNOWN), mirror raw probs when class survived.
             if (profile.final_library_bic_override_reason.empty()) {
@@ -4260,7 +4499,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
         {
             const uint64_t MIN_C_SITES = 10000;  // Minimum C sites for valid per-bin estimate
-            float weighted_sum = 0.0f;
+            float weighted_sum = 0.0f;       // CT-only (Channel A) C-site-weighted accumulator
+            float weighted_sum_joint = 0.0f; // max(Channel A, Channel B) C-site-weighted accumulator
             float weight_sum = 0.0f;
             float peak_dmax = 0.0f;
             int peak_bin = -1;
@@ -4314,7 +4554,11 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
                 float bin_dmax = std::max(b.d_max, b.d_max_channel_b);
                 float weight = static_cast<float>(b.c_sites);
-                weighted_sum += bin_dmax * weight;
+                // C5: keep gc_stratified_d_max_weighted as the CT-only (Channel A) rate so
+                // source="average" cannot exceed the Channel-A d_max_5prime ceiling; the
+                // Channel-B-boosted maximum is exposed separately as the joint accumulator.
+                weighted_sum += b.d_max * weight;
+                weighted_sum_joint += bin_dmax * weight;
                 weight_sum += weight;
 
                 if (bin_dmax > peak_dmax) {
@@ -4328,6 +4572,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
             if (weight_sum > 0) {
                 profile.gc_stratified_d_max_weighted = weighted_sum / weight_sum;
+                profile.gc_stratified_d_max_joint    = weighted_sum_joint / weight_sum;
                 profile.gc_stratified_d_max_peak = peak_dmax;
                 profile.gc_peak_bin = peak_bin;
                 profile.gc_stratified_valid = true;
@@ -4507,10 +4752,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // the same per-class δ, not an independent estimate (see mixture_damage_model.hpp).
             } else if (profile.gc_stratified_valid) {
                 profile.d_max_combined = profile.gc_stratified_d_max_weighted;
-                profile.d_max_source = SampleDamageProfile::DmaxSource::AVERAGE;
+                profile.d_max_source = SampleDamageProfile::DmaxSource::JOINT_BILATERAL;
             } else {
                 profile.d_max_combined = profile.joint_delta_max;
-                profile.d_max_source = SampleDamageProfile::DmaxSource::AVERAGE;
+                profile.d_max_source = SampleDamageProfile::DmaxSource::JOINT_BILATERAL;
             }
         } else if (profile.joint_model_valid && profile.joint_p_damage > 0.5f) {
             if (profile.gc_stratified_valid) {
@@ -4752,8 +4997,26 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             profile.damage_status = (lower95 >= 0.01f)
                 ? SampleDamageProfile::DamageStatus::PRESENT
                 : SampleDamageProfile::DamageStatus::WEAK;
+            // C5: record WHICH evidence path set the status so consumers can tell an
+            // empirical excess-CI confirmation from a fit-amplitude-only WEAK. When
+            // both CI lower bounds are -1 (no empirical terminal excess — e.g. an
+            // inverted/inward-shifted pattern) but d_max (fit amplitude) cleared 0.02,
+            // the verdict rests on the exponential fit alone.
+            if (lower95 >= 0.01f) {
+                profile.damage_status_basis = (lb5 >= lb3)
+                    ? SampleDamageProfile::DamageStatusBasis::CI_5PRIME
+                    : SampleDamageProfile::DamageStatusBasis::CI_3PRIME;
+            } else if (lb5 < 0.0f && lb3 < 0.0f) {
+                profile.damage_status_basis =
+                    SampleDamageProfile::DamageStatusBasis::FIT_AMPLITUDE_ONLY;
+            } else {
+                profile.damage_status_basis = (lb5 >= lb3)
+                    ? SampleDamageProfile::DamageStatusBasis::CI_5PRIME
+                    : SampleDamageProfile::DamageStatusBasis::CI_3PRIME;
+            }
         } else {
             profile.damage_status = SampleDamageProfile::DamageStatus::ABSENT;
+            profile.damage_status_basis = SampleDamageProfile::DamageStatusBasis::NONE;
             // Inversion artifacts zero d_max_5/3prime even when BIC fit ct5~=ga3
             // up to ~0.17. Preserve confident BIC verdicts; only fall back to
             // UNKNOWN when the tournament itself was uncertain.
@@ -4818,8 +5081,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // Floor at uninformative prior: absent/inverted CpG signal is not evidence
             // against antiquity (ss libraries, saturated damage, CpG-depleted taxa).
             profile.preservation_f_cpg = std::max(sig((profile.log2_cpg_ratio - 1.0f) / 0.6f), 0.3f);
+            profile.cpg_ratio_evaluable = true;  // D21: computed from the CpG ratio
         } else {
             profile.preservation_f_cpg = 0.3f;  // uninformative prior
+            profile.cpg_ratio_evaluable = false;  // D21: 0.3 prior, not an evaluated ratio
         }
 
         // Weighted geometric mean of 4 factors
@@ -5667,12 +5932,15 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
 
     // Interior baselines are not prefix-split; reuse existing values.
     // binom_z recomputes z from new terminal counts vs unchanged interior.
+    // Mirrors the primary binom_z: NaN when not computed (C1), clamped to ±kZCap (C2).
     auto binom_z_f = [](double k_t, double n_t, double k_i, double n_i) -> float {
-        if (n_t < 10.0 || n_i < 10.0) return 0.0f;
+        if (n_t < 10.0 || n_i < 10.0) return std::numeric_limits<float>::quiet_NaN();
         double p_pool = (k_t + k_i) / (n_t + n_i);
         double var = p_pool * (1.0 - p_pool) * (1.0/n_t + 1.0/n_i);
-        if (var < 1e-12) return 0.0f;
-        return static_cast<float>(((k_t/n_t) - (k_i/n_i)) / std::sqrt(var));
+        if (var < 1e-12) return std::numeric_limits<float>::quiet_NaN();
+        double z = ((k_t/n_t) - (k_i/n_i)) / std::sqrt(var);
+        const double cap = static_cast<double>(SampleDamageProfile::kZCap);
+        return static_cast<float>(std::clamp(z, -cap, cap));
     };
 
     uint32_t n_excl = 0;
@@ -5684,11 +5952,19 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
         double shadow_f = 0;
         for (uint32_t i = 0; i < 4096; ++i)
             if (!skip5[i]) shadow_f += profile.ca_deam_shadow_terminal_by_pfx[i];
-        double ni_f = profile.ca_pre_interior + profile.ca_stop_interior + profile.ca_deam_shadow_interior;
+        double ni_f_z = profile.ca_pre_interior + profile.ca_stop_interior + profile.ca_deam_shadow_interior;  // shadow only for z-score (matches primary binom_z)
+        double ni_f   = profile.ca_pre_interior + profile.ca_stop_interior;                                     // shadow-free for rate (matches fin_oxog)
         profile.channel_f_z = binom_z_f(sf, pf + sf + shadow_f,
-                                         profile.ca_stop_interior, ni_f);
+                                         profile.ca_stop_interior, ni_f_z);
         profile.ca_stop_rate_terminal = (pf+sf+shadow_f > 0) ? sf/(pf+sf+shadow_f) : 0.0;
-        profile.channel_f_valid = (pf+sf+shadow_f >= 10 && ni_f >= 10);
+        // C5: shadow-free denominator aligns ca_stop_rate_interior with fin_oxog formula;
+        // recompute ca_uniformity_ratio so it stays consistent with the updated interior rate.
+        if (ni_f > 0) {
+            profile.ca_stop_rate_interior = static_cast<float>(profile.ca_stop_interior / ni_f);
+            if (profile.ca_stop_rate_interior > 1e-6f && profile.ca_stop_rate_terminal > 0.0f)
+                profile.ca_uniformity_ratio = profile.ca_stop_rate_terminal / profile.ca_stop_rate_interior;
+        }
+        profile.channel_f_valid = (pf+sf+shadow_f >= 10 && ni_f_z >= 10);
         // Channel G 5'
         auto [pg, sg] = resum(profile.cg_pre_terminal_by_pfx,
                                profile.cg_stop_terminal_by_pfx, skip5);
@@ -5696,6 +5972,7 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
         profile.channel_g_z = binom_z_f(sg, pg+sg,
                                          profile.cg_stop_interior, ni_g);
         profile.cg_stop_rate_terminal = (pg+sg > 0) ? sg/(pg+sg) : 0.0;
+        if (ni_g > 0) profile.cg_stop_rate_interior = static_cast<float>(profile.cg_stop_interior / ni_g);  // C3: refresh interior
         profile.channel_g_valid = (pg+sg >= 10 && ni_g >= 10);
         // Channel H 5'
         auto [ph, sh] = resum(profile.at_pre_terminal_by_pfx,
@@ -5708,7 +5985,12 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
         profile.channel_h_z_p2plus = binom_z_f(sh2, ph2+sh2,
                                                  profile.at_stop_interior, ni_h);
         profile.at_stop_rate_terminal = (ph+sh > 0) ? sh/(ph+sh) : 0.0;
+        if (ni_h > 0) profile.at_stop_rate_interior = static_cast<float>(profile.at_stop_interior / ni_h);  // C3: refresh interior
         profile.channel_h_valid = (ph+sh >= 10 && ni_h >= 10);
+        // C5: recompute h_z sign-consistency after adapter-prefix exclusion.
+        profile.channel_h_z_consistent =
+            std::isfinite(profile.channel_h_z) && std::isfinite(profile.channel_h_z_p2plus) &&
+            ((profile.channel_h_z >= 0.0f) == (profile.channel_h_z_p2plus >= 0.0f));
         for (auto c : excl_5p) if (c < 4096) ++n_excl;
     }
 
@@ -5802,8 +6084,10 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     }
     profile.dipyr_contrast = std::numeric_limits<float>::quiet_NaN();
     profile.context_heterogeneity_chi2 = 0.0f;
+    profile.context_heterogeneity_chi2_raw = 0.0f;
     profile.context_heterogeneity_p = 1.0f;
     profile.context_heterogeneity_detected = false;
+    profile.context_heterogeneity_computed = false;
     profile.effcov_ct5_cpg_like_terminal    = 0.0f;
     profile.effcov_ct5_noncpg_like_terminal = 0.0f;
     profile.effcov_ct5_cpg_like_interior    = 0.0f;
@@ -5830,6 +6114,8 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.sample_damage_prob = 0.0f;
     profile.lambda_5prime = 0.3f;
     profile.lambda_3prime = 0.3f;
+    profile.lambda_5prime_fitted = false;  // D22
+    profile.lambda_3prime_fitted = false;  // D22
     profile.terminal_shift_5prime = 0.0f;
     profile.terminal_shift_3prime = 0.0f;
     profile.terminal_z_5prime = 0.0f;
@@ -5865,6 +6151,9 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.stop_decay_llr_5prime = 0.0f;
     profile.stop_amplitude_5prime = 0.0f;
     profile.channel_b_valid = false;
+    profile.channel_b_valid_tga = false;
+    profile.channel_b_valid_taa = false;  // D24
+    profile.channel_b_valid_tag = false;  // D24
     profile.damage_validated = false;
     profile.damage_artifact = false;
 
@@ -5877,6 +6166,7 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.joint_bayes_factor = 0.0f;
     profile.joint_p_damage = 0.0f;
     profile.joint_z_delta = 0.0f;
+    profile.joint_z_delta_capped = false;
     profile.joint_n_informative = 0;
     profile.joint_model_valid = false;
 
@@ -5899,6 +6189,7 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.gc_bins = {};
     profile.len_bins = {};
     profile.gc_stratified_d_max_weighted = 0.0f;
+    profile.gc_stratified_d_max_joint = 0.0f;
     profile.gc_stratified_d_max_peak = 0.0f;
     profile.gc_peak_bin = -1;
     profile.gc_stratified_valid = false;
@@ -5942,8 +6233,8 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.ca_stop_rate_baseline          = 0.0f;
     profile.ca_stop_rate_terminal          = 0.0f;
     profile.ca_stop_rate_interior          = 0.0f;
-    profile.channel_f_z                    = 0.0f;
-    profile.channel_f_mh_z                 = 0.0f;
+    profile.channel_f_z                    = std::numeric_limits<float>::quiet_NaN();  // C1: NaN = not computed
+    profile.channel_f_mh_z                 = std::numeric_limits<float>::quiet_NaN();  // C1: NaN = not computed
     profile.channel_f_common_or            = 0.0f;
     profile.ca_uniformity_ratio            = 0.0f;
     profile.ca_stop_rate_baseline_3prime        = 0.0f;
@@ -5963,7 +6254,7 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.cg_stop_rate_terminal          = 0.0f;
     profile.cg_stop_rate_interior          = 0.0f;
     profile.cg_stop_rate_baseline          = 0.0f;
-    profile.channel_g_z                    = 0.0f;
+    profile.channel_g_z                    = std::numeric_limits<float>::quiet_NaN();  // C1: NaN = not computed
     profile.cg_uniformity_ratio            = 0.0f;
     profile.cg_stop_rate_terminal_3prime   = 0.0f;
     profile.cg_stop_rate_interior_3prime   = 0.0f;
@@ -5986,7 +6277,9 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.at_stop_rate_terminal          = 0.0f;
     profile.at_stop_rate_interior          = 0.0f;
     profile.at_stop_rate_baseline          = 0.0f;
-    profile.channel_h_z                    = 0.0f;
+    profile.channel_h_z                    = std::numeric_limits<float>::quiet_NaN();  // C1: NaN = not computed
+    profile.channel_h_z_p2plus             = std::numeric_limits<float>::quiet_NaN();  // C1: NaN = not computed
+    profile.channel_h_z_consistent         = false;
     profile.at_uniformity_ratio            = 0.0f;
     profile.at_stop_rate_terminal_3prime   = 0.0f;
     profile.at_stop_rate_interior_3prime   = 0.0f;
@@ -6028,6 +6321,7 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.ox_stop_baseline_3prime      = 0.0f;
     profile.ox_uniformity_ratio_3prime   = 0.0f;
     profile.channel_c3_valid             = false;
+    profile.ox_uniformity_ratio_3prime_computed = false;
 
     profile.convertible_gaa_5prime.fill(0.0);
     profile.convertible_gga_5prime.fill(0.0);
@@ -6062,9 +6356,27 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
 
     profile.ox_is_artifact = false;
     profile.ox_d_max = 0.0f;
+    profile.ox_damage_detected = false;
+    profile.ox_damage_detected_codon = false;
+    profile.ox_damage_detected_model = false;
 
-    // Neutral default for oxidation uniformity ratio
+    // Neutral default for oxidation uniformity ratio (real-zero vs not-computed is
+    // disambiguated by ox_uniformity_ratio_computed, reset to false here).
     profile.ox_uniformity_ratio = 1.0f;
+    profile.ox_uniformity_ratio_computed     = false;
+    profile.ox_stop_rate_positional_computed = false;
+    profile.ox_gt_uniformity_computed        = false;
+    profile.d_computed                       = false;
+    profile.channel_e_valid                  = false;
+
+    // GT exponential-background fit boundary/degeneracy flags (C4) + companions.
+    profile.gt_decay_at_upper_boundary = false;
+    profile.gt_term_zero_clamped       = false;
+    profile.gt_bg_at_upper_boundary    = false;
+    profile.g_bg_fitted_unclamped      = 0.0f;
+    profile.ox_theta_at_clamp          = false;
+    // binom_z fields (channel_f_z/f_mh_z/g_z/h_z/h_z_p2plus) are reset to NaN
+    // in the per-channel F/G/H reset blocks above.
 
     profile.n_reads = 0;
 }

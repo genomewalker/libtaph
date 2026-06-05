@@ -23,6 +23,10 @@ struct JointDamageResult {
     float bic_m1 = 0.0f;         // BIC for M1
     float bic_m0 = 0.0f;         // BIC for M0
     float delta_bic = 0.0f;      // BIC_M0 - BIC_M1 (positive favors damage)
+    // ΔBIC accumulates over n_trials reads, so it scales ~O(N) for any fixed rate
+    // difference: exploratory, not a calibrated Bayes factor on correlated reads.
+    float delta_bic_normalized = 0.0f; // ΔBIC / log(n_trials): per-parameter, N-independent
+    bool  delta_bic_saturated = false; // |ΔBIC| beyond interpretable evidence scale (|·|>200)
     float bayes_factor = 0.0f;   // BF_10 ≈ exp(ΔBIC/2)
     float p_damage = 0.0f;       // P(damage | data) = BF / (1 + BF)
 
@@ -30,7 +34,12 @@ struct JointDamageResult {
     float rmse = 0.0f;           // Root mean squared error of fit
     int n_positions = 15;        // Number of positions used
     uint64_t n_trials = 0;       // Total binomial trials (for BIC)
-    float z_delta = 0.0f;        // Wald z for δ̂ from observed Fisher information
+    // Wald z for δ̂ from observed Fisher information. The Fisher info sums over all
+    // reads at 15 positions treated as independent Bernoulli trials, so it inflates
+    // ~O(N) and z ~O(sqrt(N)·δ) on correlated reads (PCR dups, admixture): NOT a
+    // calibrated test statistic. Use delta_max as the N-independent effect size.
+    float z_delta = 0.0f;
+    bool  z_delta_capped = false; // |z_delta| exceeded Z_CAP (exploratory magnitude clamped)
     float se_delta = 0.0f;       // se(δ̂) from the same curvature
     int n_informative = 0;       // 5' Channel-A positions with cov≥100 & excess > 2·noise
     bool valid = false;          // Sufficient data for estimation
@@ -88,6 +97,9 @@ public:
     static constexpr float LAMBDA_MIN = 0.05f;
     static constexpr float LAMBDA_MAX = 0.50f;
     static constexpr float DELTA_MAX_LIMIT = 0.60f;
+    // Reporting clamps for the exploratory, N-inflating diagnostics (z_delta, ΔBIC).
+    static constexpr float Z_CAP = 12.0f;          // emitted Wald-z magnitude bound
+    static constexpr float DELTA_BIC_CAP = 200.0f; // emitted ΔBIC saturation bound
 
     static JointDamageResult fit(const JointDamageSuffStats& stats);
 
@@ -251,6 +263,12 @@ inline JointDamageResult JointDamageModel::fit(const JointDamageSuffStats& stats
     // ΔBIC = BIC_M0 - BIC_M1 (positive favors M1 = damage)
     result.delta_bic = result.bic_m0 - result.bic_m1;
 
+    // ΔBIC accumulates over n_trials reads → ~O(N), uninterpretable as a Bayes factor.
+    // Report the per-parameter, N-independent contribution and flag saturation; the raw
+    // value is kept (exploratory only). p_damage below uses a stable clamped logistic.
+    result.delta_bic_normalized = log_n > 0.0f ? result.delta_bic / log_n : 0.0f;
+    result.delta_bic_saturated  = std::abs(result.delta_bic) > DELTA_BIC_CAP;
+
     // Bayes factor approximation: BF_10 ≈ exp(ΔBIC/2). Cap exponent to keep
     // BF / p_damage finite under extreme separations (avoid inf/inf = NaN).
     float half_dbic = std::clamp(result.delta_bic / 2.0f, -80.0f, 80.0f);
@@ -296,7 +314,10 @@ inline JointDamageResult JointDamageModel::fit(const JointDamageSuffStats& stats
                            (hl * hr * (hl + hr));
             if (fisher > 0.0f) {
                 result.se_delta = 1.0f / std::sqrt(fisher);
-                result.z_delta = result.delta_max / result.se_delta;
+                // exploratory; clamped, not a calibrated p-value (correlated reads)
+                float z_raw = result.delta_max / result.se_delta;
+                result.z_delta_capped = std::abs(z_raw) > Z_CAP;
+                result.z_delta = std::clamp(z_raw, -Z_CAP, Z_CAP);
             }
         }
     }

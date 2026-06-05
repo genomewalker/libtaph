@@ -107,7 +107,7 @@ HexEndAsymmetry compute_hex_end_asymmetry(
 
 // ── Score functions (pure functions of finalized SampleDamageProfile) ─────────
 
-struct CpgScore { double z = 0.0; double p = 1.0; };
+struct CpgScore { double z = 0.0; double p = 1.0; bool computed = false; };
 
 // log2(CpG-like / non-CpG-like d_max) / SE(log2 ratio).
 CpgScore compute_cpg_score(const SampleDamageProfile& dp);
@@ -194,6 +194,13 @@ struct PreservationSummary {
         OxidationInterval raw_rate;
         OxidationInterval control_rate;
         OxidationInterval excess_rate;
+        // Signed (raw - control) contrast with its CI; unlike excess_rate this is
+        // NOT clamped at 0, so anti-oxidative (<0), genuine-zero, and uncomputed
+        // states stay distinguishable. excess_rate_computed is true only when the
+        // adjusted contrast is > 0 (i.e. excess_rate carries real information);
+        // when false the emitter nulls the excess_rate triple.
+        OxidationInterval adjusted_rate;
+        bool   excess_rate_computed = false;
         double z_score = 0.0;      // control-adjusted: (raw_rate - control_rate) / SE
         double bins_used = 0.0;
         double effective_bins = 0.0;
@@ -201,7 +208,10 @@ struct PreservationSummary {
 
         // Reliability diagnostics
         double reliability_score = 0.0;     // [0,1]
-        const char* reliability = "fail";   // pass|warning|fail
+        // pass    = quality OK and contrast is oxidative (z>0)
+        // negative= quality OK but contrast is anti-oxidative (z<=0)
+        // warning = marginal bin coverage; fail = insufficient data
+        const char* reliability = "fail";
     };
 
     double      authenticity_eff      = 0.0;
@@ -262,6 +272,11 @@ struct DamageContextProfile {
     DominantProcess dominant_process = DominantProcess::None;
     std::string     dominant_process_str;   // machine-readable tag
     std::string     interpretation;         // one-sentence summary
+
+    // CI-confirmed damage verdict (dp.damage_status == PRESENT). Surfaced here so
+    // consumers can reconcile dominant_process against the deamination CI without
+    // reading a second top-level field; also gates the LibraryArtifactLikely rule.
+    bool damage_status_present = false;
 
     // Evidence: raw underlying numbers that drove the scores. Keeps the JSON
     // auditable and lets downstream tools re-normalize without rescanning.

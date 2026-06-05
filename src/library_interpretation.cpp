@@ -11,6 +11,12 @@
 
 namespace taph {
 
+// Display cap for exploratory binomial z-scores. Detection gates use z>3, well
+// inside ±12, so behaviour is unchanged; consumers no longer see absurd
+// magnitudes from sqrt(N)-inflated, correlated-read Bernoulli statistics.
+static constexpr double kExploratoryZCap = 12.0;
+static constexpr double kDepurZCap       = kExploratoryZCap;
+
 // ── Hexamer utilities ─────────────────────────────────────────────────────────
 
 std::array<char,7> decode_hex(int code) {
@@ -245,6 +251,7 @@ CpgScore compute_cpg_score(const SampleDamageProfile& dp) {
     if (se > 1e-9) {
         r.z = static_cast<double>(dp.log2_cpg_ratio) / se;
         r.p = std::erfc(std::abs(r.z) / std::sqrt(2.0));
+        r.computed = true;
     }
     return r;
 }
@@ -272,8 +279,14 @@ OxogInteriorScore compute_oxog_interior_score(const SampleDamageProfile& dp) {
         }
     }
     if (vr > 0.0) {
-        r.z = sc / std::sqrt(vr);
-        r.p = 0.5 * std::erfc(r.z / std::sqrt(2.0));
+        // exploratory; clamped, not a calibrated p-value (correlated reads).
+        // Raw Binomial z scales ~sqrt(read count); gt_rate (compute_oxog_trinuc)
+        // is the primary effect-size measure. Clamp magnitude and floor p so the
+        // erfc underflow-to-0 case stays distinguishable from a genuine zero.
+        r.z = std::max(-kExploratoryZCap,
+                       std::min(kExploratoryZCap, sc / std::sqrt(vr)));
+        r.p = std::max(0.5 * std::erfc(r.z / std::sqrt(2.0)),
+                       std::numeric_limits<double>::min());
     }
     return r;
 }
@@ -345,14 +358,26 @@ OxogTrinucResult compute_oxog_trinuc(const SampleDamageProfile& dp) {
 
 DepurScore compute_depur_score(const SampleDamageProfile& dp, bool is_ss) {
     DepurScore r;
-    r.z5     = static_cast<double>(dp.ctrl_z_5prime);
+    // exploratory; clamped, not a calibrated p-value (correlated reads).
+    // Bernoulli z from raw read counts scales ~sqrt(N); clamp the reported
+    // magnitude and floor p so the underflow-to-0 case is distinguishable from
+    // a genuine zero. shift5/shift3 are the primary interpretable effect sizes.
+    auto clamp_z = [](double z) { return std::max(-kDepurZCap, std::min(kDepurZCap, z)); };
+    auto erfc_p  = [](double z) {
+        double p = 0.5 * std::erfc(z / std::sqrt(2.0));
+        return std::max(p, std::numeric_limits<double>::min());
+    };
+    r.z5     = clamp_z(static_cast<double>(dp.ctrl_z_5prime));
     r.shift5 = static_cast<double>(dp.purine_enrichment_5prime);
     r.shift3 = static_cast<double>(dp.purine_enrichment_3prime);
 
-    double p5 = 0.5 * std::erfc(r.z5 / std::sqrt(2.0));
+    double p5 = erfc_p(r.z5);
     if (!is_ss) {
-        r.z3      = static_cast<double>(dp.ctrl_z_3prime);
-        double p3 = 0.5 * std::erfc(r.z3 / std::sqrt(2.0));
+        // BEHAVIORAL CHANGE (C5): use terminal_z_3prime (A/(A+G) purine channel)
+        // not ctrl_z_3prime (T/(T+C) pyrimidine negative-control) for the DS
+        // 3' depurination signal; the conjunction must mix two purine ratios.
+        r.z3      = clamp_z(static_cast<double>(dp.terminal_z_3prime));
+        double p3 = erfc_p(r.z3);
         r.z = std::min(r.z5, r.z3);
         r.p = std::max(p5, p3);
     } else {
@@ -642,15 +667,35 @@ PreservationSummary compute_preservation_summary(
             std::max(0.0, adjusted - 1.96 * adjusted_se),
             std::max(0.0, adjusted + 1.96 * adjusted_se)
         };
+        // Signed contrast (unclamped) so anti-oxidative vs genuine-zero vs
+        // not-computed are distinguishable; excess_rate (clamped) is {0,0,0} for
+        // all anti-oxidative libraries, an ambiguous sentinel on its own.
+        r.oxidation.adjusted_rate = {
+            adjusted,
+            adjusted - 1.96 * adjusted_se,
+            adjusted + 1.96 * adjusted_se
+        };
+        r.oxidation.excess_rate_computed = (adjusted > 0.0);
         r.oxidation.z_score = static_cast<double>(dp.oxidation_like_z);
         r.oxidation.bins_used = static_cast<double>(dp.oxidation_like_bins_used);
         r.oxidation.effective_bins = static_cast<double>(dp.oxidation_like_effective_bins);
         r.oxidation.heterogeneity = static_cast<double>(dp.oxidation_like_heterogeneity);
         r.oxidation.reliability_score = static_cast<double>(dp.oxidation_like_reliability);
 
-        if (dp.oxidation_like_bins_used >= 6 && dp.oxidation_like_effective_bins >= 4.0f &&
-            !dp.oxidation_like_artifact_suspect)
+        // BEHAVIORAL CHANGE (C5): "pass" previously certified only bin count and
+        // artifact_suspect, so a strongly anti-oxidative library (z<0, excess=0)
+        // earned "pass" — misread as "estimate is trustworthy / oxidation found".
+        // Split the directional verdict out: when the channel is methodologically
+        // operational but the contrast is anti-oxidative (z<=0), report "negative"
+        // rather than "pass" (and rather than "fail", which would hide that the
+        // channel was fully evaluated).
+        const bool quality_ok = dp.oxidation_like_bins_used >= 6 &&
+                                dp.oxidation_like_effective_bins >= 4.0f &&
+                                !dp.oxidation_like_artifact_suspect;
+        if (quality_ok && dp.oxidation_like_z > 0.0f)
             r.oxidation.reliability = "pass";
+        else if (quality_ok)
+            r.oxidation.reliability = "negative";
         else if (dp.oxidation_like_bins_used >= 2 && dp.oxidation_like_effective_bins >= 1.5f)
             r.oxidation.reliability = "warning";
         else
@@ -750,6 +795,8 @@ DamageContextProfile compute_damage_context_profile(
     r.evidence.fit_offset_3prime          = dp.fit_offset_3prime;
     r.evidence.n_reads                    = dp.n_reads;
 
+    const auto NaN = std::numeric_limits<float>::quiet_NaN();
+
     // 8-oxoG 16-context panel summary (mean/max of the per-context signal).
     double s_sum = 0.0; float s_max = 0.0f; int n_ctx = 0;
     for (int i = 0; i < SampleDamageProfile::N_OXOG16; ++i) {
@@ -759,8 +806,11 @@ DamageContextProfile compute_damage_context_profile(
         if (v > s_max) s_max = v;
         ++n_ctx;
     }
-    r.evidence.s_oxog_mean = n_ctx > 0 ? static_cast<float>(s_sum / n_ctx) : 0.0f;
-    r.evidence.s_oxog_max  = s_max;
+    // NaN (not 0.0) when no context is evaluable, so "not computed" stays
+    // distinguishable from a genuine zero signal. The isnan guard at the
+    // oxidative_context_score step then correctly propagates NaN downstream.
+    r.evidence.s_oxog_mean = n_ctx > 0 ? static_cast<float>(s_sum / n_ctx) : NaN;
+    r.evidence.s_oxog_max  = n_ctx > 0 ? s_max : NaN;
 
     // Use the already-finalized contrast from SampleDamageProfile:
     //   dipyr_contrast = 0.5*(CC + TC) - 0.5*(AC + GC).
@@ -772,7 +822,6 @@ DamageContextProfile compute_damage_context_profile(
                               dp.position_0_artifact_3prime ||
                               dp.fit_offset_5prime > 1 ||
                               dp.fit_offset_3prime > 1;
-    const auto NaN = std::numeric_limits<float>::quiet_NaN();
     auto finite_max2 = [](float a, float b) {
         bool fa = std::isfinite(a), fb = std::isfinite(b);
         if (fa && fb) return std::max(a, b);
@@ -784,8 +833,13 @@ DamageContextProfile compute_damage_context_profile(
     // Six scores. Computed unconditionally so that low-coverage samples still
     // surface any evaluable raw signal; dominant_process is set to None below.
 
-    // terminal deamination: 1 - exp(-max(d5, d3) / kDeamNorm). NaN-safe.
-    float dmax_term = finite_max2(dp.d_max_5prime, dp.d_max_3prime);
+    // terminal deamination: 1 - exp(-max(d5, d3, d_combined) / kDeamNorm).
+    // BEHAVIORAL CHANGE (C5): include the canonically rescue-corrected
+    // d_max_combined so structurally-rescued libraries (e.g. marine DS) are not
+    // under-scored; combined can only raise TDS above the raw terminal max,
+    // never lower it (which would mis-flag confirmed-damage libraries). NaN-safe.
+    float dmax_term = finite_max2(finite_max2(dp.d_max_5prime, dp.d_max_3prime),
+                                  dp.d_max_combined);
     r.terminal_deamination_score = std::isnan(dmax_term)
         ? NaN
         : clamp01f(1.0f - std::exp(-dmax_term / kDeamNorm));
@@ -812,18 +866,19 @@ DamageContextProfile compute_damage_context_profile(
         ? NaN
         : clamp01f(dp.purine_enrichment_5prime / kFragNorm);
 
-    // Library artifact: max of flags and a sigmoid on the composition shift z.
-    // If hex_shift_z is NaN and no flags are set the signal is unknown; the
-    // score stays NaN rather than silently reading as 0.
-    float art_flag = any_art_flag ? 1.0f : 0.0f;
+    // Library artifact: continuous sigmoid on the composition shift z. The
+    // previous `any_art_flag ? 1.0f` floor saturated the score at 1.0 for nearly
+    // every real ancient library (position-0 / adapter flags are near-universal),
+    // making it useless as a [0,1] discriminator. The boolean flag presence is
+    // surfaced separately in evidence (adapter_clipped, flag_hex_artifact,
+    // position_0_artifact_*, fit_offset_*), so callers retain that signal; the
+    // score now reflects artifact *magnitude*. If hex_shift_z is NaN and no flags
+    // are set the signal is unknown — keep NaN rather than reading as 0.
     float art_sig  = std::isfinite(hex_shift_z)
         ? sigmoidf(static_cast<float>(hex_shift_z) - 4.0f)
         : NaN;
-    if (any_art_flag) {
-        r.library_artifact_score = clamp01f(std::max(art_flag,
-                                     std::isnan(art_sig) ? 0.0f : art_sig));
-    } else if (std::isnan(art_sig)) {
-        r.library_artifact_score = NaN;
+    if (std::isnan(art_sig)) {
+        r.library_artifact_score = any_art_flag ? 0.0f : NaN;
     } else {
         r.library_artifact_score = clamp01f(art_sig);
     }
@@ -832,6 +887,8 @@ DamageContextProfile compute_damage_context_profile(
     // allowed to trigger a branch; a NaN terminal-deamination score in
     // particular must not collapse to low_damage.
     using D = DamageContextProfile::DominantProcess;
+    r.damage_status_present =
+        (dp.damage_status == SampleDamageProfile::DamageStatus::PRESENT);
     float td  = r.terminal_deamination_score;
     float cpg = r.cpg_context_score;
     float dip = r.dipyrimidine_context_score;
@@ -846,15 +903,18 @@ DamageContextProfile compute_damage_context_profile(
     } else if (std::isnan(td)) {
         r.dominant_process = D::None;
         r.interpretation   = "terminal deamination signal not evaluable";
-    } else if (any_art_flag && lt(td, 0.5f)) {
+    } else if (any_art_flag && lt(td, 0.5f) && !r.damage_status_present) {
         // Rule fires when a boolean flag is set (hex-artifact detector, adapter
         // stub, position-0 artifact, or fit-offset adapter remnant) AND the
         // terminal deamination signal is not dominating. The score itself
         // (library_artifact_score) saturates at 1.0 whenever a flag is present,
         // so `gt(art, 0.7)` would be tautological; the meaningful second gate
-        // is "damage is not the primary driver", i.e. td < 0.5. When strong
-        // genuine damage is present alongside adapter evidence, the damage
-        // label wins (artifact booleans remain visible in evidence).
+        // is "damage is not the primary driver", i.e. td < 0.5.
+        // BEHAVIORAL CHANGE (C5): also require !damage_status_present so a
+        // CI-confirmed-damage library (e.g. TDS just below 0.5 with adapter
+        // flags) is not stamped library_artifact_likely while damage_status=
+        // present — that was a direct internal contradiction. The damage label
+        // then wins; artifact booleans remain visible in evidence.
         r.dominant_process = D::LibraryArtifactLikely;
         r.interpretation = "composition or adapter-stub evidence dominates over damage signal";
     } else if (gt(fr, 0.5f) && lt(td, 0.3f)) {
@@ -1028,9 +1088,17 @@ OxoTwoMarkerResult compute_oxo_two_marker(const SampleDamageProfile& dp, bool is
 
     r.delta_beta = r.beta1 - r.beta2;
     double se_delta = std::sqrt(r.beta1_se * r.beta1_se + r.beta2_se * r.beta2_se);
-    r.markers_consistent = (se_delta > 0 && std::abs(r.delta_beta) < 2.0 * se_delta);
+    // BEHAVIORAL CHANGE (C5): compare marker MAGNITUDES, not the signed
+    // difference. The response D = T/(T+G) - A/(A+C) couples to s2 with opposite
+    // sign from s1, so beta2 is structurally negative and beta1-beta2 ≈ 2|beta1|
+    // is always large — the signed test fired false on every library, giving no
+    // discrimination. ||beta1| - |beta2|| < 2*se_delta correctly tests whether
+    // the two ssDNA-overhang markers agree in strength.
+    r.markers_consistent =
+        (se_delta > 0 &&
+         std::abs(std::abs(r.beta1) - std::abs(r.beta2)) < 2.0 * se_delta);
     r.valid = true;
-    (void)is_ss;  // reserved: SS adjustments applied at JSON layer
+    (void)is_ss;  // SS nulls beta2/beta2_se/beta2_z at the JSON layer (3' G-richness, not G→A)
     return r;
 }
 

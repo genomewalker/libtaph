@@ -52,4 +52,9 @@ void profile_to_json(const SampleDamageProfile& dp,
                      std::ostream& out,
                      const ProfileJsonInput& in = {});
 
+// Serialize the Layer-0 stop-channel count tables to JSONL (one object per line) — the pre-clamp
+// source of truth the golden regression gate diffs. Deterministic field order, round-trippable
+// precision (setprecision(17)); non-finite -> null. Emits nothing when there are no count tables.
+void count_tables_to_jsonl(const SampleDamageProfile& dp, std::ostream& out);
+
 } // namespace taph

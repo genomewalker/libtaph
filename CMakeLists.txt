@@ -77,4 +77,11 @@ if(TAPH_BUILD_TESTS)
     target_link_libraries(test_damage_context_profile PRIVATE taph)
     target_compile_options(test_damage_context_profile PRIVATE -O2 -Wall -Wextra)
     add_test(NAME damage_context_profile COMMAND test_damage_context_profile)
+
+    # Layer-0 count-table golden gate: re-profiles fixtured samples and diffs the pre-clamp count
+    # tables (catches cap-masked z regressions the emitted-JSON gate cannot see). Self-skips when the
+    # external panel inputs / fqdup binary are absent, so it is green in a data-less CI checkout.
+    add_test(NAME count_table_golden
+             COMMAND ${CMAKE_COMMAND} -E env bash
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/run_count_table_golden.sh)
 endif()

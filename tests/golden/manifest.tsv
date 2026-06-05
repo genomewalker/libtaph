@@ -1,0 +1,7 @@
+# Layer-0 count-table golden fixtures — named by pathology (fixture provenance).
+# Inputs are external to the repo (the validated ellesmere panel); set ELLESMERE_ROOT to relocate.
+# pathology	library	input_relpath	note
+cap_masked_f_reversal_ds	ds	zihao_kap_capture/fastq/merged.fq.gz	kapk: F pooled z rails +12 vs MH -12 (Simpson reversal); emitted z is cap-masked
+ds_artifact_cap_masked	ds	derep_split/flb/FLB57mdBds3LV7005225899PI2GK/deduped.fq.gz	F pre_clamp_z=-41.8 clamped to -12; emitted-JSON gate is blind to underlying-z drift
+ss_ancient	ss	retrim/FLB01mAss4_merged.fastq.gz	single-stranded ancient (5' C->T / 3' G->A)
+marine_lowcov	ds	derep_split/rocs/LV7001898061/deduped.fq.gz	marine, low coverage
