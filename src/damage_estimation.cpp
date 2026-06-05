@@ -44,6 +44,32 @@ static inline float binom_z_clamped(double k_t, double n_t, double k_i, double n
     return static_cast<float>(std::clamp(z, -cap, cap));
 }
 
+// Layer-0 producer (file-scope so BOTH finalize_sample_profile and the adapter-prefix-exclusion
+// recompute build IDENTICAL count tables from one code path): freezes the shadow-free 2x2 plus the
+// exact numerator/denominator that fed the pooled z, the pre-clamp z, and the cap decision. The
+// golden gate diffs these, so every emitted stop-channel z/rate must trace to a row produced here.
+static StopChannelCountTable make_stop_count_table(const ChannelSpec& spec,
+        double tp, double ts, double ip, double is, double tsh, double ish) {
+    StopChannelCountTable ct;
+    ct.channel_id = spec.channel_id;  ct.channel_type = spec.channel_type;
+    ct.term_pre = tp;  ct.term_stop = ts;  ct.int_pre = ip;  ct.int_stop = is;
+    ct.has_shadow = spec.has_deam_shadow;  ct.term_shadow = tsh;  ct.int_shadow = ish;
+    ct.shadow_in_z = spec.shadow_in_z;  ct.shadow_in_rate = spec.shadow_in_rate;
+    const bool shadow = spec.shadow_in_z;
+    ct.z_num_term = ts;  ct.z_den_term = tp + ts + (shadow ? tsh : 0.0);
+    ct.z_num_int  = is;  ct.z_den_int  = ip + is + (shadow ? ish : 0.0);
+    ct.raw_rate_term = (tp + ts > 0.0) ? ts / (tp + ts) : 0.0;
+    ct.raw_rate_int  = (ip + is > 0.0) ? is / (ip + is) : 0.0;
+    ct.pre_clamp_z = binom_z_raw(ct.z_num_term, ct.z_den_term, ct.z_num_int, ct.z_den_int);
+    ct.z_cap = static_cast<double>(SampleDamageProfile::kZCap);
+    ct.cap_applied = std::isfinite(ct.pre_clamp_z) && std::abs(ct.pre_clamp_z) > ct.z_cap;
+    ct.post_clamp_z = std::isfinite(ct.pre_clamp_z)
+                      ? std::clamp(ct.pre_clamp_z, -ct.z_cap, ct.z_cap)
+                      : ct.pre_clamp_z;
+    ct.has_strata = spec.has_mh_stratification;
+    return ct;
+}
+
 // LLR of exponential decay vs constant model over positions 1-9 (excludes pos 0 artifacts).
 // Negative return value signals inverted pattern (terminal lower than interior).
 static float compute_decay_llr(
@@ -2407,32 +2433,6 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         return binom_z_clamped(k_t, n_t, k_i, n_i);
     };
 
-    // Build a Layer-0 count table for a stop channel: freezes the shadow-free 2x2 plus the exact
-    // numerator/denominator that fed the pooled z, the pre-clamp z, and the cap decision. The golden
-    // gate diffs these so a cap-masked z regression cannot hide behind the +/-kZCap clamp.
-    auto compute_ct = [&](const ChannelSpec& spec,
-                          double tp, double ts, double ip, double is,
-                          double tsh, double ish) {
-        StopChannelCountTable ct;
-        ct.channel_id = spec.channel_id;  ct.channel_type = spec.channel_type;
-        ct.term_pre = tp;  ct.term_stop = ts;  ct.int_pre = ip;  ct.int_stop = is;
-        ct.has_shadow = spec.has_deam_shadow;  ct.term_shadow = tsh;  ct.int_shadow = ish;
-        ct.shadow_in_z = spec.shadow_in_z;  ct.shadow_in_rate = spec.shadow_in_rate;
-        const bool shadow = spec.shadow_in_z;
-        ct.z_num_term = ts;  ct.z_den_term = tp + ts + (shadow ? tsh : 0.0);
-        ct.z_num_int  = is;  ct.z_den_int  = ip + is + (shadow ? ish : 0.0);
-        ct.raw_rate_term = (tp + ts > 0.0) ? ts / (tp + ts) : 0.0;
-        ct.raw_rate_int  = (ip + is > 0.0) ? is / (ip + is) : 0.0;
-        ct.pre_clamp_z = binom_z_raw(ct.z_num_term, ct.z_den_term, ct.z_num_int, ct.z_den_int);
-        ct.z_cap = static_cast<double>(SampleDamageProfile::kZCap);
-        ct.cap_applied = std::isfinite(ct.pre_clamp_z) && std::abs(ct.pre_clamp_z) > ct.z_cap;
-        ct.post_clamp_z = std::isfinite(ct.pre_clamp_z)
-                          ? std::clamp(ct.pre_clamp_z, -ct.z_cap, ct.z_cap)
-                          : ct.pre_clamp_z;
-        ct.has_strata = spec.has_mh_stratification;
-        return ct;
-    };
-
     // Shared finalization: fills baseline, terminal rate, interior rate, uniformity.
     // pre_i/stop_i is the already-resolved interior reference (far or mid-read).
     // C3: validity must certify exactly the metrics a consumer reads under it.
@@ -2455,6 +2455,23 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             if (int_r > 1e-6f && term_r > 0.0f) unif = term_r / int_r;
         }
         valid = have_base && have_term && have_int;
+    };
+
+    // Layer-2 producer: one function turns a stop channel's spec + accumulated terminal/interior
+    // counts into BOTH the Layer-0 count table AND the emitted z / rates / validity. The emitted z
+    // is taken from the count table's own clamped z, so every emitted stop-channel metric traces to
+    // exactly one count-table row — there is no longer a separate binom_z call that could silently
+    // diverge from the table the gate checks.
+    auto compute_stop_channel = [&](const ChannelSpec& spec,
+                                    double pre_tot, double stop_tot,
+                                    double pre_t, double stop_t, double pre_i, double stop_i,
+                                    double shadow_t, double shadow_i,
+                                    float& out_z, float& baseline, float& term_r,
+                                    float& int_r, float& unif, bool& valid) -> StopChannelCountTable {
+        StopChannelCountTable ct = make_stop_count_table(spec, pre_t, stop_t, pre_i, stop_i, shadow_t, shadow_i);
+        out_z = static_cast<float>(ct.post_clamp_z);
+        fin_oxog(pre_tot, stop_tot, pre_t, stop_t, pre_i, stop_i, baseline, term_r, int_r, unif, valid);
+        return ct;
     };
 
     // Channels F, G, H: resolve interior reference (far-interior pos 30+ if ≥50 counts,
@@ -2490,11 +2507,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         double pre_i    = use_far ? pre_far    : pre_m;
         double stop_i   = use_far ? stop_far   : stop_m;
         double shadow_i = use_far ? shadow_far : shadow_m;
-        profile.channel_f_z = binom_z(stop_t, pre_t + stop_t + shadow_t, stop_i, pre_i + stop_i + shadow_i);
-        fin_oxog(pre5, stop5, pre_t, stop_t, pre_i, stop_i,
-                 profile.ca_stop_rate_baseline, profile.ca_stop_rate_terminal,
+        StopChannelCountTable f_ct = compute_stop_channel(stop_channel_spec('F'),
+                 pre5, stop5, pre_t, stop_t, pre_i, stop_i, shadow_t, shadow_i,
+                 profile.channel_f_z, profile.ca_stop_rate_baseline, profile.ca_stop_rate_terminal,
                  profile.ca_stop_rate_interior, profile.ca_uniformity_ratio, profile.channel_f_valid);
-        StopChannelCountTable f_ct = compute_ct(stop_channel_spec('F'), pre_t, stop_t, pre_i, stop_i, shadow_t, shadow_i);
 
         // Mantel-Haenszel stratified test: 3 context strata (TCA+TAC, TCG, TGC)
         // Removes terminal context-composition bias that inflates negative z.
@@ -2578,11 +2594,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         double stop_far = (double)profile.cg_stop_interior;
         double pre_i  = (pre_far + stop_far >= 50) ? pre_far  : pre_m;
         double stop_i = (pre_far + stop_far >= 50) ? stop_far : stop_m;
-        profile.channel_g_z = binom_z(stop_t, pre_t + stop_t, stop_i, pre_i + stop_i);
-        fin_oxog(pre5, stop5, pre_t, stop_t, pre_i, stop_i,
-                 profile.cg_stop_rate_baseline, profile.cg_stop_rate_terminal,
-                 profile.cg_stop_rate_interior, profile.cg_uniformity_ratio, profile.channel_g_valid);
-        profile.count_tables.push_back(compute_ct(stop_channel_spec('G'), pre_t, stop_t, pre_i, stop_i, 0.0, 0.0));
+        profile.count_tables.push_back(compute_stop_channel(stop_channel_spec('G'),
+                 pre5, stop5, pre_t, stop_t, pre_i, stop_i, 0.0, 0.0,
+                 profile.channel_g_z, profile.cg_stop_rate_baseline, profile.cg_stop_rate_terminal,
+                 profile.cg_stop_rate_interior, profile.cg_uniformity_ratio, profile.channel_g_valid));
 
         double pre3 = 0, stop3 = 0, pre_t3 = 0, stop_t3 = 0, pre_m3 = 0, stop_m3 = 0;
         for (int p = 0; p < 15; ++p) {
@@ -2616,9 +2631,11 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         double stop_far = (double)profile.at_stop_interior;
         double pre_i  = (pre_far + stop_far >= 50) ? pre_far  : pre_m;
         double stop_i = (pre_far + stop_far >= 50) ? stop_far : stop_m;
-        profile.channel_h_z        = binom_z(stop_t,  pre_t  + stop_t,  stop_i, pre_i + stop_i);
+        StopChannelCountTable h_ct = compute_stop_channel(stop_channel_spec('H'),
+                 pre5, stop5, pre_t, stop_t, pre_i, stop_i, 0.0, 0.0,
+                 profile.channel_h_z, profile.at_stop_rate_baseline, profile.at_stop_rate_terminal,
+                 profile.at_stop_rate_interior, profile.at_uniformity_ratio, profile.channel_h_valid);
         profile.channel_h_z_p2plus = binom_z(stop_t2, pre_t2 + stop_t2, stop_i, pre_i + stop_i);
-        profile.count_tables.push_back(compute_ct(stop_channel_spec('H'), pre_t, stop_t, pre_i, stop_i, 0.0, 0.0));
         // C5: genuine A->T stop-enrichment should produce positive z at BOTH windows. When
         // h_z (incl. p0/p1) and h_z_p2plus (excl. p0/p1) disagree in sign, the signal
         // is artifact-driven at p0/p1. This flag surfaces that contradiction; the
@@ -2626,9 +2643,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         profile.channel_h_z_consistent =
             std::isfinite(profile.channel_h_z) && std::isfinite(profile.channel_h_z_p2plus) &&
             ((profile.channel_h_z >= 0.0f) == (profile.channel_h_z_p2plus >= 0.0f));
-        fin_oxog(pre5, stop5, pre_t, stop_t, pre_i, stop_i,
-                 profile.at_stop_rate_baseline, profile.at_stop_rate_terminal,
-                 profile.at_stop_rate_interior, profile.at_uniformity_ratio, profile.channel_h_valid);
+        profile.count_tables.push_back(std::move(h_ct));
 
         double pre3 = 0, stop3 = 0, pre_t3 = 0, stop_t3 = 0, pre_m3 = 0, stop_m3 = 0;
         for (int p = 0; p < 15; ++p) {
@@ -5946,48 +5961,66 @@ void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
 
     uint32_t n_excl = 0;
 
+    // Single-producer invariant across the exclusion path: the emitted z/rate are overwritten below
+    // from a Layer-0 row rebuilt on the adapter-excluded counts, and that row REPLACES the primary
+    // row in profile.count_tables, so the golden gate sees exactly what is emitted. The
+    // Mantel-Haenszel strata are not adapter-excluded (channel_f_mh_z is a separate stratified
+    // statistic computed on the full window and not recomputed here), so preserve them from the
+    // primary row.
+    auto replace_ct_row = [&profile](char type, StopChannelCountTable nct) {
+        for (auto& row : profile.count_tables) {
+            if (row.channel_type == type) {
+                nct.strata = row.strata;
+                nct.has_strata = row.has_strata;
+                row = std::move(nct);
+                return;
+            }
+        }
+    };
+
     if (!excl_5p.empty()) {
-        // Channel F 5'
+        // Channel F 5' — rebuild the Layer-0 row from the adapter-excluded terminal counts (interior
+        // is not prefix-split), then take z and shadow-free rates straight from that row.
         auto [pf, sf] = resum(profile.ca_pre_terminal_by_pfx,
                                profile.ca_stop_terminal_by_pfx, skip5);
         double shadow_f = 0;
         for (uint32_t i = 0; i < 4096; ++i)
             if (!skip5[i]) shadow_f += profile.ca_deam_shadow_terminal_by_pfx[i];
-        double ni_f_z = profile.ca_pre_interior + profile.ca_stop_interior + profile.ca_deam_shadow_interior;  // shadow only for z-score (matches primary binom_z)
-        double ni_f   = profile.ca_pre_interior + profile.ca_stop_interior;                                     // shadow-free for rate (matches fin_oxog)
-        profile.channel_f_z = binom_z_clamped(sf, pf + sf + shadow_f,
-                                         profile.ca_stop_interior, ni_f_z);
-        profile.ca_stop_rate_terminal = (pf+sf+shadow_f > 0) ? sf/(pf+sf+shadow_f) : 0.0;
-        // C5: shadow-free denominator aligns ca_stop_rate_interior with fin_oxog formula;
-        // recompute ca_uniformity_ratio so it stays consistent with the updated interior rate.
-        if (ni_f > 0) {
-            profile.ca_stop_rate_interior = static_cast<float>(profile.ca_stop_interior / ni_f);
-            if (profile.ca_stop_rate_interior > 1e-6f && profile.ca_stop_rate_terminal > 0.0f)
-                profile.ca_uniformity_ratio = profile.ca_stop_rate_terminal / profile.ca_stop_rate_interior;
-        }
-        profile.channel_f_valid = (pf+sf+shadow_f >= 10 && ni_f_z >= 10);
+        StopChannelCountTable f_ct = make_stop_count_table(stop_channel_spec('F'),
+            pf, sf, profile.ca_pre_interior, profile.ca_stop_interior,
+            shadow_f, profile.ca_deam_shadow_interior);
+        replace_ct_row('F', f_ct);
+        profile.channel_f_z = static_cast<float>(f_ct.post_clamp_z);
+        profile.ca_stop_rate_terminal = static_cast<float>(f_ct.raw_rate_term);  // shadow-free (registry shadow_in_rate=false), matches primary path
+        profile.ca_stop_rate_interior = static_cast<float>(f_ct.raw_rate_int);
+        if (profile.ca_stop_rate_interior > 1e-6f && profile.ca_stop_rate_terminal > 0.0f)
+            profile.ca_uniformity_ratio = profile.ca_stop_rate_terminal / profile.ca_stop_rate_interior;
+        profile.channel_f_valid = (f_ct.z_den_term >= 10 && f_ct.z_den_int >= 10);
         // Channel G 5'
         auto [pg, sg] = resum(profile.cg_pre_terminal_by_pfx,
                                profile.cg_stop_terminal_by_pfx, skip5);
-        double ni_g = profile.cg_pre_interior + profile.cg_stop_interior;
-        profile.channel_g_z = binom_z_clamped(sg, pg+sg,
-                                         profile.cg_stop_interior, ni_g);
-        profile.cg_stop_rate_terminal = (pg+sg > 0) ? sg/(pg+sg) : 0.0;
-        if (ni_g > 0) profile.cg_stop_rate_interior = static_cast<float>(profile.cg_stop_interior / ni_g);  // C3: refresh interior
-        profile.channel_g_valid = (pg+sg >= 10 && ni_g >= 10);
+        StopChannelCountTable g_ct = make_stop_count_table(stop_channel_spec('G'),
+            pg, sg, profile.cg_pre_interior, profile.cg_stop_interior, 0.0, 0.0);
+        replace_ct_row('G', g_ct);
+        profile.channel_g_z = static_cast<float>(g_ct.post_clamp_z);
+        profile.cg_stop_rate_terminal = static_cast<float>(g_ct.raw_rate_term);
+        profile.cg_stop_rate_interior = static_cast<float>(g_ct.raw_rate_int);
+        profile.channel_g_valid = (g_ct.z_den_term >= 10 && g_ct.z_den_int >= 10);
         // Channel H 5'
         auto [ph, sh] = resum(profile.at_pre_terminal_by_pfx,
                                profile.at_stop_terminal_by_pfx, skip5);
         double ni_h = profile.at_pre_interior + profile.at_stop_interior;
-        profile.channel_h_z = binom_z_clamped(sh, ph+sh,
-                                          profile.at_stop_interior, ni_h);
+        StopChannelCountTable h_ct = make_stop_count_table(stop_channel_spec('H'),
+            ph, sh, profile.at_pre_interior, profile.at_stop_interior, 0.0, 0.0);
+        replace_ct_row('H', h_ct);
+        profile.channel_h_z = static_cast<float>(h_ct.post_clamp_z);
         auto [ph2, sh2] = resum(profile.at_pre_terminal_p2plus_by_pfx,
                                  profile.at_stop_terminal_p2plus_by_pfx, skip5);
         profile.channel_h_z_p2plus = binom_z_clamped(sh2, ph2+sh2,
                                                  profile.at_stop_interior, ni_h);
-        profile.at_stop_rate_terminal = (ph+sh > 0) ? sh/(ph+sh) : 0.0;
-        if (ni_h > 0) profile.at_stop_rate_interior = static_cast<float>(profile.at_stop_interior / ni_h);  // C3: refresh interior
-        profile.channel_h_valid = (ph+sh >= 10 && ni_h >= 10);
+        profile.at_stop_rate_terminal = static_cast<float>(h_ct.raw_rate_term);
+        profile.at_stop_rate_interior = static_cast<float>(h_ct.raw_rate_int);
+        profile.channel_h_valid = (h_ct.z_den_term >= 10 && h_ct.z_den_int >= 10);
         // C5: recompute h_z sign-consistency after adapter-prefix exclusion.
         profile.channel_h_z_consistent =
             std::isfinite(profile.channel_h_z) && std::isfinite(profile.channel_h_z_p2plus) &&

@@ -33,6 +33,8 @@ struct ChannelSpec {
     const char*      channel_id;            // "F","G","H" (+ "F3"/"G3"/"H3" when 3' z is migrated)
     char             channel_type;          // 'F' | 'G' | 'H'
     const char*      json_name;             // emitted legend "name"
+    const char*      json_description;      // emitted legend "description"
+    const char*      json_mechanism;        // emitted legend "mechanism" string
     ChannelMechanism mechanism;
     MechanismStatus  mechanism_status;
     const char*      observable_name;       // measured substitution, e.g. "C_to_A_complement_asymmetry"
@@ -52,6 +54,8 @@ struct ChannelSpec {
 // asymmetry is declared, not implied. 3' (F3/G3/H3) join when their z is migrated in P3.
 inline constexpr std::array<ChannelSpec, 3> kStopChannels5p = {{
     { "F", 'F', "8_oxog_complement",
+      "C to A oxidative stop codons (TCA/TCG/TAC/TGC); bottom-strand 8-oxoguanine",
+      "oxidative_guanine_8_oxog",
       ChannelMechanism::DEAMINATION_OX_SHADOW, MechanismStatus::ESTABLISHED,
       "C_to_A_complement_asymmetry", "bottom_strand_8oxoG", StrandFrame::COMPLEMENT,
       /*has_deam_shadow*/ true, /*shadow_in_z*/ true, /*shadow_in_rate*/ false,
@@ -59,6 +63,8 @@ inline constexpr std::array<ChannelSpec, 3> kStopChannels5p = {{
       VarianceFamily::MANTEL_HAENSZEL_OR, CapPolicy::CLAMP_ZCAP },
 
     { "G", 'G', "cg_stop_enrichment",
+      "C to G stop codons (TCA/TAC to TGA/TAG); empirical terminal stop-enrichment. NOT an earned hydantoin assignment (hydantoins are guanine over-oxidation products; this is a complement-strand C to G observation)",
+      "empirical_stop_enrichment",
       ChannelMechanism::STOP_ENRICHMENT_EMPIRICAL, MechanismStatus::EMPIRICAL,
       "C_to_G_stop_enrichment", nullptr, StrandFrame::COMPLEMENT,
       /*has_deam_shadow*/ false, /*shadow_in_z*/ false, /*shadow_in_rate*/ false,
@@ -66,6 +72,8 @@ inline constexpr std::array<ChannelSpec, 3> kStopChannels5p = {{
       VarianceFamily::POOLED_BERNOULLI, CapPolicy::CLAMP_ZCAP },
 
     { "H", 'H', "at_stop_enrichment",
+      "A to T stop codons (AAA/AAG/AGA to TAA/TAG/TGA); empirical terminal stop-enrichment. No established direct adenine-oxidation to A to T pathway",
+      "empirical_stop_enrichment",
       ChannelMechanism::STOP_ENRICHMENT_EMPIRICAL, MechanismStatus::EMPIRICAL,
       "A_to_T_stop_enrichment", nullptr, StrandFrame::TOP_5P,
       /*has_deam_shadow*/ false, /*shadow_in_z*/ false, /*shadow_in_rate*/ false,

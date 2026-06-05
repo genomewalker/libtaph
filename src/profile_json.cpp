@@ -1,6 +1,7 @@
 #include "taph/profile_json.hpp"
 #include "taph/library_interpretation.hpp"
 #include "taph/length_bin_damage_profile.hpp"
+#include "taph/channel_registry.hpp"
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -1825,15 +1826,25 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"enrichment_3prime\": "; jfloat(dp.purine_enrichment_3prime); j << "\n";
         j << "    },\n";
 
+        // Layer-3 emitter: F/G/H legend metadata (name/description/mechanism/observable/status/
+        // lesion) is sourced from the ChannelSpec registry, so the registry is the single authority
+        // for channel semantics; the per-channel numeric fields are emitted inline below.
+        auto emit_channel_meta = [&](const ChannelSpec& s) {
+            j << "      \"channel\": \"" << s.channel_type << "\",\n";
+            j << "      \"name\": \"" << s.json_name << "\",\n";
+            j << "      \"description\": \"" << s.json_description << "\",\n";
+            j << "      \"mechanism\": \"" << s.json_mechanism << "\",\n";
+            j << "      \"observable\": \"" << s.observable_name << "\",\n";
+            j << "      \"mechanism_status\": \""
+              << (s.mechanism_status == MechanismStatus::ESTABLISHED ? "established" : "empirical") << "\",\n";
+            j << "      \"inferred_lesion\": ";
+            if (s.inferred_lesion) j << "\"" << s.inferred_lesion << "\""; else j << "null";
+            j << ",\n";
+        };
+
         // Channel F
         j << "    {\n";
-        j << "      \"channel\": \"F\",\n";
-        j << "      \"name\": \"8_oxog_complement\",\n";
-        j << "      \"description\": \"C to A oxidative stop codons (TCA/TCG/TAC/TGC); bottom-strand 8-oxoguanine\",\n";
-        j << "      \"mechanism\": \"oxidative_guanine_8_oxog\",\n";
-        j << "      \"observable\": \"C_to_A_complement_asymmetry\",\n";
-        j << "      \"mechanism_status\": \"established\",\n";
-        j << "      \"inferred_lesion\": \"bottom_strand_8oxoG\",\n";
+        emit_channel_meta(stop_channel_spec('F'));
         j << "      \"detected\": " << jbool(ch_f_detected) << ",\n";
         j << "      \"applicable\": " << (!is_ss ? "true" : "false") << ",\n";
         j << "      \"valid\": " << jbool(dp.channel_f_valid) << ",\n";
@@ -1849,13 +1860,7 @@ void profile_to_json(const SampleDamageProfile& dp,
 
         // Channel G
         j << "    {\n";
-        j << "      \"channel\": \"G\",\n";
-        j << "      \"name\": \"cg_stop_enrichment\",\n";
-        j << "      \"description\": \"C to G stop codons (TCA/TAC to TGA/TAG); empirical terminal stop-enrichment. NOT an earned hydantoin assignment (hydantoins are guanine over-oxidation products; this is a complement-strand C to G observation)\",\n";
-        j << "      \"mechanism\": \"empirical_stop_enrichment\",\n";
-        j << "      \"observable\": \"C_to_G_stop_enrichment\",\n";
-        j << "      \"mechanism_status\": \"empirical\",\n";
-        j << "      \"inferred_lesion\": null,\n";
+        emit_channel_meta(stop_channel_spec('G'));
         j << "      \"detected\": " << jbool(ch_g_detected) << ",\n";
         j << "      \"applicable\": " << (!is_ss ? "true" : "false") << ",\n";
         j << "      \"valid\": " << jbool(dp.channel_g_valid) << ",\n";
@@ -1867,13 +1872,7 @@ void profile_to_json(const SampleDamageProfile& dp,
 
         // Channel H
         j << "    {\n";
-        j << "      \"channel\": \"H\",\n";
-        j << "      \"name\": \"at_stop_enrichment\",\n";
-        j << "      \"description\": \"A to T stop codons (AAA/AAG/AGA to TAA/TAG/TGA); empirical terminal stop-enrichment. No established direct adenine-oxidation to A to T pathway\",\n";
-        j << "      \"mechanism\": \"empirical_stop_enrichment\",\n";
-        j << "      \"observable\": \"A_to_T_stop_enrichment\",\n";
-        j << "      \"mechanism_status\": \"empirical\",\n";
-        j << "      \"inferred_lesion\": null,\n";
+        emit_channel_meta(stop_channel_spec('H'));
         j << "      \"detected\": " << jbool(ch_h_detected) << ",\n";
         j << "      \"valid\": " << jbool(dp.channel_h_valid) << ",\n";
         j << "      \"baseline_rate\": "; jfloat(dp.at_stop_rate_baseline); j << ",\n";
