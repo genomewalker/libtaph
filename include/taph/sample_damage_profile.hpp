@@ -334,6 +334,13 @@ struct SampleDamageProfile {
     bool library_type_auto_detected = false;  // true when set by auto-detection, not user override
     bool library_type_rescued = false;  // true when DS call recovered from BIC failure via rescue rule
 
+    // Wave-2b: per-rule override ledger. The BIC tournament is the sole producer of
+    // library_type (mirrored into library_bic_call); every post-hoc rescue/veto that
+    // changes the call writes ONE record here via the single apply_override sink, so the
+    // divergence from library_bic_call is a witnessed chain, not a scatter of silent edits.
+    struct LibraryOverride { const char* rule_id; LibraryType from; LibraryType to; };
+    std::vector<LibraryOverride> library_overrides;
+
     // Posterior probabilities derived from the 7-model BIC tournament via
     // softmax(-BIC/2). Sum to 1.0 within numerical precision when evaluable.
     // p_winner = max of the three; library_type_confidence_threshold below

@@ -3809,6 +3809,18 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         profile.libtype_dbic_ga0 = ga0.delta_bic;
         profile.libtype_dbic_ct3 = ct3.delta_bic;
 
+        // Wave-2b: the SINGLE sink for every post-hoc change to library_type. The BIC
+        // tournament (below) is the sole producer; thereafter no rule writes library_type
+        // directly -- each rescue/veto calls apply_override, which records {rule_id, from, to}
+        // so the divergence from library_bic_call is a witnessed ledger. Declared at function
+        // scope so it also covers the misspec UNKNOWN->DS rescue outside the BIC-evaluable block.
+        auto apply_override = [&profile](const char* rule_id,
+                                         SampleDamageProfile::LibraryType to,
+                                         bool sets_rescued) {
+            profile.library_overrides.push_back({rule_id, profile.library_type, to});
+            profile.library_type = to;
+            if (sets_rescued) profile.library_type_rescued = true;
+        };
         if (ct5.valid && ga3.valid && ga0.valid && ct3.valid && ds_symm.valid) {
             // Hard biological gates (no tunable parameters):
             //   M_DS_symm:     DS damage is symmetric — requires ga3 to have real
@@ -3925,38 +3937,42 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // M_DS_spike contributes to SS instead when spike_is_ss=true,
             // matching the cascade's interpretation of bilateral pos-0 GA.
             double best = bic_M_bias;
-            profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+            // Wave-2b: the BIC tournament writes a LOCAL bic_type; profile.library_type is
+            // assigned exactly ONCE below (and frozen as library_bic_call), so the producer is
+            // a single writer. Every post-hoc override then flows through apply_override.
+            SampleDamageProfile::LibraryType bic_type =
+                SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
             bool ds_spike_won = false;  // tracks whether M_DS_spike is the current winning model
 
             if (bic_M_DS_symm < best) {
                 best = bic_M_DS_symm;
-                profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+                bic_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
             }
             if (!spike_is_ss && bic_M_DS_spike < best) {
                 best = bic_M_DS_spike;
-                profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+                bic_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
                 ds_spike_won = true;
             }
             if (bic_M_DS_symm_art < best) {
                 best = bic_M_DS_symm_art;
-                profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+                bic_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
                 ds_spike_won = false;
             }
             if (bic_M_SS_comp < best) {
                 best = bic_M_SS_comp;
-                profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+                bic_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
                 ds_spike_won = false;
             }
             // M_SS_orig requires ct3 signal: SS original-orientation reads produce CT3 whenever
             // they produce CT5. Without CT3, a one-sided DS pattern is more likely.
             if (bic_M_SS_orig < best && ct3.delta_bic > 0.0) {
                 best = bic_M_SS_orig;
-                profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+                bic_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
                 ds_spike_won = false;
             }
             if (spike_is_ss && bic_M_DS_spike < best) {
                 best = bic_M_DS_spike;
-                profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+                bic_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
                 ds_spike_won = false;
             }
             // M_SS_asym: SS with CT5 from original-orientation + GA0 spike from complement-orientation,
@@ -3964,12 +3980,13 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // iff ga3.delta_bic < log(2) ≈ 0.693, which is the gap the joint-fit BIC penalty creates.
             if (spike_is_ss && bic_M_SS_asym < best) {
                 best = bic_M_SS_asym;
-                profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+                bic_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
             }
-            // Wave-2: freeze the pure-BIC argmin verdict BEFORE any rescue mutates the call, so the
-            // emitted library_type's divergence from BIC is witnessed (the rescues below are overrides
-            // of this, flagged by library_type_rescued + library_call_overridden, not silent edits).
-            profile.library_bic_call = profile.library_type;
+            // Wave-2: the single producer write + freeze the pure-BIC argmin verdict BEFORE any
+            // rescue mutates the call, so the emitted library_type's divergence from BIC is
+            // witnessed (the rescues below are apply_override records, not silent edits).
+            profile.library_type     = bic_type;
+            profile.library_bic_call = bic_type;
             // Post-hoc symmetry check: DS_symm constrains ct5_amp ≈ ga3_amp.
             // If DS wins but CT5 ΔBIC / GA3 ΔBIC < 0.50, the winning model's own symmetry
             // assumption is violated → reclassify as SS. Guard ga3.delta_bic > 3e4 to avoid
@@ -3988,7 +4005,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 ss_orientation_evidence &&
                 ga3.delta_bic > 3e4 &&
                 ct5.delta_bic / ga3.delta_bic < 0.50) {
-                profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+                apply_override("symmetry_veto_ds_to_ss",
+                               SampleDamageProfile::LibraryType::SINGLE_STRANDED, false);
                 ds_spike_won = false;
             }
             // M_DS_spike rescue: a GA0 pos-0 spike with no CT5 and no GA3 smooth decay could be
@@ -4008,7 +4026,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 ga0.delta_bic > 0.0 &&
                 ga0.amplitude > 0.02f &&
                 profile.max_damage_5prime <= 0.005f) {
-                profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+                apply_override("ds_spike_complement_to_ss",
+                               SampleDamageProfile::LibraryType::SINGLE_STRANDED, false);
             }
             // GA0 bilateral rescue (spike_is_ss path): when ga0.amplitude >= 0.10 and DS wins,
             // discriminate DS end-repair (bilateral: both 5' pos-0 CT and 3' pos-0 GA elevated)
@@ -4019,7 +4038,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 spike_is_ss &&
                 ga0.delta_bic > 0.0 &&
                 profile.max_damage_5prime <= 0.005f) {
-                profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+                apply_override("ga0_bilateral_to_ss",
+                               SampleDamageProfile::LibraryType::SINGLE_STRANDED, false);
             }
             // Channel-B structural DS rescue: if channel-B (stop codon conversion, immune to
             // composition bias) confirmed bilateral symmetric damage > 0.10, AND the 3' ligation
@@ -4035,8 +4055,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             if (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED
                 && structural_bilateral && ga_spike_dominant
                 && ct3.delta_bic <= 0.0) {
-                profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
-                profile.library_type_rescued = true;
+                apply_override("channel_b_structural_ds",
+                               SampleDamageProfile::LibraryType::DOUBLE_STRANDED, true);
             }
             // GA0-spike DS-symm veto: when the 3' ga0 ligation spike unambiguously
             // dominates (ga0 >= 0.10, ga0_dominates_ct5, ga0 > both ct5 and ga3),
@@ -4052,7 +4072,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 ga0.amplitude >= 0.10f &&
                 ga0.amplitude > std::max(ct5.amplitude, ga3.amplitude) &&
                 (best == bic_M_DS_symm || best == bic_M_DS_symm_art)) {
-                profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+                apply_override("ga0_spike_dssymm_veto",
+                               SampleDamageProfile::LibraryType::SINGLE_STRANDED, false);
             }
             // Channel-B DS rescue from M_SS_comp: structural_bilateral confirms
             // bilateral symmetric damage (channel B is artifact-immune); ct5≈ga3
@@ -4069,8 +4090,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 ga3.amplitude >= 0.03f &&
                 std::abs(ct5.amplitude - ga3.amplitude) <=
                     0.30f * std::max(ct5.amplitude, ga3.amplitude)) {
-                profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
-                profile.library_type_rescued = true;
+                apply_override("channel_b_ds_from_sscomp",
+                               SampleDamageProfile::LibraryType::DOUBLE_STRANDED, true);
             }
             // Low-amp symmetric DS rescue: zero 3' damage collapses the per-end
             // DS amplitudes so M_SS_full / M_SS_orig wins raw BIC, but the joint
@@ -4084,8 +4105,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 std::abs(ct5.amplitude - ga3.amplitude) <=
                     0.50f * std::max(ct5.amplitude, ga3.amplitude) &&
                 profile.max_damage_3prime < 0.005f) {
-                profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
-                profile.library_type_rescued = true;
+                apply_override("low_amp_symmetric_ds",
+                               SampleDamageProfile::LibraryType::DOUBLE_STRANDED, true);
             }
             // S1 telemetry: capture cascade-derived gate outputs.
             profile.library_gate_ss_orientation_evidence = ss_orientation_evidence;
@@ -4096,7 +4117,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             // updated via assignment from another BIC value, so equality is safe here.
             // Does NOT affect low-damage DS libraries where M_DS_symm still beats M_bias.
             if (best == bic_M_bias) {
-                profile.library_type = SampleDamageProfile::LibraryType::UNKNOWN;
+                apply_override("uninformative_bias_to_unknown",
+                               SampleDamageProfile::LibraryType::UNKNOWN, false);
             }
             // Protocol-tag rescue: top 5' hexamer is a chemistry fingerprint
             // (deterministic per library prep, independent of damage shape).
@@ -4123,8 +4145,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                                  && tag->log_lr < 4.0f
                                  && tag->klass == SampleDamageProfile::LibraryType::SINGLE_STRANDED);
                         if (tag_overrides) {
-                            profile.library_type        = tag->klass;
-                            profile.library_type_rescued = true;
+                            apply_override("protocol_tag_5prime", tag->klass, true);
                             profile.protocol_tag_applied = true;
                             profile.library_artifact_reasons.push_back("protocol_tag_5prime");
                         }
@@ -4315,7 +4336,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 profile.library_p_winner > 0.0f &&
                 profile.library_p_winner <
                     SampleDamageProfile::kLibraryTypeConfidenceThreshold) {
-                profile.library_type = SampleDamageProfile::LibraryType::UNKNOWN;
+                apply_override("low_confidence_to_unknown",
+                               SampleDamageProfile::LibraryType::UNKNOWN, false);
             }
         } else {
             profile.library_bic_bias = 0.0;
@@ -4380,8 +4402,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                     && ga0_exc  <= 0.01f
                     && ct3_exc  <= 0.01f
                     && std::max(ga0_exc, ct3_exc) <= 0.4f * ct5_exc) {
-                    profile.library_type         = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
-                    profile.library_type_rescued = true;
+                    apply_override("misspec_unknown_to_ds",
+                                   SampleDamageProfile::LibraryType::DOUBLE_STRANDED, true);
                 }
             }
         }

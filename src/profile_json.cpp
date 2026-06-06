@@ -131,6 +131,17 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "  \"library_call_overridden\": "
       << ((dp.library_bic_call != SampleDamageProfile::LibraryType::UNKNOWN
            && dp.library_bic_call != dp.library_type) ? "true" : "false") << ",\n";
+    // Wave-2b: the override ledger -- one {rule, from, to} record per post-hoc rescue/veto
+    // that moved library_type away from library_bic_call (empty [] when BIC stands).
+    j << "  \"library_overrides\": [";
+    for (size_t i = 0; i < dp.library_overrides.size(); ++i) {
+        const auto& ov = dp.library_overrides[i];
+        if (i) j << ", ";
+        j << "{\"rule\": \"" << ov.rule_id
+          << "\", \"from\": \"" << libtype_human(ov.from)
+          << "\", \"to\": \"" << libtype_human(ov.to) << "\"}";
+    }
+    j << "],\n";
     j << "  \"library_type_auto\": " << (dp.library_type_auto_detected ? "true" : "false") << ",\n";
     j << "  \"library_type_rescued\": " << (dp.library_type_rescued ? "true" : "false") << ",\n";
     j << "  \"library_type_evaluable\": " << (dp.library_type_evaluable ? "true" : "false") << ",\n";
