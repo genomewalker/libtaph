@@ -5258,6 +5258,12 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             BulkDamageSuffStats bs;
             bs.ss = is_ss;
             bs.skip_3p_pos0 = is_ss;          // ss ligation artifact at the 3' terminal base
+            // Wave-3: model the 5' terminus as genuine single-strand overhang (r(0)=1) iff this is an
+            // ss library AND p0 is not an adapter/composition artifact (identifiable overhang). Otherwise
+            // the ss kernel falls back to the ds form and ss_overhang_degenerate is logged below.
+            bs.ss_p0_overhang = is_ss
+                             && !profile.position_0_artifact_5prime
+                             && !profile.briggs_pos0_masked_5prime;
             bs.bin.resize(L);
             bs.k_interior.resize(L);
             bs.n_interior.resize(L);
@@ -5315,6 +5321,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
             profile.bulk_attempted = true;
             BulkDamageResult R = BulkDamageModel::fit(bs);
+            // Wave-3: record whether the bulk kernel modeled the 5' ss overhang (r(0)=1), or fell back
+            // to the ds exp form. degenerate = ss library whose terminal overhang was not identifiable.
+            profile.ss_overhang_modeled    = R.ss_overhang_modeled;
+            profile.ss_overhang_degenerate = is_ss && !R.ss_overhang_modeled;
 
             // fill the per-bin length extents + read counts the solver does not know
             for (int l = 0; l < L && l < static_cast<int>(R.bins.size()); ++l) {

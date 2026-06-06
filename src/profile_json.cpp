@@ -1544,6 +1544,11 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"protocol_tag_applied\": "    << (dp.protocol_tag_applied ? "true" : "false") << ",\n";
     j << "    \"briggs_pos0_masked_5prime\": " << (dp.briggs_pos0_masked_5prime ? "true" : "false") << ",\n";
     j << "    \"briggs_pos0_masked_3prime\": " << (dp.briggs_pos0_masked_3prime ? "true" : "false") << ",\n";
+    // Wave-3: ss 5' single-strand overhang kernel status (bulk damage model). modeled=true when the
+    // terminus was included as overhang (r(0)=1); degenerate=true when an ss library fell back to the
+    // ds exp kernel because the overhang was not identifiable (p0 artifact). Both false for ds.
+    j << "    \"ss_overhang_modeled\": " << (dp.ss_overhang_modeled ? "true" : "false") << ",\n";
+    j << "    \"ss_overhang_degenerate\": " << (dp.ss_overhang_degenerate ? "true" : "false") << ",\n";
     j << "    \"bg_5prime_anchored\": " << std::setprecision(6) << dp.bg_5prime_anchored << ",\n";
     j << "    \"bg_3prime_anchored\": " << dp.bg_3prime_anchored << ",\n";
     j << "    \"bg_n_positions_5prime\": " << dp.bg_n_positions_5prime << ",\n";

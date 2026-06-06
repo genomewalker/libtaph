@@ -81,8 +81,10 @@ struct BulkDamageSuffStats {
     // (S5,S3)-keyed moments {n, Σk5, Σk3, Σk5·k3} for bin l (ds/ss channel resolved at aggregation).
     std::vector<JStrat> jstrat;                           // [l]
 
-    bool ss = false;            // diagnostic only (channels already resolved upstream)
+    bool ss = false;            // single-stranded library: enables the 5' single-strand overhang kernel
     bool skip_3p_pos0 = true;   // ss ligation artifact: drop 3′ p=0 from the damage score
+    bool ss_p0_overhang = false; // Wave-3: model the 5' terminus (r(0)=1) as genuine ss overhang — set iff
+                                 // ss AND p0 is not an adapter/composition artifact (identifiable overhang)
 
     int L() const { return static_cast<int>(bin.size()); }
 
@@ -185,6 +187,8 @@ struct BulkDamageResult {
     bool   d_max_ancient_valid = false;
     bool   d_max_raw_railed    = false;
     bool   lambda_at_boundary  = false;  // C4: true when lambda == LAMBDA_MAX (decay rate unidentifiable)
+    bool   ss_overhang_modeled = false;  // Wave-3: ss 5' terminal overhang included in the kernel (r(0)=1);
+                                         // false ⇒ ds library, or ss whose p0 overhang was not identifiable
 };
 
 // ----------------------------------------------------------------------------- model / solver
@@ -192,6 +196,18 @@ struct BulkDamageResult {
 class BulkDamageModel {
 public:
     static BulkDamageResult fit(const BulkDamageSuffStats& s);
+
+    // Terminal (p=0) kernel weight — the one place the ds and ss decay kernels DIFFER.
+    //   ds: the 5' terminus is excluded from the decay (0); the p0 spike s[l][e] absorbs any
+    //       terminus-only adapter/composition artifact there.
+    //   ss: the 5' terminus is genuine single-strand overhang — the maximally exposed, fully
+    //       deaminated base — so it carries the full kernel weight r(0)=exp(0)=1, BUT only when
+    //       the overhang is identifiable (ss library AND p0 not flagged as an artifact). When not
+    //       identifiable the ss kernel falls back to the ds form (0) and ss_overhang_degenerate is
+    //       logged. Public + branch-free so it is directly unit-testable (ds≠ss).
+    static double terminal_kernel_weight(bool ss, bool ss_p0_overhang) {
+        return (ss && ss_p0_overhang) ? 1.0 : 0.0;
+    }
 
     // grid / bounds
     static constexpr int    N_POS       = BulkDamageSuffStats::N_POS;
@@ -225,6 +241,7 @@ private:
         std::vector<std::array<double, 2>> beta;          // β[l][c]
         std::vector<double>                delta;         // δ[l]  (isotonic non-increasing, δ_{Lmax}=0)
         double                             lambda = 0.3;
+        bool                               ss_p0_overhang = false;  // Wave-3: ss 5' overhang at p0 (r(0)=1)
         // FREE per-channel, length-INVARIANT terminal artifact (design B — no projection):
         //   logit η_{c,e,l,p} = β̂[l][c] + a[c][e][p] + s[l][e]·[c==0 && p==0]
         // a[c][e][p] is free per (channel,end,position) over live bins; a[c][e][14]=0 anchored.
@@ -244,11 +261,11 @@ private:
     }
     static double clamp_mu(double m) { return std::clamp(m, MU_EPS, 1.0 - MU_EPS); }
 
-    // Damage decay kernel r(p;λ).  r(p) = exp(−λ·p) for p≥1, 0 at p=0.
-    // Identical for ds and ss (no Briggs ss-overhang term in design B).
-    // p=0 is always excluded from the decay: the p0 spike s[l][e] handles terminus-only artifacts there.
-    static double r_kernel(const Params& P, bool /*ss*/, int p) {
-        return (p >= 1) ? std::exp(-P.lambda * p) : 0.0;
+    // Damage decay kernel r(p;λ). r(p)=exp(−λ·p) for p≥1; at p=0 the ds/ss terminus split applies
+    // (terminal_kernel_weight). The interior decay (p≥1) is identical for ds and ss.
+    static double r_kernel(const Params& P, bool ss, int p) {
+        return (p >= 1) ? std::exp(-P.lambda * p)
+                        : terminal_kernel_weight(ss, P.ss_p0_overhang);
     }
 
     // η_{c,e,l,p} = σ(β̂[l][c] + a[c][e][p] + s[l][e]·[c==0 && p==0]) — FREE per-channel artifact, p0 spike dmg-only.
@@ -334,6 +351,7 @@ inline void BulkDamageModel::init(const BulkDamageSuffStats& s, Params& P,
     P.beta.assign(L, {0.0, 0.0});
     P.delta.assign(L, 0.0);
     P.lambda = 0.3;
+    P.ss_p0_overhang = s.ss_p0_overhang;                // Wave-3: carry the ss-overhang gate into r_kernel
     P.s_spike.assign(L, {0.0, 0.0});                    // s[l][e]: init 0
     for (int c = 0; c < BulkDamageSuffStats::N_CH; ++c)
         for (int e = 0; e < N_END; ++e) P.a[c][e].fill(0.0);   // a[c][e][p]: init 0
@@ -661,6 +679,7 @@ inline BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s) {
     R.log_lik   = log_lik(s, P);
     R.lambda   = P.lambda;
     R.lambda_at_boundary = (P.lambda >= LAMBDA_MAX - 1e-9);
+    R.ss_overhang_modeled = s.ss && s.ss_p0_overhang;   // Wave-3: did r_kernel model the 5' ss overhang?
     // R.artifact = the damage-channel free terminal artifact a[0][e][p] (log-odds shift over β̂[l][0]) for
     // JSON. a[0][e][14]≡0 anchored. The p0 spike s[l][e] is length-dependent; fold its live-bin mean into
     // the p0 entry so the reported curve reflects the effective p0 shift used by the fit.

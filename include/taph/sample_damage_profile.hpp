@@ -418,6 +418,9 @@ struct SampleDamageProfile {
     double bg_denominator_3prime     = 0.0;
     bool   briggs_pos0_masked_5prime = false;
     bool   briggs_pos0_masked_3prime = false;
+    // Wave-3: single-strand overhang kernel status (bulk damage model, ss libraries only).
+    bool   ss_overhang_modeled    = false;  // 5' terminus modeled as ss overhang (r(0)=1) in the bulk kernel
+    bool   ss_overhang_degenerate = false;  // ss library but overhang not identifiable -> fell back to ds exp kernel
     float  damage_5prime_area_excess = 0.0f;
     float  damage_3prime_area_excess = 0.0f;
     float  damage_5prime_lr          = 0.0f;

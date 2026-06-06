@@ -78,6 +78,12 @@ if(TAPH_BUILD_TESTS)
     target_compile_options(test_damage_context_profile PRIVATE -O2 -Wall -Wextra)
     add_test(NAME damage_context_profile COMMAND test_damage_context_profile)
 
+    # Taphonomy A-bar: the bulk damage kernel must differ for ds vs ss at the 5' terminus (Wave-3).
+    add_executable(test_ss_overhang_kernel tests/test_ss_overhang_kernel.cpp)
+    target_link_libraries(test_ss_overhang_kernel PRIVATE taph)
+    target_compile_options(test_ss_overhang_kernel PRIVATE -O2 -Wall -Wextra)
+    add_test(NAME ss_overhang_kernel COMMAND test_ss_overhang_kernel)
+
     # Layer-0 count-table golden gate: re-profiles fixtured samples and diffs the pre-clamp count
     # tables (catches cap-masked z regressions the emitted-JSON gate cannot see). Self-skips when the
     # external panel inputs / fqdup binary are absent, so it is green in a data-less CI checkout.
