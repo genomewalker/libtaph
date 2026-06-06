@@ -329,6 +329,7 @@ struct SampleDamageProfile {
     // Library type detection
     enum class LibraryType { UNKNOWN, DOUBLE_STRANDED, SINGLE_STRANDED };
     LibraryType library_type = LibraryType::DOUBLE_STRANDED;  // Default to double-stranded
+    LibraryType library_bic_call = LibraryType::UNKNOWN;  // Wave-2: frozen pure-BIC argmin call, before any rescue/forced override; library_type may differ via a witnessed override
     LibraryType forced_library_type = LibraryType::UNKNOWN;  // User override (UNKNOWN = auto-detect)
     bool library_type_auto_detected = false;  // true when set by auto-detection, not user override
     bool library_type_rescued = false;  // true when DS call recovered from BIC failure via rescue rule

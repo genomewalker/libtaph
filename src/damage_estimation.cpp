@@ -3966,6 +3966,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                 best = bic_M_SS_asym;
                 profile.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED;
             }
+            // Wave-2: freeze the pure-BIC argmin verdict BEFORE any rescue mutates the call, so the
+            // emitted library_type's divergence from BIC is witnessed (the rescues below are overrides
+            // of this, flagged by library_type_rescued + library_call_overridden, not silent edits).
+            profile.library_bic_call = profile.library_type;
             // Post-hoc symmetry check: DS_symm constrains ct5_amp ≈ ga3_amp.
             // If DS wins but CT5 ΔBIC / GA3 ΔBIC < 0.50, the winning model's own symmetry
             // assumption is violated → reclassify as SS. Guard ga3.delta_bic > 3e4 to avoid

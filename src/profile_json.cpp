@@ -127,6 +127,10 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "  \"input\": \"" << in.sample_name << "\",\n";
     j << "  \"n_reads\": " << in.n_reads << ",\n";
     j << "  \"library_type\": \"" << dp.library_type_str() << "\",\n";
+    j << "  \"library_bic_call\": \"" << libtype_cstr(dp.library_bic_call) << "\",\n";  // Wave-2: frozen pure-BIC call
+    j << "  \"library_call_overridden\": "
+      << ((dp.library_bic_call != SampleDamageProfile::LibraryType::UNKNOWN
+           && dp.library_bic_call != dp.library_type) ? "true" : "false") << ",\n";
     j << "  \"library_type_auto\": " << (dp.library_type_auto_detected ? "true" : "false") << ",\n";
     j << "  \"library_type_rescued\": " << (dp.library_type_rescued ? "true" : "false") << ",\n";
     j << "  \"library_type_evaluable\": " << (dp.library_type_evaluable ? "true" : "false") << ",\n";
