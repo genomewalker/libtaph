@@ -666,6 +666,10 @@ void profile_to_json(const SampleDamageProfile& dp,
 
     // ── OxoG two-marker ───────────────────────────────────────────────────────
     j << "  \"oxo_two_marker\": {\n";
+    // Wave-1 item 6: oxo_two_marker is the PRIMARY reference-free oxidation readout (interior
+    // Chargaff D regressed on ssDNA-overhang markers). role/interpretation are non-numeric labels.
+    j << "    \"role\": \"primary_oxidation_readout\",\n";
+    j << "    \"interpretation\": \"Interior-Chargaff D regressed on ssDNA-overhang markers; recovers modest interior oxidation (G to T strong, C to A weak) that the terminal-scope channels C/D/F miss. C/D/F are scope-limited detectors whose nulls are informative, not the primary oxidation verdict.\",\n";
     j << "    \"valid\": " << (otm.valid ? "true" : "false") << ",\n";
     j << "    \"n_cells_used\": " << otm.n_cells_used << ",\n";
     j << "    \"beta1\": " << std::setprecision(6) << otm.beta1 << ",\n";
@@ -1814,7 +1818,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    {\n";
         j << "      \"channel\": \"C\",\n";
         j << "      \"name\": \"8_oxog_top_strand\",\n";
-        j << "      \"description\": \"G to T oxidative stop codons (GAA/GAG/GGA); top-strand 8-oxoguanine\",\n";
+        j << "      \"description\": \"G to T oxidative stop codons (GAA/GAG/GGA); top-strand 8-oxoguanine. Scope: top-strand G to T stop codons only; an informative null does not exclude interior oxidation (see oxo_two_marker), and the channel is diluted by modern-read admixture.\",\n";
         j << "      \"mechanism\": \"oxidative_guanine_8_oxog\",\n";
         j << "      \"detected\": " << jbool(dp.ox_damage_detected) << ",\n";
         j << "      \"valid\": " << jbool(dp.channel_c_valid) << ",\n";
@@ -1827,7 +1831,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    {\n";
         j << "      \"channel\": \"D\",\n";
         j << "      \"name\": \"chargaff_gt_asymmetry\",\n";
-        j << "      \"description\": \"Strand-asymmetric G to T / C to A excess; reference-free 8-oxoG cross-check\",\n";
+        j << "      \"description\": \"Strand-asymmetric G to T / C to A excess; reference-free 8-oxoG cross-check. SS-only: for DS libraries D cancels by Chargaff second-parity (an expected null, not absence of oxidation). The marker-regressed primary form is oxo_two_marker.\",\n";
         j << "      \"mechanism\": \"oxidative_guanine_8_oxog\",\n";
         // C4-style applicability: D and s_gt cancel for DS libraries by Chargaff's second parity
         // rule (T/(T+G)≈A/(A+C) on both strands), so D is applicable only to SS. Parallel to the

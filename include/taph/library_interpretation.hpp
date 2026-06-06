@@ -347,7 +347,13 @@ struct OxoGEstimate {
 
 OxoGEstimate compute_oxog_estimate(const SampleDamageProfile& dp, bool is_ss);
 
-// ── Two-marker oxidation regression ──────────────────────────────────────────
+// ── Two-marker oxidation regression — PRIMARY reference-free oxidation readout ──
+//
+// This is the primary reference-free oxidation verdict: it recovers the modest interior oxidation
+// (G→T strong, C→A weak) that the terminal-scope per-channel detectors C/D/F miss — C is diluted by
+// modern-read admixture, D cancels for DS libraries by Chargaff second-parity, and F is terminal-only.
+// markers_consistent (|beta1−beta2| agreement) is the oxidation verdict; C/D/F are scope-limited
+// corroborators whose informative nulls are NOT the headline.
 //
 // Regresses per-bin interior Chargaff asymmetry D = T/(T+G) - A/(A+C) against
 // two independent ssDNA-overhang markers:

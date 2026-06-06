@@ -789,6 +789,8 @@ struct SampleDamageProfile {
     uint64_t convertible_gga_interior = 0;
     uint64_t convertible_tga_ox_interior = 0;
 
+    // Channel C scope: top-strand G→T oxidative-stop detector. An informative null != no oxidation
+    // (the interior oxidation signal lives in oxo_two_marker; C is diluted by modern-read admixture).
     float ox_stop_conversion_rate_baseline = 0.0f;
     float ox_stop_rate_terminal = 0.0f;
     float ox_stop_rate_interior = 0.0f;
@@ -822,6 +824,9 @@ struct SampleDamageProfile {
 
 
     // Channel F: C→A oxidation stop codon tracking (complement-strand G→T).
+    // SCOPE: terminal stop-enrichment proxy for an ESTABLISHED bottom-strand 8-oxoG lesion. A null
+    // means no TERMINAL oxidation enrichment; it is insensitive to interior/non-terminal oxidation
+    // (recovered by oxo_two_marker). NOT a negative_control: the lesion is earned in the registry.
     // Precursors where C→A at codon pos 1 or pos 2 creates a stop:
     //   TCA→TAA (Ser→Ochre, pos1), TCG→TAG (Ser→Amber, pos1)
     //   TAC→TAA (Tyr→Ochre, pos2), TGC→TGA (Cys→Opal,  pos2)
@@ -950,6 +955,9 @@ struct SampleDamageProfile {
 
 
     // Channel D: G→T / C→A transversion tracking (8-oxoG, uniform across read)
+    // SS-only: for DS libraries D cancels by Chargaff second-parity (expected null by construction,
+    // NOT absence of oxidation). The interior-D oxidation signal is recovered marker-wise in
+    // oxo_two_marker, the primary reference-free oxidation readout.
     std::array<double, 15> g_count_5prime = {};     // G count at each 5' position
     std::array<double, 15> t_from_g_5prime = {};    // T where G expected (from G→T)
     std::array<double, 15> c_count_ox_5prime = {};  // C count for oxidation tracking

@@ -55,7 +55,7 @@ struct ChannelSpec {
 // asymmetry is declared, not implied.
 inline constexpr std::array<ChannelSpec, 3> kStopChannels5p = {{
     { "F", 'F', "8_oxog_complement",
-      "C to A oxidative stop codons (TCA/TCG/TAC/TGC); bottom-strand 8-oxoguanine",
+      "C to A oxidative stop codons (TCA/TCG/TAC/TGC); bottom-strand 8-oxoguanine. Scope: terminal stop-enrichment proxy for an established lesion -- a null means no TERMINAL oxidation enrichment and is insensitive to interior/non-terminal oxidation (the primary reference-free oxidation readout is oxo_two_marker)",
       "oxidative_guanine_8_oxog",
       MechanismStatus::ESTABLISHED,
       "C_to_A_complement_asymmetry", "bottom_strand_8oxoG", StrandFrame::COMPLEMENT,
