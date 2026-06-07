@@ -13,6 +13,9 @@ add_library(taph
     src/library_interpretation.cpp
     src/damage_profiler.cpp
     src/profile_json.cpp
+    src/fraction_fitting.cpp
+    src/llr_table.cpp
+    src/ancient_fraction.cpp
 )
 
 add_library(taph::taph ALIAS taph)
