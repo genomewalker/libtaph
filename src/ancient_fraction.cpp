@@ -87,7 +87,11 @@ AncientFractionResult compute_ancient_fraction(
         return static_cast<double>(h[0]) / n[0] < frac_bg;
     };
 
-    auto [ad5, al5] = fit_exp_decay_irls(anc_t5, anc_tc5, NP, anc_bg5, p0a5);
+    // Use modern interior (genomic T proxy) as the ancient fraction fit background.
+    // This makes d_max_5prime_fit = terminal deamination above genomic T rather than
+    // above the ancient component's own (elevated) interior, which previously
+    // confounded damage with interior deamination signal.
+    auto [ad5, al5] = fit_exp_decay_irls(anc_t5, anc_tc5, NP, mod_bg5, p0a5);
     auto [ad3, al3] = fit_exp_decay_irls(anc_h3, anc_n3,  NP, anc_bg3,
                                           frac_p0a3(anc_h3, anc_n3, anc_bg3));
     auto [md5, ml5] = fit_exp_decay_irls(mod_t5, mod_tc5, NP, mod_bg5, p0a5);

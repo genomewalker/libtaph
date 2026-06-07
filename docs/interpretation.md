@@ -346,25 +346,31 @@ of reads classified as ancient, using log-linear regression (OLS on
 log-transformed excess):
 
 ```
-log(T/TC(p) − bg) = log(d_max) − λ × p
+log(T/TC(p) − bg_modern) = log(d_max) − λ × p
 ```
 
-fitted over positions p = 0..14 where TC(p) ≥ 50 and excess > 0. The fit stops
-at the first position whose coverage falls below 50 (regardless of later
-positions); individual positions with non-positive excess before that point are
-skipped. OLS in log space assumes homoscedastic log-residuals, which binomial
-sampling does not guarantee — positions near the background threshold carry the
-most noise and disproportionate leverage on λ, so the fitted λ is approximate.
+where **`bg_modern`** is the interior T/TC rate of the modern-classified reads
+(positions 8–14) — a proxy for the per-sample genomic T frequency in the absence
+of deamination. This baseline is lower than the ancient component's own interior
+rate (which includes interior deamination), so `d5_fit` measures terminal
+deamination above genomic T, not merely above an already-damaged interior.
+
+The fit runs over positions p = 1..6 with coverage ≥ 50 and excess > 0 (pos 0
+is skipped for the same adapter-composition reasons as bulk d_max). OLS in log
+space assumes homoscedastic log-residuals, which binomial sampling does not
+guarantee — positions near the background threshold carry the most noise and
+disproportionate leverage on λ, so the fitted λ is approximate.
 
 This does not depend on the d_mod ≈ 0 or C-site/read-fraction assumptions of
 the mixture-identity estimate and gives both `d_max` and `λ` directly from the
 ancient-classified read pool. It is the preferred estimate when `pi` is uncertain
 or when you need the shape of the decay.
 
-Under d_mod ≈ 0 and clean classification, d5_fit typically meets or exceeds d5
-(mixture identity). The inequality can reverse if the modern pool carries
-background deamination (inflating bulk_d/π) or if classification leakage at very
-low π dilutes the ancient pool and pulls d5_fit down.
+Under d_mod ≈ 0 and clean classification, d5_fit typically exceeds d5
+(mixture identity) because the modern-interior background is lower than the
+full-pool interior (which blends ancient interior deamination into the baseline).
+Compare `d5_fit` to `rate_5prime[interior] − modern_fraction_rate5[interior]`
+to recover the interior deamination component not captured by the terminal fit.
 
 ### `modern_fraction_*` — modern component
 
