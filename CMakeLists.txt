@@ -6,16 +6,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ── Library target ────────────────────────────────────────────────────────────
 add_library(taph
-    src/damage_estimation.cpp
+    src/damage_estimation_update.cpp
+    src/damage_estimation_finalize.cpp
+    src/damage_estimation_channels.cpp
+    src/bulk_damage_model.cpp
     src/damage_c_api.cpp
     src/length_stratified_profile.cpp
     src/log_length_gmm.cpp
-    src/library_interpretation.cpp
+    src/library_interpretation_hex.cpp
+    src/library_interpretation_scores.cpp
+    src/library_interpretation_summary.cpp
     src/damage_profiler.cpp
     src/profile_json.cpp
     src/fraction_fitting.cpp
     src/llr_table.cpp
     src/ancient_fraction.cpp
+    src/oxog_score.cpp
 )
 
 add_library(taph::taph ALIAS taph)

@@ -124,7 +124,7 @@ void profile_to_json(const SampleDamageProfile& dp,
 
     // ── Top-level ─────────────────────────────────────────────────────────────
     j << "{\n";
-    j << "  \"input\": \"" << in.sample_name << "\",\n";
+    j << "  \"input\": \"" << json_escape(in.sample_name) << "\",\n";
     j << "  \"n_reads\": " << in.n_reads << ",\n";
     j << "  \"library_type\": \"" << dp.library_type_str() << "\",\n";
     j << "  \"library_bic_call\": \"" << libtype_cstr(dp.library_bic_call) << "\",\n";  // Wave-2: frozen pure-BIC call
@@ -195,8 +195,13 @@ void profile_to_json(const SampleDamageProfile& dp,
 
     // ── Deamination ───────────────────────────────────────────────────────────
     j << "  \"deamination\": {\n";
-    j << "    \"d_max_5prime\": " << std::setprecision(6) << dp.d_max_5prime << ",\n";
-    j << "    \"d_max_3prime\": " << dp.d_max_3prime << ",\n";
+    // An undetectable fit (lower-boundary collapse / artifact) sets d_max_source=NONE and zeroes
+    // d_max as an internal sentinel; emit null so consumers do not read 0.0 as "measured zero
+    // deamination" (which conflates undetectable with genuinely absent and corrupts downstream stats).
+    j << std::setprecision(6);
+    const bool dmax_detected = (dp.d_max_source != SampleDamageProfile::DmaxSource::NONE);
+    j << "    \"d_max_5prime\": " << (dmax_detected ? std::to_string(dp.d_max_5prime) : "null") << ",\n";
+    j << "    \"d_max_3prime\": " << (dmax_detected ? std::to_string(dp.d_max_3prime) : "null") << ",\n";
     j << "    \"d_max_combined\": " << d_max_combined_out << ",\n";
     j << "    \"d_metamatch\": " << d_metamatch_out << ",\n";
     j << "    \"source\": \"" << source_str_out << "\",\n";
@@ -253,7 +258,10 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"baseline_noncpg\": "        << nan_or(dp.fit_baseline_ct5_noncpg_like) << ",\n";
     j << "      \"cov_terminal_cpg\": "       << std::setprecision(0) << dp.cov_ct5_cpg_like_terminal    << ",\n";
     j << "      \"cov_terminal_noncpg\": "    << dp.cov_ct5_noncpg_like_terminal << ",\n";
-    j << "      \"effcov_terminal_cpg\": "    << dp.effcov_ct5_cpg_like_terminal    << ",\n";
+    // restore fractional precision: the effcov fields (Σ n·(1-baseline)) are fractional and
+    // their whole point is to differ from the integer raw counts above — the setprecision(0)
+    // set at cov_terminal_cpg is sticky and would otherwise round them to integers.
+    j << "      \"effcov_terminal_cpg\": "    << std::setprecision(6) << dp.effcov_ct5_cpg_like_terminal    << ",\n";
     j << "      \"effcov_terminal_noncpg\": " << dp.effcov_ct5_noncpg_like_terminal << ",\n";
     // C1: when log2_cpg_ratio is NaN (degenerate noncpg fit) compute_cpg_score returns its
     // zero-init {z=0,p=1} default — emit null so "not computed" is not read as z=0/p=1.
@@ -488,11 +496,14 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"ox_stop_rate_interior\": " << dp.ox_stop_rate_interior << ",\n";
     j << "    \"ox_stop_rate_baseline\": " << dp.ox_stop_conversion_rate_baseline << ",\n";
     j << "    \"ox_uniformity_ratio\": " << dp.ox_uniformity_ratio << ",\n";
+    j << "    \"log_ox_uniformity_ratio\": " << nan_or(dp.ox_uniformity_ratio_computed ? dp.log_ox_uniformity_ratio : std::numeric_limits<double>::quiet_NaN()) << ",\n";
+    j << "    \"ox_uniformity_ratio_computed\": " << (dp.ox_uniformity_ratio_computed ? "true" : "false") << ",\n";
     j << "    \"channel_c3_valid\": " << (dp.channel_c3_valid ? "true" : "false") << ",\n";
     j << "    \"ox_stop_baseline_3prime\": " << std::setprecision(6) << dp.ox_stop_baseline_3prime << ",\n";
     j << "    \"ox_stop_rate_terminal_3prime\": " << dp.ox_stop_rate_terminal_3prime << ",\n";
     j << "    \"ox_stop_rate_interior_3prime\": " << dp.ox_stop_rate_interior_3prime << ",\n";
     j << "    \"ox_uniformity_ratio_3prime\": " << dp.ox_uniformity_ratio_3prime << ",\n";
+    j << "    \"log_ox_uniformity_ratio_3prime\": " << nan_or(dp.ox_uniformity_ratio_3prime_computed ? dp.log_ox_uniformity_ratio_3prime : std::numeric_limits<double>::quiet_NaN()) << ",\n";
     j << "    \"channel_f_valid\": " << (dp.channel_f_valid ? "true" : "false") << ",\n";
     j << "    \"ca_stop_rate_baseline\": " << std::setprecision(6) << dp.ca_stop_rate_baseline << ",\n";
     j << "    \"ca_stop_rate_terminal\": " << dp.ca_stop_rate_terminal << ",\n";
@@ -542,8 +553,10 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"at_uniformity_ratio_3prime\": " << dp.at_uniformity_ratio_3prime << ",\n";
     j << "    \"ox_gt_rate_interior\": " << dp.ox_gt_rate_interior << ",\n";
     j << "    \"ox_gt_uniformity\": " << dp.ox_gt_uniformity << ",\n";
+    j << "    \"log_ox_gt_uniformity\": " << nan_or(dp.ox_gt_uniformity_computed ? dp.log_ox_gt_uniformity : std::numeric_limits<double>::quiet_NaN()) << ",\n";
     j << "    \"ox_ca_rate_interior\": " << dp.ox_ca_rate_interior << ",\n";
     j << "    \"ox_ca_uniformity\": " << dp.ox_ca_uniformity << ",\n";
+    j << "    \"log_ox_ca_uniformity\": " << nan_or(dp.ox_ca_uniformity_computed ? dp.log_ox_ca_uniformity : std::numeric_limits<double>::quiet_NaN()) << ",\n";
     // C1: gate the oxoG-score fields on has_oxog_score — emit null when uncomputed so a
     // genuine 0.0 (no 8-oxoG signal) is distinguishable from "not computed". se_s_oxog=0.0
     // as a fallback was especially misleading (signals zero-width CI). Surface the flag too.
@@ -553,7 +566,10 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"has_oxog_score\": " << (in.has_oxog_score ? "true" : "false") << ",\n";
     j << "    \"s_oxog\": ";        emit_oxog(in.s_oxog);    j << ",\n";
     j << "    \"se_s_oxog\": ";     emit_oxog(in.se_s_oxog); j << ",\n";
-    j << "    \"ox_d_oriented\": "; emit_oxog(in.d_oriented); j << ",\n";
+    // C→A co-movement: positive when ancient reads carry excess C→A alongside G→T.
+    // Oxidation predicts s_oxog>0 AND s_ca>0 (both co-move with ancient CT-damage weight).
+    j << "    \"s_ca\": ";          emit_oxog(in.s_ca);      j << ",\n";
+    j << "    \"log_ox_d_oriented\": "; emit_oxog(in.d_oriented); j << ",\n";  // log(T·A/G·C) ilr contrast
     j << "    \"s_oxog_16ctx\": [";
     for (int i = 0; i < 16; ++i) {
         float v = dp.s_oxog_16ctx[i];
@@ -686,6 +702,43 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"markers_consistent\": " << (otm.markers_consistent ? "true" : "false") << "\n";
     j << "  },\n";
 
+    // ── Oxidation-like: ancient-vs-modern oxidation, internal deam-stratified split ──
+    // Reads are binned by per-read terminal-deamination excess (deam_bin 0=modern..4=ancient)
+    // within length x GC cells; `excess` = high-deam (ancient) minus low-deam (modern) oxidation
+    // strand-asymmetry, calibrated within each cell. This is the composition-controlled
+    // ancient-vs-modern oxidation contrast (excess>0 => 8-oxoG rides the deaminated/ancient reads).
+    j << "  \"oxidation_like\": {\n";
+    j << "    \"excess\": " << nan_or(dp.oxidation_like_excess) << ",\n";
+    j << "    \"se\": " << nan_or(dp.oxidation_like_se) << ",\n";
+    j << "    \"z\": " << nan_or(dp.oxidation_like_z) << ",\n";
+    j << "    \"signal\": " << nan_or(dp.oxidation_like_signal) << ",\n";
+    j << "    \"control\": " << nan_or(dp.oxidation_like_control) << ",\n";
+    j << "    \"adjusted\": " << nan_or(dp.oxidation_like_adjusted) << ",\n";
+    j << "    \"reliability\": " << nan_or(dp.oxidation_like_reliability) << ",\n";
+    j << "    \"bins_used\": " << dp.oxidation_like_bins_used << ",\n";
+    j << "    \"effective_bins\": " << nan_or(dp.oxidation_like_effective_bins) << ",\n";
+    j << "    \"heterogeneity\": " << nan_or(dp.oxidation_like_heterogeneity) << ",\n";
+    j << "    \"artifact_suspect\": " << (dp.oxidation_like_artifact_suspect ? "true" : "false") << "\n";
+    j << "  },\n";
+
+    // Oxidative strand-scission index (GG-vs-A breakpoint double-difference; reference-free,
+    // composition-internal). Oxidation past 8-oxoG scissions the backbone and exports its signal
+    // from the surviving-substitution channel (below the composition floor) into breakpoint geometry.
+    // delta anti-correlates with the paleoredox gradient (more oxidative scission in reduced facies);
+    // delta_by_deam (0=non-deaminated..4=ancient) shows co-occurrence with deamination on surviving
+    // ancient fragments. ds-meaningful (duplex hole transport).
+    j << "  \"oxidative_scission\": {\n";
+    j << "    \"delta\": " << nan_or(dp.oxidative_scission_delta) << ",\n";
+    j << "    \"delta_5prime\": " << nan_or(dp.oxidative_scission_delta_5prime) << ",\n";
+    j << "    \"delta_3prime\": " << nan_or(dp.oxidative_scission_delta_3prime) << ",\n";
+    j << "    \"delta_by_deam\": [";
+    for (int b = 0; b < SampleDamageProfile::N_OX_DEAM_STRATA; ++b) {
+        j << nan_or(dp.oxidative_scission_delta_by_deam[b]);
+        if (b < SampleDamageProfile::N_OX_DEAM_STRATA - 1) j << ",";
+    }
+    j << "]\n";
+    j << "  },\n";
+
     // ── Interior CT cluster ───────────────────────────────────────────────────
     j << "  \"interior_ct_cluster\": {\n";
     j << "    \"short_asym_log2oe\": " << std::setprecision(6) << dp.interior_ct_cluster_short_asym_log2oe << ",\n";
@@ -722,9 +775,13 @@ void profile_to_json(const SampleDamageProfile& dp,
         // short_g_stat/short_lr_p; keep short_score_z/short_score_p as deprecated aliases.
         const double sz_emit = clamp_z(sz);
         j << "    \"short_g_stat\": " << std::setprecision(6) << sz_emit << ",\n";
-        j << "    \"short_lr_p\": " << sp << ",\n";
+        // scientific: sp is floored to DBL_MIN (~2.2e-308); under the global std::fixed it
+        // would render as "0.000000", erasing the floor the code deliberately applies.
+        j << "    \"short_lr_p\": " << std::scientific << std::setprecision(3) << sp
+          << std::fixed << std::setprecision(6) << ",\n";
         j << "    \"short_score_z\": " << std::setprecision(6) << sz_emit << ",\n";
-        j << "    \"short_score_p\": " << sp << "\n";
+        j << "    \"short_score_p\": " << std::scientific << std::setprecision(3) << sp
+          << std::fixed << std::setprecision(6) << "\n";
     }
     j << "  },\n";
 
@@ -740,7 +797,8 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"depur_score_z_3prime\": "
       << (std::isnan(ds.z3) ? "null" : std::to_string(ds.z3)) << ",\n";
     j << "    \"depur_score_z\": " << ds.z << ",\n";
-    j << "    \"depur_score_p\": " << ds.p << "\n";
+    j << "    \"depur_score_p\": " << std::scientific << std::setprecision(3) << ds.p
+      << std::fixed << std::setprecision(6) << "\n";
     j << "  },\n";
 
     // ── Trinucleotide spectrum ─────────────────────────────────────────────────
@@ -755,6 +813,39 @@ void profile_to_json(const SampleDamageProfile& dp,
         emit_arr("tri_5prime_interior", dp.tri_5prime_interior, true);
         emit_arr("tri_3prime_terminal", dp.tri_3prime_terminal, true);
         emit_arr("tri_3prime_interior", dp.tri_3prime_interior, false);
+        j << "  },\n";
+    }
+
+    // ── Trinucleotide spectrum stratified by deam_bin (internal ancient/modern split) ──
+    // Per-stratum 64-context counts (terminal + interior, 5' C->T / 3' G->A). deam_bin 0=modern
+    // .. 4=most ancient (per-read terminal-deamination excess). This is the composition-controlled,
+    // mechanistic replacement for de-novo SBS96 signatures: the context law read out ancient vs modern.
+    {
+        j << "  \"trinuc_spectrum_by_deam\": {\n";
+        j << "    \"n_strata\": " << SampleDamageProfile::N_OX_DEAM_STRATA << ",\n";
+        j << "    \"deam_stratum_reads\": [";
+        for (int s = 0; s < SampleDamageProfile::N_OX_DEAM_STRATA; ++s) {
+            j << dp.deam_stratum_reads[s];
+            if (s < SampleDamageProfile::N_OX_DEAM_STRATA - 1) j << ",";
+        }
+        j << "],\n";
+        auto emit_strat = [&](const char* name,
+                              const std::array<std::array<uint64_t, 64>,
+                                                SampleDamageProfile::N_OX_DEAM_STRATA>& v,
+                              bool trailing) {
+            j << "    \"" << name << "\": [";
+            for (int s = 0; s < SampleDamageProfile::N_OX_DEAM_STRATA; ++s) {
+                j << "[";
+                for (int i = 0; i < 64; ++i) { j << v[s][i]; if (i < 63) j << ","; }
+                j << "]";
+                if (s < SampleDamageProfile::N_OX_DEAM_STRATA - 1) j << ",";
+            }
+            j << "]" << (trailing ? "," : "") << "\n";
+        };
+        emit_strat("tri_5prime_terminal", dp.tri_5prime_terminal_by_deam, true);
+        emit_strat("tri_5prime_interior", dp.tri_5prime_interior_by_deam, true);
+        emit_strat("tri_3prime_terminal", dp.tri_3prime_terminal_by_deam, true);
+        emit_strat("tri_3prime_interior", dp.tri_3prime_interior_by_deam, false);
         j << "  },\n";
     }
 
@@ -944,7 +1035,9 @@ void profile_to_json(const SampleDamageProfile& dp,
 
             j << "    \"" << end_key << "\": {\n";
             j << "      \"interior_start_pos\": " << plat << ",\n";
-            j << "      \"ct_interior_rate\": "   << std::fixed << std::setprecision(6) << ct_bg  << ",\n";
+            j << "      \"ct_interior_fraction\": " << std::fixed << std::setprecision(6) << ct_bg  << ",\n";
+            // ct_interior_fraction = f_T/(f_C+f_T) at interior positions; null=0.5 (Chargaff/undamaged ds).
+            // Complementary pair invariant: XY_fraction + YX_fraction = 1.0 exactly (all 12 channels sum to 6).
             j << "      \"ct_decay_lambda\": "    << nan_or(ct_lam) << ",\n";
             j << "      \"channels\": {";
             bool first = true;
@@ -959,8 +1052,14 @@ void profile_to_json(const SampleDamageProfile& dp,
                 double bal = coupled_bal(arr, F, T, plat);
                 if (!first) j << ",";
                 first = false;
+                // interior_fraction = f_Y/(f_X+f_Y) at interior positions.
+                // XY + YX = 1 exactly; all 12 values sum to 6. Use ILR/logit before cross-channel analysis.
+                double log_ratio = (std::isfinite(bg) && bg > 0.0 && bg < 1.0)
+                                   ? std::log(bg / (1.0 - bg))   // logit = log(f_Y/f_X); null=0, XY=-YX
+                                   : std::numeric_limits<double>::quiet_NaN();
                 j << "\n        \"" << SUBS12[s].name << "\":"
-                  << "{\"interior_rate\":"      << std::fixed << std::setprecision(6) << nan_or(bg)
+                  << "{\"interior_fraction\":"  << std::fixed << std::setprecision(6) << nan_or(bg)
+                  << ",\"interior_log_ratio\":" << nan_or(log_ratio)
                   << ",\"terminal_excess\":"    << nan_or(tex)
                   << ",\"decay_lambda\":"       << nan_or(lam)
                   << ",\"lambda_ratio_vs_ct\":" << nan_or(lr)
@@ -1131,7 +1230,7 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"lambda_5prime\": " << nan_or(dp.damaged_fraction_lambda5) << ",\n";
     j << "      \"d_max_3prime_fit\": " << nan_or(dp.damaged_fraction_d3_fit) << ",\n";
     j << "      \"lambda_3prime\": " << nan_or(dp.damaged_fraction_lambda3) << ",\n";
-    j << "      \"fraction\": " << dp.damaged_fraction_pi << ",\n";
+    j << "      \"fraction\": " << (dp.damaged_fraction_valid ? std::to_string(dp.damaged_fraction_pi) : "null") << ",\n";
     j << "      \"n_reads\": " << dp.damaged_fraction_n << ",\n";
     j << "      \"rate_5prime\": [";
     for (int p = 0; p < 15; ++p) { if (p) j << ","; j << dp.damaged_fraction_rate5[p]; }

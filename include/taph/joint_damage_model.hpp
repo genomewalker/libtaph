@@ -18,11 +18,13 @@ struct JointDamageResult {
     float b_stop = 0.0f;         // Interior stop/(pre+stop) baseline
 
     // Model comparison
-    float log_lik_m1 = 0.0f;     // Log-likelihood for M1 (δ_max > 0)
-    float log_lik_m0 = 0.0f;     // Log-likelihood for M0 (δ_max = 0)
-    float bic_m1 = 0.0f;         // BIC for M1
-    float bic_m0 = 0.0f;         // BIC for M0
-    float delta_bic = 0.0f;      // BIC_M0 - BIC_M1 (positive favors damage)
+    // double: at 1e8+ binomial trials the LL/BIC magnitudes reach ~1e9 where float
+    // epsilon (~64-256) swamps the ~10-200-unit ΔBIC that distinguishes the models.
+    double log_lik_m1 = 0.0;     // Log-likelihood for M1 (δ_max > 0)
+    double log_lik_m0 = 0.0;     // Log-likelihood for M0 (δ_max = 0)
+    double bic_m1 = 0.0;         // BIC for M1
+    double bic_m0 = 0.0;         // BIC for M0
+    double delta_bic = 0.0;      // BIC_M0 - BIC_M1 (positive favors damage)
     // ΔBIC accumulates over n_trials reads, so it scales ~O(N) for any fixed rate
     // difference: exploratory, not a calibrated Bayes factor on correlated reads.
     float delta_bic_normalized = 0.0f; // ΔBIC / log(n_trials): per-parameter, N-independent
@@ -83,9 +85,19 @@ struct JointDamageSuffStats {
     }
 
     bool is_valid() const {
-        uint64_t min_tc = *std::min_element(n_tc.begin(), n_tc.end());
-        uint64_t min_ag = *std::min_element(n_ag.begin(), n_ag.end());
-        return min_tc >= 100 && min_ag >= 100 && n_tc_interior >= 1000;
+        // Coverage floor over DATA-BEARING positions only. pos-0 artifact masking
+        // zeroes n_tc[0] and short-fragment libraries zero distal positions; a min
+        // over all 15 would wrongly invalidate exactly the heavily-damaged / short
+        // libraries this model targets (n_tc[0]==0 < 100 ⇒ valid=false). Require a
+        // minimum count of informative positions instead.
+        uint64_t min_tc = ~0ULL, min_ag = ~0ULL;
+        int n_pos_tc = 0, n_pos_ag = 0;
+        for (int p = 0; p < 15; ++p) {
+            if (n_tc[p] > 0) { min_tc = std::min(min_tc, n_tc[p]); ++n_pos_tc; }
+            if (n_ag[p] > 0) { min_ag = std::min(min_ag, n_ag[p]); ++n_pos_ag; }
+        }
+        return n_pos_tc >= 10 && n_pos_ag >= 10 &&
+               min_tc >= 100 && min_ag >= 100 && n_tc_interior >= 1000;
     }
 };
 
@@ -103,7 +115,7 @@ public:
 
     static JointDamageResult fit(const JointDamageSuffStats& stats);
 
-    static float log_likelihood(
+    static double log_likelihood(
         const JointDamageSuffStats& stats,
         float delta_max, float lambda, float a_max,
         float b_tc, float b_ag, float b_stop);
@@ -115,20 +127,21 @@ public:
 
 private:
     // Binomial log-likelihood: k * log(p) + (n-k) * log(1-p)
-    static float binom_ll(uint64_t k, uint64_t n, float p) {
-        if (n == 0) return 0.0f;
+    static double binom_ll(uint64_t k, uint64_t n, float p) {
+        if (n == 0) return 0.0;
         p = std::clamp(p, 1e-10f, 1.0f - 1e-10f);
-        return static_cast<float>(k) * std::log(p) +
-               static_cast<float>(n - k) * std::log(1.0f - p);
+        const double pd = static_cast<double>(p);
+        return static_cast<double>(k) * std::log(pd) +
+               static_cast<double>(n - k) * std::log(1.0 - pd);
     }
 };
 
-inline float JointDamageModel::log_likelihood(
+inline double JointDamageModel::log_likelihood(
     const JointDamageSuffStats& stats,
     float delta_max, float lambda, float a_max,
     float b_tc, float b_ag, float b_stop)
 {
-    float ll = 0.0f;
+    double ll = 0.0;
 
     for (int p = 0; p < 15; ++p) {
         float decay = std::exp(-lambda * p);
@@ -167,7 +180,7 @@ inline float JointDamageModel::optimize_a_max(
     float d = a + phi * (b - a);
 
     auto eval = [&](float a_max) {
-        float ll = 0.0f;
+        double ll = 0.0;
         for (int p = 0; p < 15; ++p) {
             float decay = std::exp(-lambda * p);
             float delta_p = delta_max * decay;
@@ -215,7 +228,7 @@ inline JointDamageResult JointDamageModel::fit(const JointDamageSuffStats& stats
     }
 
     // Grid search over (λ, δ_max)
-    float best_ll = -1e30f;
+    double best_ll = -1e300;
     float best_delta = 0.0f;
     float best_lambda = 0.2f;
     float best_a = 0.0f;
@@ -230,7 +243,7 @@ inline JointDamageResult JointDamageModel::fit(const JointDamageSuffStats& stats
             float a_max = optimize_a_max(stats, delta_max, lambda,
                                          result.b_tc, result.b_ag);
 
-            float ll = log_likelihood(stats, delta_max, lambda, a_max,
+            double ll = log_likelihood(stats, delta_max, lambda, a_max,
                                       result.b_tc, result.b_ag, result.b_stop);
 
             if (ll > best_ll) {
@@ -256,9 +269,9 @@ inline JointDamageResult JointDamageModel::fit(const JointDamageSuffStats& stats
     // BIC comparison
     // M1 has 3 parameters (δ_max, λ, a_max), M0 has 2 (λ, a_max)
     // BIC = -2 * log_lik + k * log(N)
-    float log_n = std::log(static_cast<float>(result.n_trials));
-    result.bic_m1 = -2.0f * result.log_lik_m1 + 3.0f * log_n;
-    result.bic_m0 = -2.0f * result.log_lik_m0 + 2.0f * log_n;
+    double log_n = std::log(static_cast<double>(result.n_trials));
+    result.bic_m1 = -2.0 * result.log_lik_m1 + 3.0 * log_n;
+    result.bic_m0 = -2.0 * result.log_lik_m0 + 2.0 * log_n;
 
     // ΔBIC = BIC_M0 - BIC_M1 (positive favors M1 = damage)
     result.delta_bic = result.bic_m0 - result.bic_m1;
@@ -271,7 +284,7 @@ inline JointDamageResult JointDamageModel::fit(const JointDamageSuffStats& stats
 
     // Bayes factor approximation: BF_10 ≈ exp(ΔBIC/2). Cap exponent to keep
     // BF / p_damage finite under extreme separations (avoid inf/inf = NaN).
-    float half_dbic = std::clamp(result.delta_bic / 2.0f, -80.0f, 80.0f);
+    float half_dbic = static_cast<float>(std::clamp(result.delta_bic / 2.0, -80.0, 80.0));
     result.bayes_factor = std::exp(half_dbic);
 
     // P(damage) computed via stable logistic on ΔBIC/2:
@@ -306,13 +319,15 @@ inline JointDamageResult JointDamageModel::fit(const JointDamageSuffStats& stats
         float hl = result.delta_max - dl;
         float hr = dr - result.delta_max;
         if (hl > 1e-9f && hr > 1e-9f) {
-            float ll_l = log_likelihood(stats, dl, result.lambda, result.a_max,
+            double ll_l = log_likelihood(stats, dl, result.lambda, result.a_max,
                                         result.b_tc, result.b_ag, result.b_stop);
-            float ll_r = log_likelihood(stats, dr, result.lambda, result.a_max,
+            double ll_r = log_likelihood(stats, dr, result.lambda, result.a_max,
                                         result.b_tc, result.b_ag, result.b_stop);
-            float fisher = -2.0f * (hr * ll_l - (hl + hr) * result.log_lik_m1 + hl * ll_r) /
-                           (hl * hr * (hl + hr));
-            if (fisher > 0.0f) {
+            double fisher = -2.0 * (static_cast<double>(hr) * ll_l
+                            - (static_cast<double>(hl) + hr) * result.log_lik_m1
+                            + static_cast<double>(hl) * ll_r) /
+                           (static_cast<double>(hl) * hr * (hl + hr));
+            if (fisher > 0.0) {
                 result.se_delta = 1.0f / std::sqrt(fisher);
                 // exploratory; clamped, not a calibrated p-value (correlated reads)
                 float z_raw = result.delta_max / result.se_delta;
@@ -450,24 +465,35 @@ public:
             }
             prev_ll = ll;
 
-            // M-step: update π_1 and μ_1
-            float sum_w_r = 0.0f;
-            float sum_w_r_d = 0.0f;
-            float sum_w = 0.0f;
+            // M-step: pi_1 by C-site prevalence; mu_1 by IVW (Gaussian MLE).
+            // Weighting mu_1 by 1/(TAU_1²+σ_i²) caps over-influence from deep bins:
+            // once c_sites > d(1−d)/SIGMA_FLOOR² ≈ 500, sigma[i]→SIGMA_FLOOR and extra
+            // depth no longer buys extra weight.  Consistent with the E-step variances.
+            static constexpr float PI_FLOOR   = 1e-3f;
+            static constexpr float MIN_MU_EFF = 0.5f;  // ≥0.5 "effective bins" required
+
+            float sum_w = 0.0f, sum_w_r = 0.0f;        // prevalence (c_sites-weighted)
+            float sum_p = 0.0f, sum_p_d = 0.0f;        // precision-weighted for mu_1
+            float tau1_var = TAU_1 * TAU_1;
 
             for (size_t i = 0; i < N; ++i) {
                 if (bins[i].valid && bins[i].c_sites > 0) {
-                    float w = bins[i].c_sites;
-                    sum_w += w;
-                    sum_w_r += w * r[i];
-                    sum_w_r_d += w * r[i] * bins[i].d_max;
+                    float c    = static_cast<float>(bins[i].c_sites);
+                    float var  = tau1_var + sigma[i] * sigma[i];
+                    float prec = r[i] / var;
+                    sum_w += c;  sum_w_r += c * r[i];
+                    sum_p += prec;  sum_p_d += prec * bins[i].d_max;
                 }
             }
+            // Effective-mass check: sum_p * (TAU_1²+SIGMA_FLOOR²) ≥ MIN_MU_EFF
+            float eff_mass = sum_p * (tau1_var + SIGMA_FLOOR * SIGMA_FLOOR);
 
-            if (sum_w_r > 1e-10f) {
-                pi_1 = sum_w_r / sum_w;
-                mu_1 = std::clamp(sum_w_r_d / sum_w_r, 0.0f, 1.0f);
-            } else {
+            if (sum_w > 1e-10f)
+                pi_1 = std::clamp(sum_w_r / sum_w, PI_FLOOR, 1.0f - PI_FLOOR);
+            if (eff_mass >= MIN_MU_EFF)
+                mu_1 = std::clamp(sum_p_d / sum_p, 0.0f, 1.0f);
+
+            if (sum_w_r < 1e-10f) {
                 // No mass in damaged component - declare no separation
                 result.converged = true;
                 result.n_iterations = iter + 1;

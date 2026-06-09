@@ -288,9 +288,10 @@ inline MixtureDamageResult MixtureDamageModel::fit_k(
         }
         double W_total = 0;
         for (int k = 0; k < K; ++k) W_total += W_k[k];
-        for (int k = 0; k < K; ++k) {
-            pi[k] = std::max(W_k[k] / W_total, PI_MIN);
-        }
+        for (int k = 0; k < K; ++k) pi[k] = std::max(W_k[k] / W_total, PI_MIN);
+        // Renormalize after PI_MIN floor so pi stays on the simplex.
+        double pi_sum = 0; for (int k = 0; k < K; ++k) pi_sum += pi[k];
+        for (int k = 0; k < K; ++k) pi[k] /= pi_sum;
 
         // Update p_gc[k][b] (categorical with Dirichlet smoothing, alpha=1)
         for (int k = 0; k < K; ++k) {
@@ -455,23 +456,35 @@ inline MixtureDamageResult MixtureDamageModel::fit(
 {
     MixtureDamageResult best_result;
     best_result.bic = std::numeric_limits<float>::infinity();
+    bool best_converged = false;
 
     // Try K = 2, 3, 4
     for (int K = 2; K <= 4; ++K) {
         MixtureDamageResult best_for_k;
         best_for_k.bic = std::numeric_limits<float>::infinity();
+        bool k_converged = false;
 
         // Multiple restarts
         for (int restart = 0; restart < N_RESTARTS; ++restart) {
             auto result = fit_k(super_reads, K, restart);
-            if (result.converged && result.bic < best_for_k.bic) {
+            if (!std::isfinite(result.bic)) continue;
+            // Prefer a converged fit; otherwise RETAIN the best finite-BIC fit. A valid
+            // but slow-converging EM (weakly separated classes, relative-tol creep) must
+            // not be silently discarded — that returned an empty result (n_components=0,
+            // bic=inf) which zeroed downstream d_max / ancient_fraction on borderline samples.
+            if ((result.converged && !k_converged) ||
+                (result.converged == k_converged && result.bic < best_for_k.bic)) {
                 best_for_k = result;
+                k_converged = result.converged;
             }
         }
 
-        // Keep best by BIC
-        if (best_for_k.converged && best_for_k.bic < best_result.bic) {
+        // Keep best across K with the same converged-preference.
+        if (std::isfinite(best_for_k.bic) &&
+            ((k_converged && !best_converged) ||
+             (k_converged == best_converged && best_for_k.bic < best_result.bic))) {
             best_result = best_for_k;
+            best_converged = k_converged;
         }
     }
 

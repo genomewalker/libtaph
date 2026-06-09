@@ -68,8 +68,9 @@ void test_insufficient_coverage() {
 
 void test_terminal_nan_forces_none() {
     auto dp = make_base();
-    dp.d_max_5prime = NaNf;
-    dp.d_max_3prime = NaNf;
+    dp.d_max_5prime   = NaNf;
+    dp.d_max_3prime   = NaNf;
+    dp.d_max_combined = NaNf;   // C5: finite_max2 uses all three; must be NaN too
     auto r = compute_damage_context_profile(dp, 5.0, 0.0, false, false, false);
     EXPECT(r.dominant_process == D::None);
     EXPECT(std::isnan(r.terminal_deamination_score));
@@ -164,7 +165,9 @@ void test_artifact_flag_plus_strong_damage_keeps_damage_label() {
     dp.d_max_3prime = 0.22f;
     auto r = compute_damage_context_profile(dp, 0.0, 0.0, true, false, false);
     EXPECT(r.dominant_process != D::LibraryArtifactLikely);
-    EXPECT(r.library_artifact_score >= 1.0f);  // score still surfaces flag
+    // C5: artifact score is now sigmoid(hex_shift_z - 4), clamped [0,1]; flag
+    // is surfaced via evidence.adapter_clipped, not a score floor.
+    EXPECT(std::isfinite(r.library_artifact_score));
     EXPECT(r.evidence.adapter_clipped == true);
 }
 

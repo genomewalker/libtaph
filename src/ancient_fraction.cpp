@@ -70,10 +70,10 @@ AncientFractionResult compute_ancient_fraction(
         dp.modern_fraction_d3_computed = true;
     }
 
-    double anc_bg5 = pool_interior_bg(anc_t5, anc_tc5, NP, bg5);
-    double anc_bg3 = pool_interior_bg(anc_h3, anc_n3,  NP, bg3);
-    double mod_bg5 = pool_interior_bg(mod_t5, mod_tc5, NP, bg5);
-    double mod_bg3 = pool_interior_bg(mod_h3, mod_n3,  NP, bg3);
+    auto anc_bg5 = pool_interior_bg(anc_t5, anc_tc5, NP, bg5);
+    auto anc_bg3 = pool_interior_bg(anc_h3, anc_n3,  NP, bg3);
+    auto mod_bg5 = pool_interior_bg(mod_t5, mod_tc5, NP, bg5);
+    auto mod_bg3 = pool_interior_bg(mod_h3, mod_n3,  NP, bg3);
 
     bool p0a5      = position_0_artifact_5prime;
     bool bulk_p0a3 = position_0_artifact_3prime;
@@ -81,10 +81,10 @@ AncientFractionResult compute_ancient_fraction(
     // For the 3' fraction fit, only skip pos0 when the fraction data itself
     // shows depletion — the bulk artifact fires on modern-read adapter blunting
     // but the ancient fraction may have a genuine peak at pos0.
-    auto frac_p0a3 = [&](const int64_t* h, const int64_t* n, double frac_bg) -> bool {
+    auto frac_p0a3 = [&](const int64_t* h, const int64_t* n, double frac_bg_mean) -> bool {
         if (!bulk_p0a3) return false;
         if (n[0] < 10)  return bulk_p0a3;
-        return static_cast<double>(h[0]) / n[0] < frac_bg;
+        return static_cast<double>(h[0]) / n[0] < frac_bg_mean;
     };
 
     // Use modern interior (genomic T proxy) as the ancient fraction fit background.
@@ -93,10 +93,10 @@ AncientFractionResult compute_ancient_fraction(
     // confounded damage with interior deamination signal.
     auto [ad5, al5] = fit_exp_decay_irls(anc_t5, anc_tc5, NP, mod_bg5, p0a5);
     auto [ad3, al3] = fit_exp_decay_irls(anc_h3, anc_n3,  NP, anc_bg3,
-                                          frac_p0a3(anc_h3, anc_n3, anc_bg3));
+                                          frac_p0a3(anc_h3, anc_n3, anc_bg3.mean));
     auto [md5, ml5] = fit_exp_decay_irls(mod_t5, mod_tc5, NP, mod_bg5, p0a5);
     auto [md3, ml3] = fit_exp_decay_irls(mod_h3, mod_n3,  NP, mod_bg3,
-                                          frac_p0a3(mod_h3, mod_n3, mod_bg3));
+                                          frac_p0a3(mod_h3, mod_n3, mod_bg3.mean));
 
     dp.damaged_fraction_d5_fit  = static_cast<float>(ad5);
     dp.damaged_fraction_lambda5 = static_cast<float>(al5);

@@ -70,9 +70,9 @@ struct SampleDamageProfile {
 
     // Codon-position-aware damage tracking (positions 1,2,3 in codon)
     // At 5' end: T/(T+C) ratio by codon position
-    std::array<float, 3> codon_pos_t_rate_5prime = {0.5f, 0.5f, 0.5f};
+    std::array<float, 3> codon_pos_t_fraction_5prime = {0.5f, 0.5f, 0.5f};
     // At 3' end: A/(A+G) ratio by codon position
-    std::array<float, 3> codon_pos_a_rate_3prime = {0.5f, 0.5f, 0.5f};
+    std::array<float, 3> codon_pos_a_fraction_3prime = {0.5f, 0.5f, 0.5f};
     // Raw counts for aggregation
     std::array<size_t, 3> codon_pos_t_count_5prime = {};
     std::array<size_t, 3> codon_pos_c_count_5prime = {};
@@ -95,8 +95,8 @@ struct SampleDamageProfile {
     std::array<double, BG_TAIL_N> tail_ag_3prime = {};
 
     // CpG context damage tracking
-    float cpg_damage_rate = 0.0f;      // C→T rate in CpG context
-    float non_cpg_damage_rate = 0.0f;  // C→T rate outside CpG
+    float cpg_ct_fraction = 0.0f;      // C→T rate in CpG context
+    float non_cpg_ct_fraction = 0.0f;  // C→T rate outside CpG
     size_t cpg_c_count = 0;            // C's in CpG context
     size_t cpg_t_count = 0;            // T's where C expected in CpG
     size_t non_cpg_c_count = 0;
@@ -190,6 +190,34 @@ struct SampleDamageProfile {
     std::array<uint64_t, N_TRINUC> tri_5prime_interior = {};
     std::array<uint64_t, N_TRINUC> tri_3prime_terminal = {};
     std::array<uint64_t, N_TRINUC> tri_3prime_interior = {};
+
+    // Trinucleotide spectrum stratified by per-read deam_bin (0=modern .. 4=most ancient): the
+    // composition-controlled, internal-split version of the context-dependent damage. Lets the
+    // C->T (5') / G->A (3') context law be read out for ancient vs modern reads separately
+    // (the mechanistic, stratified replacement for de-novo SBS96 signatures).
+    std::array<std::array<uint64_t, N_TRINUC>, N_OX_DEAM_STRATA> tri_5prime_terminal_by_deam = {};
+    std::array<std::array<uint64_t, N_TRINUC>, N_OX_DEAM_STRATA> tri_5prime_interior_by_deam = {};
+    std::array<std::array<uint64_t, N_TRINUC>, N_OX_DEAM_STRATA> tri_3prime_terminal_by_deam = {};
+    std::array<std::array<uint64_t, N_TRINUC>, N_OX_DEAM_STRATA> tri_3prime_interior_by_deam = {};
+    std::array<uint64_t, N_OX_DEAM_STRATA> deam_stratum_reads = {};  // read count per deam_bin
+
+    // Oxidative strand-scission index (reference-free, composition-internal). Oxidation past 8-oxoG
+    // SCISSIONS the backbone (G-specific, GG-localized: hole transport parks at the 5'-G of GpG),
+    // exporting its signal out of the surviving-substitution channel (where it is below the
+    // composition floor) into the BREAKPOINT geometry. Read as a double-difference at the read
+    // termini, with A-depurination (purine-flat) as the within-read neutral comparator so base
+    // composition cancels:  delta = (terminal[5'-of-GG G] - interior[5'-of-GG G])
+    //                              - (terminal[A]         - interior[A]).
+    // Duplex (ds)-meaningful; anti-correlates with the paleoredox gradient (Fe2+-Fenton in reduced
+    // facies). Per-deam-bin values show it co-occurs with deamination on surviving ancient fragments.
+    // PRIMARY delta = 5' ONLY (clean): the 3' terminus G is depleted by G->A deamination, so the 3'
+    // channel mixes scission with deamination -- kept only as a contrast. HONEST CAVEAT: even clean,
+    // the signal is modest (~V 0.05) and only suggestive (rho~-0.4, p~0.09) at the depth-horizon n;
+    // it is directionally consistent with the reference-based G->T, not a strong standalone detector.
+    float oxidative_scission_delta = 0.0f;          // = delta_5prime (clean primary)
+    float oxidative_scission_delta_5prime = 0.0f;   // clean oxidative-scission readout
+    float oxidative_scission_delta_3prime = 0.0f;   // G->A-deamination-contaminated contrast only
+    std::array<float, N_OX_DEAM_STRATA> oxidative_scission_delta_by_deam = {};  // 5' per deam_bin
 
     // Per-position trinucleotide counts (positions 1..N_POS_TRI-1 from each end).
     // p=1 = second base from end (first with a valid left flank).
@@ -286,6 +314,7 @@ struct SampleDamageProfile {
     float codon_pos2_damage = 0.0f;  // C→T rate at codon position 2
     float codon_pos3_damage = 0.0f;  // C→T rate at codon position 3 (wobble)
     float wobble_ratio = 1.0f;       // pos3 / ((pos1 + pos2) / 2), >1 indicates ancient
+    float log2_wobble_ratio = 0.0f;  // log2(pos3 / avg(pos1,pos2)); >0 indicates ancient
     float hexamer_damage_llr = 0.0f; // Hexamer-based damage log-likelihood ratio
     float terminal_shift_5prime = 0.0f;  // terminal T/(T+C) - interior baseline
     float terminal_shift_3prime = 0.0f;  // terminal A/(A+G) - interior baseline
@@ -794,7 +823,8 @@ struct SampleDamageProfile {
     float ox_stop_conversion_rate_baseline = 0.0f;
     float ox_stop_rate_terminal = 0.0f;
     float ox_stop_rate_interior = 0.0f;
-    float ox_uniformity_ratio = 0.0f;   // terminal/interior (≈1 = uniform = real oxidation)
+    float ox_uniformity_ratio = 0.0f;      // terminal/interior (≈1 = uniform = real oxidation)
+    float log_ox_uniformity_ratio = 0.0f;  // log(terminal/interior); null=0 (uniform)
     bool channel_c_valid = false;
     // Channel C positional-coverage validity (C1/C3). channel_c_valid gates only the
     // interior baseline; these gate the terminal/interior positional rates and the
@@ -817,6 +847,7 @@ struct SampleDamageProfile {
     float ox_stop_rate_interior_3prime = 0.0f;
     float ox_stop_baseline_3prime = 0.0f;
     float ox_uniformity_ratio_3prime = 0.0f;
+    float log_ox_uniformity_ratio_3prime = 0.0f;  // log(terminal/interior) 3′
     bool  channel_c3_valid = false;
     // C1: ox_uniformity_ratio_3prime default 0.0f is an ambiguous sentinel; emitter
     // nulls it when this flag is false (mirrors the 5' ox_uniformity_ratio_computed).
@@ -972,6 +1003,7 @@ struct SampleDamageProfile {
     float ox_gt_rate_interior = 0.0f;
     float ox_gt_baseline = 0.0f;
     float ox_gt_uniformity = 0.0f;
+    float log_ox_gt_uniformity = 0.0f;       // log(terminal/interior) G→T
     float ox_gt_asymmetry = 0.0f;
     // C1: ox_gt_uniformity default 0.0f is ambiguous (no companion validity flag).
     bool  ox_gt_uniformity_computed = false;
@@ -980,6 +1012,8 @@ struct SampleDamageProfile {
     float ox_ca_rate_interior = 0.0f;
     float ox_ca_baseline = 0.0f;
     float ox_ca_uniformity = 0.0f;
+    float log_ox_ca_uniformity = 0.0f;       // log(terminal/interior) A→C
+    bool  ox_ca_uniformity_computed = false;
 
     // Channel D Chargaff-contrast validity (C1). True only when both interior
     // baselines reach coverage (gt_base_total>=500 AND ca_base_total>=500); gates
@@ -1006,11 +1040,13 @@ struct SampleDamageProfile {
         static constexpr int TOTAL = N_S * N_S * N_GC * N_L;  // 256
 
         struct Cell {
-            uint32_t n_reads = 0;
-            uint32_t sum_nGT = 0;  // interior T+G count
-            uint32_t sum_T   = 0;  // interior T count  (T→T+G numerator)
-            uint32_t sum_nAC = 0;  // interior A+C count
-            uint32_t sum_A   = 0;  // interior A count  (A→A+C numerator)
+            // uint64: a dominant (s1,s2,gc,len) cell accumulates ~30 interior bases/read
+            // and overflows uint32 (~4.3e9) after ~1.4e8 reads; merge() sums shards too.
+            uint64_t n_reads = 0;
+            uint64_t sum_nGT = 0;  // interior T+G count
+            uint64_t sum_T   = 0;  // interior T count  (T→T+G numerator)
+            uint64_t sum_nAC = 0;  // interior A+C count
+            uint64_t sum_A   = 0;  // interior A count  (A→A+C numerator)
         };
 
         std::array<Cell, TOTAL> cells = {};

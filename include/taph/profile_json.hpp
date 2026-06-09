@@ -37,6 +37,7 @@ struct ProfileJsonInput {
     // OxoG EM-based score (optional; fqdup computes this from joint EM state)
     double s_oxog       = 0.0;
     double se_s_oxog    = 0.0;
+    double s_ca         = 0.0;   // C→A co-movement score (complement of G→T oxidation)
     double d_oriented   = 0.0;
     bool   has_oxog_score = false;
 

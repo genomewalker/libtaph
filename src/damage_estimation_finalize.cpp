@@ -1,11 +1,11 @@
-// Sample-level damage profile management
-
+// FrameSelector::finalize_sample_profile and supporting decay/ctx helpers.
 #include "taph/frame_selector_decl.hpp"
 #include "taph/codon_tables.hpp"
 #include "taph/hexamer_tables.hpp"
 #include "taph/library_interpretation.hpp"
 #include "taph/channel_count_table.hpp"
 #include "taph/channel_registry.hpp"
+#include "damage_estimation_detail.hpp"
 #include <algorithm>
 #include <cmath>
 #include <array>
@@ -13,81 +13,7 @@
 #include <limits>
 #include <stdexcept>
 #include <vector>
-
 namespace taph {
-
-// Compute binomial log-likelihood for a single observation
-// k = successes (e.g., T count), n = total trials (e.g., T+C count), p = probability
-static inline double binomial_ll(double k, double n, double p) {
-    if (n < 1 || p <= 0 || p >= 1) return 0.0;
-    // Log-likelihood: k*log(p) + (n-k)*log(1-p) + constant (ignored for LLR)
-    return k * std::log(p) + (n - k) * std::log(1.0 - p);
-}
-
-// Unclamped two-sample pooled-proportion z (terminal vs interior). The clamped binom_z used in the
-// channel blocks is clamp(binom_z_raw, +/-kZCap); exposing the raw value lets the Layer-0 count
-// table record pre_clamp_z so the golden gate sees z regressions the clamp would otherwise mask.
-static inline double binom_z_raw(double k_t, double n_t, double k_i, double n_i) {
-    if (n_t < 10.0 || n_i < 10.0) return std::numeric_limits<double>::quiet_NaN();
-    double p_pool = (k_t + k_i) / (n_t + n_i);
-    double var = p_pool * (1.0 - p_pool) * (1.0 / n_t + 1.0 / n_i);
-    if (var < 1e-12) return std::numeric_limits<double>::quiet_NaN();
-    return ((k_t / n_t) - (k_i / n_i)) / std::sqrt(var);
-}
-
-// The ONE clamped pooled-proportion z used by every stop-channel path (the primary pass AND the
-// adapter-prefix-exclusion recompute): clamp(binom_z_raw, +/-kZCap) with NaN preserved.
-static inline float binom_z_clamped(double k_t, double n_t, double k_i, double n_i) {
-    double z = binom_z_raw(k_t, n_t, k_i, n_i);
-    if (!std::isfinite(z)) return std::numeric_limits<float>::quiet_NaN();
-    const double cap = static_cast<double>(SampleDamageProfile::kZCap);
-    return static_cast<float>(std::clamp(z, -cap, cap));
-}
-
-// Layer-0 producer (file-scope so BOTH finalize_sample_profile and the adapter-prefix-exclusion
-// recompute build IDENTICAL count tables from one code path): freezes the shadow-free 2x2 plus the
-// exact numerator/denominator that fed the pooled z, the pre-clamp z, and the cap decision. The
-// golden gate diffs these, so every emitted stop-channel z/rate must trace to a row produced here.
-static StopChannelCountTable make_stop_count_table(const ChannelSpec& spec,
-        double tp, double ts, double ip, double is, double tsh, double ish) {
-    StopChannelCountTable ct;
-    ct.channel_id = spec.channel_id;  ct.channel_type = spec.channel_type;
-    ct.term_pre = tp;  ct.term_stop = ts;  ct.int_pre = ip;  ct.int_stop = is;
-    ct.has_shadow = spec.has_deam_shadow;  ct.term_shadow = tsh;  ct.int_shadow = ish;
-    ct.shadow_in_z = spec.shadow_in_z;  ct.shadow_in_rate = spec.shadow_in_rate;
-    const bool shadow = spec.shadow_in_z;
-    ct.z_num_term = ts;  ct.z_den_term = tp + ts + (shadow ? tsh : 0.0);
-    ct.z_num_int  = is;  ct.z_den_int  = ip + is + (shadow ? ish : 0.0);
-    ct.raw_rate_term = (tp + ts > 0.0) ? ts / (tp + ts) : 0.0;
-    ct.raw_rate_int  = (ip + is > 0.0) ? is / (ip + is) : 0.0;
-    ct.pre_clamp_z = binom_z_raw(ct.z_num_term, ct.z_den_term, ct.z_num_int, ct.z_den_int);
-    // Cap policy is registry-driven: CLAMP_ZCAP (every current channel) == the prior hardcoded kZCap,
-    // so this is byte-identical today, but a NONE channel would now be uncapped instead of silently 12.
-    ct.z_cap = (spec.cap == CapPolicy::CLAMP_ZCAP)
-               ? static_cast<double>(SampleDamageProfile::kZCap)
-               : std::numeric_limits<double>::infinity();
-    ct.cap_applied = std::isfinite(ct.pre_clamp_z) && std::abs(ct.pre_clamp_z) > ct.z_cap;
-    ct.post_clamp_z = std::isfinite(ct.pre_clamp_z)
-                      ? std::clamp(ct.pre_clamp_z, -ct.z_cap, ct.z_cap)
-                      : ct.pre_clamp_z;
-    ct.has_strata = spec.has_mh_stratification;
-    return ct;
-}
-
-// Single-stratum 2x2 odds ratio (terminal stop vs interior stop) with a Haldane-Anscombe +0.5
-// continuity correction for sparse cells. The four cells come straight from the Layer-0 count
-// table, so the OR is reproducible from the gated counts. Unlike the pooled-Bernoulli z (which is
-// inflated by correlated reads), an odds ratio is a descriptive effect size, so it is the primary
-// statistic for the single-stratum channels (G/H); F uses the Mantel-Haenszel common OR instead.
-static double stop_channel_or_haldane(const StopChannelCountTable& ct) {
-    double a = ct.z_num_term;                    // terminal stop
-    double b = ct.z_den_term - ct.z_num_term;    // terminal non-stop
-    double c = ct.z_num_int;                     // interior stop
-    double d = ct.z_den_int  - ct.z_num_int;     // interior non-stop
-    return ((a + 0.5) * (d + 0.5)) / ((b + 0.5) * (c + 0.5));
-}
-
-// LLR of exponential decay vs constant model over positions 1-9 (excludes pos 0 artifacts).
 // Negative return value signals inverted pattern (terminal lower than interior).
 static float compute_decay_llr(
     const std::array<double, 15>& freq,
@@ -441,1165 +367,7 @@ static std::pair<ChannelDecayFit, int> fit_decay_joint_best_offset(
     return {best, best_offset};
 }
 
-void FrameSelector::update_sample_profile(
-    SampleDamageProfile& profile,
-    std::string_view seq) {
 
-    if (seq.length() < 30) return;  // Too short for reliable statistics
-
-    size_t len = seq.length();
-
-    // Decode entire read once: uppercase and cache so downstream passes
-    // pay one & ~0x20u per base instead of one per scan × 8+ scans.
-    thread_local std::vector<char> dec_buf;
-    if (dec_buf.size() < len) dec_buf.resize(len);
-    char* const decoded = dec_buf.data();
-    for (size_t i = 0; i < len; ++i)
-        decoded[i] = static_cast<char>(static_cast<unsigned char>(seq[i]) & ~0x20u);
-
-    for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-        char base = decoded[i];
-        // Damage signal: T/(T+C) for C→T
-        if (base == 'T') {
-            profile.t_freq_5prime[i]++;
-            profile.tc_total_5prime[i]++;
-        } else if (base == 'C') {
-            profile.c_freq_5prime[i]++;
-            profile.tc_total_5prime[i]++;
-        }
-        // Negative control: A/(A+G) - should NOT be elevated by C→T damage
-        if (base == 'A') {
-            profile.a_freq_5prime[i]++;
-        } else if (base == 'G') {
-            profile.g_freq_5prime[i]++;
-        }
-    }
-
-    for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-        size_t pos = len - 1 - i;
-        char base = decoded[pos];
-        // Damage signal: A/(A+G) for G→A
-        if (base == 'A') {
-            profile.a_freq_3prime[i]++;
-            profile.ag_total_3prime[i]++;
-        } else if (base == 'G') {
-            profile.g_freq_3prime[i]++;
-            profile.ag_total_3prime[i]++;
-        }
-        // Negative control: T/(T+C) - should NOT be elevated by G→A damage
-        if (base == 'T') {
-            profile.t_freq_3prime[i]++;
-        } else if (base == 'C') {
-            profile.c_freq_3prime[i]++;
-        }
-    }
-
-    // Tail-anchored background sampling: track C->T (G->A) rates at
-    // positions BG_TAIL_LO..BG_TAIL_HI from each terminus to provide a
-    // chemistry-robust baseline. Only fills positions actually covered by
-    // this read.
-    {
-        const int lo = SampleDamageProfile::BG_TAIL_LO;
-        const int hi = SampleDamageProfile::BG_TAIL_HI;
-        for (int i = lo; i <= hi && static_cast<size_t>(i) < len; ++i) {
-            const int idx = i - lo;
-            const char b5 = decoded[i];
-            if (b5 == 'T') { profile.tail_t_5prime[idx]++; profile.tail_tc_5prime[idx]++; }
-            else if (b5 == 'C') { profile.tail_tc_5prime[idx]++; }
-
-            const size_t pos3 = len - 1 - i;
-            const char b3 = decoded[pos3];
-            if (b3 == 'A') { profile.tail_a_3prime[idx]++; profile.tail_ag_3prime[idx]++; }
-            else if (b3 == 'G') { profile.tail_ag_3prime[idx]++; }
-        }
-    }
-
-    // Count bases in middle third (undamaged baseline)
-    constexpr size_t INTERIOR_TERM_PAD = 15;
-    size_t mid_start = len / 3;
-    size_t mid_end   = 2 * len / 3;
-    if (mid_start < INTERIOR_TERM_PAD)     mid_start = INTERIOR_TERM_PAD;
-    if (len > INTERIOR_TERM_PAD && mid_end + INTERIOR_TERM_PAD > len)
-        mid_end = len - INTERIOR_TERM_PAD;
-    const bool interior_safe = (mid_start < mid_end);
-    if (interior_safe) {
-        for (size_t i = mid_start; i < mid_end; ++i) {
-            char base = decoded[i];
-            if (base == 'T') profile.baseline_t_freq++;
-            else if (base == 'C') profile.baseline_c_freq++;
-            else if (base == 'A') profile.baseline_a_freq++;
-            else if (base == 'G') profile.baseline_g_freq++;
-        }
-    }
-
-    // Reference-free oxidation-like contrast. During the streaming pass we do
-    // not assign ancient/background weights directly. Instead, each read is
-    // placed into a terminal-deamination-excess stratum using its own interior
-    // composition as a null. Finalization calibrates the strata within length
-    // x GC bins and only then compares high-deamination to low-deamination
-    // strata. This avoids treating raw terminal T-richness as an ancestry score.
-    if (interior_safe) {
-        double term_t5 = 0.0, term_tc5 = 0.0;
-        for (size_t p = 0; p < std::min<size_t>(5, len); ++p) {
-            const char b = decoded[p];
-            if (b == 'T') { term_t5 += 1.0; term_tc5 += 1.0; }
-            else if (b == 'C') { term_tc5 += 1.0; }
-        }
-
-        // 3' position 0 is skipped: SS prep can create a ligation artifact at
-        // the final base. Positions 1..4 carry the useful G->A deamination axis.
-        double term_a3 = 0.0, term_ag3 = 0.0;
-        for (size_t off = 1; off < std::min<size_t>(5, len); ++off) {
-            const char b = decoded[len - 1 - off];
-            if (b == 'A') { term_a3 += 1.0; term_ag3 += 1.0; }
-            else if (b == 'G') { term_ag3 += 1.0; }
-        }
-
-        double mid_t = 0.0, mid_c = 0.0, mid_a = 0.0, mid_g = 0.0;
-        for (size_t i = mid_start; i < mid_end; ++i) {
-            const char b = decoded[i];
-            if (b == 'T') ++mid_t;
-            else if (b == 'C') ++mid_c;
-            else if (b == 'A') ++mid_a;
-            else if (b == 'G') ++mid_g;
-        }
-
-        const double mid_tc = mid_t + mid_c;
-        const double mid_ag = mid_a + mid_g;
-        const double mid_total = mid_t + mid_c + mid_a + mid_g;
-        if (mid_total > 0.0) {
-            double score_num = 0.0, score_den = 0.0;
-            if (term_tc5 > 0.0 && mid_tc > 0.0) {
-                const double term = (term_t5 + 0.5) / (term_tc5 + 1.0);
-                const double base = (mid_t + 0.5) / (mid_tc + 1.0);
-                score_num += std::max(0.0, term - base) * term_tc5;
-                score_den += term_tc5;
-            }
-            if (term_ag3 > 0.0 && mid_ag > 0.0) {
-                const double term = (term_a3 + 0.5) / (term_ag3 + 1.0);
-                const double base = (mid_a + 0.5) / (mid_ag + 1.0);
-                score_num += std::max(0.0, term - base) * term_ag3;
-                score_den += term_ag3;
-            }
-
-            const double deam_score = score_den > 0.0 ? score_num / score_den : 0.0;
-            int deam_bin = 0;
-            if (deam_score > 0.40) deam_bin = 4;
-            else if (deam_score > 0.20) deam_bin = 3;
-            else if (deam_score > 0.08) deam_bin = 2;
-            else if (deam_score > 0.00) deam_bin = 1;
-
-            const double gc_frac = (mid_g + mid_c) / mid_total;
-            const int gc_bin = std::clamp(
-                static_cast<int>(gc_frac * SampleDamageProfile::N_OX_GC_BINS),
-                0, SampleDamageProfile::N_OX_GC_BINS - 1);
-            int len_bin = 3;
-            if (len <= 50) len_bin = 0;
-            else if (len <= 75) len_bin = 1;
-            else if (len <= 100) len_bin = 2;
-
-            auto& oxs = profile.oxidation_like_bins[
-                len_bin * SampleDamageProfile::N_OX_GC_BINS + gc_bin].strata[deam_bin];
-            ++oxs.reads;
-            oxs.term_t5 += term_t5; oxs.term_tc5 += term_tc5;
-            oxs.term_a3 += term_a3; oxs.term_ag3 += term_ag3;
-            oxs.int_t += mid_t; oxs.int_tc += mid_tc;
-            oxs.int_a += mid_a; oxs.int_ag += mid_ag;
-
-            for (size_t i = mid_start; i < mid_end; ++i) {
-                const char b = decoded[i];
-                if (b == 'T' || b == 'G') {
-                    oxs.sig_tg += 1.0;
-                    if (b == 'T') oxs.sig_t += 1.0;
-                }
-                if (b == 'A' || b == 'C') {
-                    oxs.sig_ac += 1.0;
-                    if (b == 'A') oxs.sig_a += 1.0;
-                }
-                if (b == 'A' || b == 'T') {
-                    oxs.ctrl_at += 1.0;
-                    if (b == 'A') oxs.ctrl_a += 1.0;
-                }
-                if (b == 'C' || b == 'G') {
-                    oxs.ctrl_cg += 1.0;
-                    if (b == 'C') oxs.ctrl_c += 1.0;
-                }
-            }
-
-            // Two-marker bins: s1 = T count at 5' pos 1-3 (C→T proxy),
-            //                  s2 = A count at 3' pos 1-3 (G→A proxy, DS marker).
-            // Both are reference-free: we observe the base directly.
-            {
-                int s1 = 0;
-                for (int p = 1; p <= 3 && static_cast<size_t>(p) < len; ++p) {
-                    if (decoded[p] == 'T') ++s1;
-                }
-                int s2 = 0;
-                for (int p = 1; p <= 3 && static_cast<size_t>(p) < len; ++p) {
-                    if (decoded[len - 1 - p] == 'A') ++s2;
-                }
-                s1 = std::min(s1, 3);
-                s2 = std::min(s2, 3);
-                int gc_b = (mid_total > 0)
-                    ? std::min(3, static_cast<int>((mid_g + mid_c) * 4.0 / mid_total))
-                    : 1;
-                int len_b = (len < 45) ? 0 : (len < 70) ? 1 : (len < 110) ? 2 : 3;
-                auto& cell = profile.oxo_two_marker.cells[
-                    SampleDamageProfile::OxoTwoMarkerBins::idx(s1, s2, gc_b, len_b)];
-                ++cell.n_reads;
-                cell.sum_nGT += static_cast<uint32_t>(mid_t + mid_g);
-                cell.sum_T   += static_cast<uint32_t>(mid_t);
-                cell.sum_nAC += static_cast<uint32_t>(mid_a + mid_c);
-                cell.sum_A   += static_cast<uint32_t>(mid_a);
-            }
-        }
-    }
-
-    // Codon-position-aware counting at 5' end (first 15 bases)
-    for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-        int codon_pos = i % 3;  // 0, 1, 2
-        char base = decoded[i];
-        if (base == 'T') profile.codon_pos_t_count_5prime[codon_pos]++;
-        else if (base == 'C') profile.codon_pos_c_count_5prime[codon_pos]++;
-    }
-
-    // Codon-position-aware counting at 3' end (last 15 bases)
-    for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-        size_t pos = len - 1 - i;
-        int codon_pos = (len - 1 - i) % 3;
-        char base = decoded[pos];
-        if (base == 'A') profile.codon_pos_a_count_3prime[codon_pos]++;
-        else if (base == 'G') profile.codon_pos_g_count_3prime[codon_pos]++;
-    }
-
-    // CpG context damage tracking (5' end, first 5 bases)
-    for (size_t i = 0; i < std::min(size_t(5), len - 1); ++i) {
-        char base = decoded[i];
-        char next = decoded[i + 1];
-
-        // Check for CpG context: C followed by G, or T followed by G (damaged CpG)
-        if (next == 'G') {
-            if (base == 'C') {
-                profile.cpg_c_count++;
-            } else if (base == 'T') {
-                profile.cpg_t_count++;  // Likely C→T in CpG
-            }
-        } else {
-            // Non-CpG context (same position range as CpG)
-            if (base == 'C') {
-                profile.non_cpg_c_count++;
-            } else if (base == 'T') {
-                profile.non_cpg_t_count++;
-            }
-        }
-    }
-
-    // Reference-free trinucleotide spectrum (64 contexts).
-    // Terminal zone = read positions 1..4 (both flanks available, inside damage zone).
-    // Interior zone = read positions 10..14 (null-distribution baseline).
-    // Mirror counters at 3' end use positions counted from the 3' terminus.
-    {
-        auto nuc_idx = [](char c) -> int {
-            switch (c) { case 'A': return 0; case 'C': return 1;
-                         case 'G': return 2; case 'T': return 3; }
-            return -1;
-        };
-        auto add_ctx = [&](int prev_pos, int mid_pos, int next_pos,
-                           std::array<uint64_t, SampleDamageProfile::N_TRINUC>& target) {
-            if (prev_pos < 0 || next_pos >= static_cast<int>(len)) return;
-            int i0 = nuc_idx(decoded[prev_pos]);
-            int i1 = nuc_idx(decoded[mid_pos]);
-            int i2 = nuc_idx(decoded[next_pos]);
-            if (i0 < 0 || i1 < 0 || i2 < 0) return;
-            ++target[i0 * 16 + i1 * 4 + i2];
-        };
-        for (int p = 1; p <= 4 && p + 1 < static_cast<int>(len); ++p)
-            add_ctx(p - 1, p, p + 1, profile.tri_5prime_terminal);
-        for (int p = 10; p <= 14 && p + 1 < static_cast<int>(len); ++p)
-            add_ctx(p - 1, p, p + 1, profile.tri_5prime_interior);
-        for (int p = 1; p <= 4; ++p) {
-            int mid = static_cast<int>(len) - 1 - p;
-            add_ctx(mid - 1, mid, mid + 1, profile.tri_3prime_terminal);
-        }
-        for (int p = 10; p <= 14; ++p) {
-            int mid = static_cast<int>(len) - 1 - p;
-            add_ctx(mid - 1, mid, mid + 1, profile.tri_3prime_interior);
-        }
-        // Per-position: all positions 1..N_POS_TRI-1 from each end.
-        for (int p = 1; p < SampleDamageProfile::N_POS_TRI && p + 1 < static_cast<int>(len); ++p)
-            add_ctx(p - 1, p, p + 1, profile.tri_5prime_pos[p]);
-        for (int p = 1; p < SampleDamageProfile::N_POS_TRI; ++p) {
-            int mid = static_cast<int>(len) - 1 - p;
-            if (mid - 1 >= 0 && mid + 1 < static_cast<int>(len))
-                add_ctx(mid - 1, mid, mid + 1, profile.tri_3prime_pos[p]);
-        }
-    }
-
-    // CpG-like context split — 5' terminal positions (all 15)
-    // Also accumulate upstream-context-aware bins (AC, CC, GC, TC)
-    for (int p = 0; p < SampleDamageProfile::N_POS && (p + 1) < static_cast<int>(len); ++p) {
-        const char x = decoded[p];
-        const char y = decoded[p + 1];
-        if ((x == 'C' || x == 'T') && (y == 'A' || y == 'C' || y == 'G' || y == 'T')) {
-            const int ctx = (y == 'G') ? SampleDamageProfile::CPG_LIKE : SampleDamageProfile::NONCPG_LIKE;
-            profile.ct_ctx_total_5prime[ctx][p] += 1.0f;
-            if (x == 'T') profile.ct_ctx_t_5prime[ctx][p] += 1.0f;
-        }
-        // Upstream-context-aware: classify by preceding base (for p > 0)
-        if (p > 0 && (x == 'C' || x == 'T')) {
-            const char u = decoded[p - 1];
-            int uctx = -1;
-            switch (u) {
-                case 'A': uctx = SampleDamageProfile::CTX_AC; break;
-                case 'C': uctx = SampleDamageProfile::CTX_CC; break;
-                case 'G': uctx = SampleDamageProfile::CTX_GC; break;
-                case 'T': uctx = SampleDamageProfile::CTX_TC; break;
-            }
-            if (uctx >= 0) {
-                profile.ct5_total_by_upstream[uctx][p] += 1.0;
-                if (x == 'T') profile.ct5_t_by_upstream[uctx][p] += 1.0;
-            }
-        }
-    }
-
-    // Interior baseline + oxoG 16-context (only for reads >= 30 bp, already guarded above)
-    {
-        constexpr size_t INTERIOR_TERM_PAD_CTX = 15;
-        size_t q0s = len / 3;
-        size_t q1s = 2 * len / 3;
-        if (q0s < INTERIOR_TERM_PAD_CTX) q0s = INTERIOR_TERM_PAD_CTX;
-        if (len > INTERIOR_TERM_PAD_CTX && q1s + INTERIOR_TERM_PAD_CTX > len)
-            q1s = len - INTERIOR_TERM_PAD_CTX;
-        const bool interior_safe_ctx = (q0s < q1s);
-        const int q0 = static_cast<int>(q0s), q1 = static_cast<int>(q1s);
-
-        // Context-split interior baseline
-        if (interior_safe_ctx)
-        for (int q = q0; q < q1 && (q + 1) < static_cast<int>(len); ++q) {
-            const char x = decoded[q], y = decoded[q + 1];
-            if ((x == 'C' || x == 'T') && (y == 'A' || y == 'C' || y == 'G' || y == 'T')) {
-                const int ctx = (y == 'G') ? SampleDamageProfile::CPG_LIKE : SampleDamageProfile::NONCPG_LIKE;
-                profile.ct_ctx_total_interior[ctx] += 1.0f;
-                if (x == 'T') profile.ct_ctx_t_interior[ctx] += 1.0f;
-            }
-            // Upstream-context-aware interior baseline
-            if (q > 0 && (x == 'C' || x == 'T')) {
-                const char u = decoded[q - 1];
-                int uctx = -1;
-                switch (u) {
-                    case 'A': uctx = SampleDamageProfile::CTX_AC; break;
-                    case 'C': uctx = SampleDamageProfile::CTX_CC; break;
-                    case 'G': uctx = SampleDamageProfile::CTX_GC; break;
-                    case 'T': uctx = SampleDamageProfile::CTX_TC; break;
-                }
-                if (uctx >= 0) {
-                    profile.ct5_total_interior_by_upstream[uctx] += 1.0;
-                    if (x == 'T') profile.ct5_t_interior_by_upstream[uctx] += 1.0;
-                }
-            }
-        }
-
-        // oxoG 16-context interior panel
-        if (interior_safe_ctx)
-        for (int q = q0; q < q1; ++q) {
-            if (q <= 0 || q >= static_cast<int>(len) - 1) continue;
-            const char l = decoded[q-1], b = decoded[q], r = decoded[q+1];
-            auto enc = [](char c) -> int {
-                switch(c){ case 'A':return 0; case 'C':return 1; case 'G':return 2; case 'T':return 3; default:return -1; }
-            };
-            auto rc_base = [](char c) -> char {
-                switch(c){ case 'A':return 'T'; case 'T':return 'A'; case 'C':return 'G'; case 'G':return 'C'; default:return 'N'; }
-            };
-            if (b == 'T') {
-                int il = enc(l), ir = enc(r);
-                if (il >= 0 && ir >= 0) profile.oxog16_t[4*il+ir] += 1.0f;
-            } else if (b == 'A') {
-                int il = enc(rc_base(r)), ir = enc(rc_base(l));
-                if (il >= 0 && ir >= 0) profile.oxog16_a_rc[4*il+ir] += 1.0f;
-            }
-        }
-    }
-
-    if (len >= 18) {
-        for (int frame = 0; frame < 3; ++frame) {
-            // Scan codons from 5' end up to position 14
-            for (size_t k = 0; ; ++k) {
-                size_t codon_start = frame + 3 * k;
-                if (codon_start + 3 > len || codon_start > 14) break;
-
-                size_t p = codon_start;
-                if (p >= 15) break;
-
-                char b0 = decoded[codon_start];
-                char b1 = decoded[codon_start + 1];
-                char b2 = decoded[codon_start + 2];
-
-                if ((b0 != 'A' && b0 != 'C' && b0 != 'G' && b0 != 'T') ||
-                    (b1 != 'A' && b1 != 'C' && b1 != 'G' && b1 != 'T') ||
-                    (b2 != 'A' && b2 != 'C' && b2 != 'G' && b2 != 'T')) {
-                    continue;
-                }
-
-                profile.total_codons_5prime[p]++;
-
-                if (b1 == 'A' && b2 == 'A') {
-                    if (b0 == 'C') profile.convertible_caa_5prime[p]++;
-                    else if (b0 == 'T') profile.convertible_taa_5prime[p]++;
-                }
-                if (b1 == 'A' && b2 == 'G') {
-                    if (b0 == 'C') profile.convertible_cag_5prime[p]++;
-                    else if (b0 == 'T') profile.convertible_tag_5prime[p]++;
-                }
-                if (b1 == 'G' && b2 == 'A') {
-                    if (b0 == 'C') profile.convertible_cga_5prime[p]++;
-                    else if (b0 == 'T') profile.convertible_tga_5prime[p]++;
-                }
-            }
-        }
-
-        // Track interior convertible codons (positions 30+ from start)
-        // This gives us the baseline stop conversion rate
-        // Guard: len >= 63 required to have valid interior region [30, len-30)
-        // Without this, len - 30 underflows for short reads causing OOB access
-        constexpr size_t INTERIOR_MIN_LEN = 63;  // 30 + 3 + 30
-        if (len >= INTERIOR_MIN_LEN) {
-            for (int frame = 0; frame < 3; ++frame) {
-                for (size_t k = 0; ; ++k) {
-                    size_t codon_start = frame + 3 * k;
-                    // Interior region: 30 to len-30 (away from both ends)
-                    if (codon_start < 30 || codon_start + 3 > len - 30) {
-                        if (codon_start + 3 > len - 30) break;
-                        continue;
-                    }
-
-                    char b0 = decoded[codon_start];
-                    char b1 = decoded[codon_start + 1];
-                    char b2 = decoded[codon_start + 2];
-
-                    if ((b0 != 'A' && b0 != 'C' && b0 != 'G' && b0 != 'T') ||
-                        (b1 != 'A' && b1 != 'C' && b1 != 'G' && b1 != 'T') ||
-                        (b2 != 'A' && b2 != 'C' && b2 != 'G' && b2 != 'T')) {
-                        continue;
-                    }
-
-                    profile.total_codons_interior++;
-
-                    if (b1 == 'A' && b2 == 'A') {
-                        if (b0 == 'C') profile.convertible_caa_interior++;
-                        else if (b0 == 'T') profile.convertible_taa_interior++;
-                    }
-                    if (b1 == 'A' && b2 == 'G') {
-                        if (b0 == 'C') profile.convertible_cag_interior++;
-                        else if (b0 == 'T') profile.convertible_tag_interior++;
-                    }
-                    if (b1 == 'G' && b2 == 'A') {
-                        if (b0 == 'C') profile.convertible_cga_interior++;
-                        else if (b0 == 'T') profile.convertible_tga_interior++;
-                    }
-                }
-            }
-        }
-    }
-
-    // Prefix hexamer codes for adapter-aware F/G/H terminal bucketing.
-    // pfx5 = first 6 bases; pfx3 = last 6 bases.  UINT32_MAX when invalid.
-    uint32_t pfx5 = UINT32_MAX, pfx3 = UINT32_MAX;
-    if (len >= 6) {
-        char hbuf[7]; bool ok = true;
-        for (int i = 0; i < 6 && ok; ++i) {
-            hbuf[i] = static_cast<char>(static_cast<unsigned char>(seq[i]) & ~0x20u);
-            if (hbuf[i]!='A'&&hbuf[i]!='C'&&hbuf[i]!='G'&&hbuf[i]!='T') ok = false;
-        }
-        if (ok) { hbuf[6]='\0'; pfx5 = encode_hexamer(hbuf); }
-        ok = true;
-        for (int i = 0; i < 6 && ok; ++i) {
-            hbuf[i] = static_cast<char>(static_cast<unsigned char>(seq[len-6+i]) & ~0x20u);
-            if (hbuf[i]!='A'&&hbuf[i]!='C'&&hbuf[i]!='G'&&hbuf[i]!='T') ok = false;
-        }
-        if (ok) { hbuf[6]='\0'; pfx3 = encode_hexamer(hbuf); }
-    }
-
-    // Fused 5' terminal codon scan: Channels C + F + G + H
-    if (len >= 18) {
-        for (int frame = 0; frame < 3; ++frame) {
-            for (size_t k = 0; ; ++k) {
-                size_t codon_start = frame + 3 * k;
-                if (codon_start + 3 > len || codon_start > 14) break;
-                size_t p = codon_start;
-
-                const char b0 = decoded[codon_start];
-                const char b1 = decoded[codon_start + 1];
-                const char b2 = decoded[codon_start + 2];
-
-                if ((b0 != 'A' && b0 != 'C' && b0 != 'G' && b0 != 'T') ||
-                    (b1 != 'A' && b1 != 'C' && b1 != 'G' && b1 != 'T') ||
-                    (b2 != 'A' && b2 != 'C' && b2 != 'G' && b2 != 'T')) {
-                    continue;
-                }
-
-                // Channel C: G→T oxidative stop codons
-                if (b1 == 'A' && b2 == 'G') {
-                    if (b0 == 'G') profile.convertible_gag_5prime[p]++;
-                    else if (b0 == 'T') profile.convertible_tag_ox_5prime[p]++;
-                }
-                if (b1 == 'A' && b2 == 'A') {
-                    if (b0 == 'G') profile.convertible_gaa_5prime[p]++;
-                    else if (b0 == 'T') profile.convertible_taa_ox_5prime[p]++;
-                }
-                if (b1 == 'G' && b2 == 'A') {
-                    if (b0 == 'G') profile.convertible_gga_5prime[p]++;
-                    else if (b0 == 'T') profile.convertible_tga_ox_5prime[p]++;
-                }
-                // Channel F: C→A oxidative stop codons
-                if (b0 == 'T' && b2 == 'A') {
-                    if (b1 == 'C') profile.convertible_tca_5prime[p]++;
-                    else if (b1 == 'A') profile.convertible_taa_ca_5prime[p]++;
-                }
-                if (b0 == 'T' && b2 == 'G') {
-                    if (b1 == 'C') profile.convertible_tcg_5prime[p]++;
-                    else if (b1 == 'A') profile.convertible_tag_ca_5prime[p]++;
-                }
-                if (b0 == 'T' && b1 == 'A') {
-                    if (b2 == 'C') profile.convertible_tac_5prime[p]++;
-                }
-                if (b0 == 'T' && b1 == 'G') {
-                    if (b2 == 'C') profile.convertible_tgc_5prime[p]++;
-                    else if (b2 == 'A') profile.convertible_tga_ca_5prime[p]++;
-                }
-                // Channel F: deamination shadows — C→T converts TCA→TTA, TCG→TTG, TAC→TAT, TGC→TGT
-                if (b0 == 'T') {
-                    const bool sha0 = (b1=='T'&&b2=='A') || (b1=='A'&&b2=='T');
-                    const bool sha1 = (b1=='T'&&b2=='G');
-                    const bool sha2 = (b1=='G'&&b2=='T');
-                    if (sha0 || sha1 || sha2) {
-                        profile.ca_deam_shadow_5prime[p]++;
-                        if      (sha0) profile.ca_shadow_5prime_ctx0[p]++;
-                        else if (sha1) profile.ca_shadow_5prime_ctx1[p]++;
-                        else           profile.ca_shadow_5prime_ctx2[p]++;
-                    }
-                }
-                // Channel G: C→G oxidative stop codons
-                if (b0 == 'T' && b2 == 'A') {
-                    if (b1 == 'C') profile.convertible_tca_cg_5prime[p]++;
-                    else if (b1 == 'G') profile.convertible_tga_cg_5prime[p]++;
-                }
-                if (b0 == 'T' && b1 == 'A') {
-                    if (b2 == 'C') profile.convertible_tac_cg_5prime[p]++;
-                    else if (b2 == 'G') profile.convertible_tag_cg_5prime[p]++;
-                }
-                // Channel H: A→T oxidative stop codons
-                if (b1 == 'A' && b2 == 'A') {
-                    if (b0 == 'A') profile.convertible_aaa_h_5prime[p]++;
-                    else if (b0 == 'T') profile.convertible_taa_at_5prime[p]++;
-                }
-                if (b1 == 'A' && b2 == 'G') {
-                    if (b0 == 'A') profile.convertible_aag_h_5prime[p]++;
-                    else if (b0 == 'T') profile.convertible_tag_at_5prime[p]++;
-                }
-                if (b1 == 'G' && b2 == 'A') {
-                    if (b0 == 'A') profile.convertible_aga_h_5prime[p]++;
-                    else if (b0 == 'T') profile.convertible_tga_at_5prime[p]++;
-                }
-                // Prefix-conditioned F/G/H terminal sums (p < 5, keyed by first hexamer)
-                if (p < 5 && pfx5 < 4096) {
-                    const bool t0 = (b0 == 'T'), a0 = (b0 == 'A');
-                    // Channel F (C→A): pre = TCA|TCG|TAC|TGC; stop = TAA|TAG|TGA
-                    profile.ca_pre_terminal_by_pfx[pfx5] +=
-                        t0 && ((b1=='C'&&(b2=='A'||b2=='G')) || (b1=='A'&&b2=='C') || (b1=='G'&&b2=='C'));
-                    profile.ca_stop_terminal_by_pfx[pfx5] +=
-                        t0 && ((b2=='A'&&b1=='A') || (b2=='G'&&b1=='A') || (b1=='G'&&b2=='A'));
-                    profile.ca_deam_shadow_terminal_by_pfx[pfx5] +=
-                        t0 && ((b1=='T'&&(b2=='A'||b2=='G')) || (b1=='A'&&b2=='T') || (b1=='G'&&b2=='T'));
-                    // Channel G (C→G): pre = TCA|TAC; stop = TGA|TAG
-                    profile.cg_pre_terminal_by_pfx[pfx5] +=
-                        t0 && ((b1=='C'&&b2=='A') || (b1=='A'&&b2=='C'));
-                    profile.cg_stop_terminal_by_pfx[pfx5] +=
-                        t0 && ((b1=='G'&&b2=='A') || (b1=='A'&&b2=='G'));
-                    // Channel H (A→T): pre = AAA|AAG|AGA; stop = TAA|TAG|TGA
-                    profile.at_pre_terminal_by_pfx[pfx5] +=
-                        a0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
-                    profile.at_stop_terminal_by_pfx[pfx5] +=
-                        t0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
-                    if (p >= 2) {
-                        profile.at_pre_terminal_p2plus_by_pfx[pfx5] +=
-                            a0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
-                        profile.at_stop_terminal_p2plus_by_pfx[pfx5] +=
-                            t0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
-                    }
-                }
-            }
-        }
-    }
-
-    // Fused 3' terminal codon scan: Channels C + F + G + H
-    if (len >= 18) {
-        for (int frame = 0; frame < 3; ++frame) {
-            for (size_t k = 0; ; ++k) {
-                size_t p = k * 3 + frame;
-                if (p >= 15) break;
-                if (len < 3 + k * 3 + frame) break;
-                size_t codon_start = len - 3 - k * 3 - frame;
-                if (codon_start + 3 > len) break;
-
-                const char b0 = decoded[codon_start];
-                const char b1 = decoded[codon_start + 1];
-                const char b2 = decoded[codon_start + 2];
-
-                // Channel C
-                if (b1 == 'A' && b2 == 'G') {
-                    if (b0 == 'G') profile.convertible_gag_3prime[p]++;
-                    else if (b0 == 'T') profile.convertible_tag_ox_3prime[p]++;
-                }
-                if (b1 == 'A' && b2 == 'A') {
-                    if (b0 == 'G') profile.convertible_gaa_3prime[p]++;
-                    else if (b0 == 'T') profile.convertible_taa_ox_3prime[p]++;
-                }
-                if (b1 == 'G' && b2 == 'A') {
-                    if (b0 == 'G') profile.convertible_gga_3prime[p]++;
-                    else if (b0 == 'T') profile.convertible_tga_ox_3prime[p]++;
-                }
-                // Channel F
-                if (b0 == 'T' && b2 == 'A') {
-                    if (b1 == 'C') profile.convertible_tca_3prime[p]++;
-                    else if (b1 == 'A') profile.convertible_taa_ca_3prime[p]++;
-                }
-                if (b0 == 'T' && b2 == 'G') {
-                    if (b1 == 'C') profile.convertible_tcg_3prime[p]++;
-                    else if (b1 == 'A') profile.convertible_tag_ca_3prime[p]++;
-                }
-                if (b0 == 'T' && b1 == 'A') {
-                    if (b2 == 'C') profile.convertible_tac_3prime[p]++;
-                }
-                if (b0 == 'T' && b1 == 'G') {
-                    if (b2 == 'C') profile.convertible_tgc_3prime[p]++;
-                    else if (b2 == 'A') profile.convertible_tga_ca_3prime[p]++;
-                }
-                // Channel F: deamination shadows at 3' end
-                if ((b0=='T'&&b2=='A'&&b1=='T') || (b0=='T'&&b2=='G'&&b1=='T') ||
-                    (b0=='T'&&b1=='A'&&b2=='T') || (b0=='T'&&b1=='G'&&b2=='T'))
-                    profile.ca_deam_shadow_3prime[p]++;
-                // Channel G
-                if (b0 == 'T' && b2 == 'A') {
-                    if (b1 == 'C') profile.convertible_tca_cg_3prime[p]++;
-                    else if (b1 == 'G') profile.convertible_tga_cg_3prime[p]++;
-                }
-                if (b0 == 'T' && b1 == 'A') {
-                    if (b2 == 'C') profile.convertible_tac_cg_3prime[p]++;
-                    else if (b2 == 'G') profile.convertible_tag_cg_3prime[p]++;
-                }
-                // Channel H
-                if (b1 == 'A' && b2 == 'A') {
-                    if (b0 == 'A') profile.convertible_aaa_h_3prime[p]++;
-                    else if (b0 == 'T') profile.convertible_taa_at_3prime[p]++;
-                }
-                if (b1 == 'A' && b2 == 'G') {
-                    if (b0 == 'A') profile.convertible_aag_h_3prime[p]++;
-                    else if (b0 == 'T') profile.convertible_tag_at_3prime[p]++;
-                }
-                if (b1 == 'G' && b2 == 'A') {
-                    if (b0 == 'A') profile.convertible_aga_h_3prime[p]++;
-                    else if (b0 == 'T') profile.convertible_tga_at_3prime[p]++;
-                }
-                // Prefix-conditioned F/G/H terminal sums (p < 5, keyed by last hexamer)
-                if (p < 5 && pfx3 < 4096) {
-                    const bool t0 = (b0 == 'T'), a0 = (b0 == 'A');
-                    profile.ca_pre_terminal_3p_by_pfx[pfx3] +=
-                        t0 && ((b1=='C'&&(b2=='A'||b2=='G')) || (b1=='A'&&b2=='C') || (b1=='G'&&b2=='C'));
-                    profile.ca_stop_terminal_3p_by_pfx[pfx3] +=
-                        t0 && ((b2=='A'&&b1=='A') || (b2=='G'&&b1=='A') || (b1=='G'&&b2=='A'));
-                    profile.cg_pre_terminal_3p_by_pfx[pfx3] +=
-                        t0 && ((b1=='C'&&b2=='A') || (b1=='A'&&b2=='C'));
-                    profile.cg_stop_terminal_3p_by_pfx[pfx3] +=
-                        t0 && ((b1=='G'&&b2=='A') || (b1=='A'&&b2=='G'));
-                    profile.at_pre_terminal_3p_by_pfx[pfx3] +=
-                        a0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
-                    profile.at_stop_terminal_3p_by_pfx[pfx3] +=
-                        t0 && ((b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A'));
-                }
-            }
-        }
-    }
-
-    // Fused interior baseline: Channels C + F + G + H (positions 30 to len-30)
-    if (len >= 63) {
-        for (int frame = 0; frame < 3; ++frame) {
-            for (size_t k = 0; ; ++k) {
-                size_t codon_start = frame + 3 * k;
-                if (codon_start + 3 > len - 30) break;
-                if (codon_start < 30) continue;
-
-                const char b0 = decoded[codon_start];
-                const char b1 = decoded[codon_start + 1];
-                const char b2 = decoded[codon_start + 2];
-
-                // Channel C interior
-                if (b1 == 'A' && b2 == 'G') {
-                    if (b0 == 'G') profile.convertible_gag_interior++;
-                    else if (b0 == 'T') profile.convertible_tag_ox_interior++;
-                }
-                if (b1 == 'A' && b2 == 'A') {
-                    if (b0 == 'G') profile.convertible_gaa_interior++;
-                    else if (b0 == 'T') profile.convertible_taa_ox_interior++;
-                }
-                if (b1 == 'G' && b2 == 'A') {
-                    if (b0 == 'G') profile.convertible_gga_interior++;
-                    else if (b0 == 'T') profile.convertible_tga_ox_interior++;
-                }
-                // Channel F interior
-                if (b0 == 'T' && b2 == 'A') {
-                    if      (b1 == 'C') profile.convertible_tca_interior++;
-                    else if (b1 == 'A') profile.convertible_taa_ca_interior++;
-                }
-                if (b0 == 'T' && b2 == 'G') {
-                    if      (b1 == 'C') profile.convertible_tcg_interior++;
-                    else if (b1 == 'A') profile.convertible_tag_ca_interior++;
-                }
-                if (b0 == 'T' && b1 == 'A' && b2 == 'C') profile.convertible_tac_interior++;
-                if (b0 == 'T' && b1 == 'G') {
-                    if      (b2 == 'C') profile.convertible_tgc_interior++;
-                    else if (b2 == 'A') profile.convertible_tga_ca_interior++;
-                }
-                // Channel F far-interior (mirrors convertible_tc*/taa_ca/tag_ca/tga_ca)
-                if (b0 == 'T') {
-                    bool is_pre    = (b1=='C'&&b2=='A') || (b1=='C'&&b2=='G') ||
-                                     (b1=='A'&&b2=='C') || (b1=='G'&&b2=='C');
-                    bool is_stop   = (b1=='A'&&b2=='A') || (b1=='A'&&b2=='G') || (b1=='G'&&b2=='A');
-                    bool is_shadow = (b1=='T'&&(b2=='A'||b2=='G')) ||
-                                     (b1=='A'&&b2=='T') || (b1=='G'&&b2=='T');
-                    if      (is_pre)    profile.ca_pre_interior++;
-                    else if (is_stop)   profile.ca_stop_interior++;
-                    else if (is_shadow) profile.ca_deam_shadow_interior++;
-                    // Per-context for MH (ctx0=TCA+TAC, ctx1=TCG, ctx2=TGC)
-                    if      ((b1=='C'&&b2=='A') || (b1=='A'&&b2=='C')) profile.ca_pre_interior_by_ctx[0]++;
-                    else if (b1=='A'&&b2=='A')                          profile.ca_stop_interior_by_ctx[0]++;
-                    else if ((b1=='T'&&b2=='A') || (b1=='A'&&b2=='T'))  profile.ca_shadow_interior_by_ctx[0]++;
-                    if      (b1=='C'&&b2=='G') profile.ca_pre_interior_by_ctx[1]++;
-                    else if (b1=='A'&&b2=='G') profile.ca_stop_interior_by_ctx[1]++;
-                    else if (b1=='T'&&b2=='G') profile.ca_shadow_interior_by_ctx[1]++;
-                    if      (b1=='G'&&b2=='C') profile.ca_pre_interior_by_ctx[2]++;
-                    else if (b1=='G'&&b2=='A') profile.ca_stop_interior_by_ctx[2]++;
-                    else if (b1=='G'&&b2=='T') profile.ca_shadow_interior_by_ctx[2]++;
-                }
-                // Channel G interior
-                if (b0 == 'T' && b2 == 'A') {
-                    if      (b1 == 'C') profile.cg_pre_interior++;
-                    else if (b1 == 'G') profile.cg_stop_interior++;
-                }
-                if (b0 == 'T' && b1 == 'A') {
-                    if      (b2 == 'C') profile.cg_pre_interior++;
-                    else if (b2 == 'G') profile.cg_stop_interior++;
-                }
-                // Channel H interior
-                if (b1 == 'A' && b2 == 'A') {
-                    if      (b0 == 'A') profile.at_pre_interior++;
-                    else if (b0 == 'T') profile.at_stop_interior++;
-                }
-                if (b1 == 'A' && b2 == 'G') {
-                    if      (b0 == 'A') profile.at_pre_interior++;
-                    else if (b0 == 'T') profile.at_stop_interior++;
-                }
-                if (b1 == 'G' && b2 == 'A') {
-                    if      (b0 == 'A') profile.at_pre_interior++;
-                    else if (b0 == 'T') profile.at_stop_interior++;
-                }
-            }
-        }
-    }
-
-
-    // Channel D: G→T and C→A transversion tracking (8-oxoG, Chargaff-balance cross-check).
-    // Accumulate raw G, T, C, A counts at 5' terminal positions (0-14).
-    // T/(T+G) and A/(A+C) at interior vs terminal positions detect G→T oxidation without alignment.
-    for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-        char base = decoded[i];
-        if      (base == 'G') profile.g_count_5prime[i]++;
-        else if (base == 'T') profile.t_from_g_5prime[i]++;
-        if      (base == 'C') profile.c_count_ox_5prime[i]++;
-        else if (base == 'A') profile.a_from_c_5prime[i]++;
-    }
-    // Interior baseline: T/(T+G) and A/(A+C) in middle third (undamaged reference).
-    {
-        constexpr size_t INTERIOR_TERM_PAD_D = 15;
-        size_t mid_s = len / 3, mid_e = 2 * len / 3;
-        if (mid_s < INTERIOR_TERM_PAD_D) mid_s = INTERIOR_TERM_PAD_D;
-        if (len > INTERIOR_TERM_PAD_D && mid_e + INTERIOR_TERM_PAD_D > len)
-            mid_e = len - INTERIOR_TERM_PAD_D;
-        if (mid_s < mid_e) {
-            for (size_t i = mid_s; i < mid_e; ++i) {
-                char base = decoded[i];
-                if      (base == 'G') profile.baseline_g_total++;
-                else if (base == 'T') profile.baseline_g_to_t_count++;
-                if      (base == 'C') profile.baseline_c_ox_total++;
-                else if (base == 'A') profile.baseline_c_to_a_count++;
-            }
-        }
-    }
-
-    // Channel E: purine enrichment tracked via a_freq/g_freq; computed in finalize_sample_profile()
-
-    if (len >= 30) {
-        // Compute interior GC from positions 5 to end-5 (avoid both terminal regions)
-        size_t interior_start = 5;
-        size_t interior_end = len > 10 ? len - 5 : len;
-        uint64_t gc_count = 0;
-        uint64_t at_count = 0;
-        for (size_t i = interior_start; i < interior_end; ++i) {
-            char base = decoded[i];
-            if (base == 'G' || base == 'C') gc_count++;
-            else if (base == 'A' || base == 'T') at_count++;
-        }
-
-        if (gc_count + at_count > 0) {
-            float gc_frac = static_cast<float>(gc_count) / (gc_count + at_count);
-            int bin_idx = std::min(static_cast<int>(gc_frac * SampleDamageProfile::N_GC_BINS),
-                                   SampleDamageProfile::N_GC_BINS - 1);
-            auto& bin = profile.gc_bins[bin_idx];
-
-            // Accumulate Channel A counts (T and C at terminal positions)
-            for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-                char base = decoded[i];
-                if (base == 'T') bin.t_counts[i]++;
-                else if (base == 'C') bin.c_counts[i]++;
-                else if (base == 'A') bin.a_counts[i]++;
-                else if (base == 'G') bin.g_counts[i]++;
-            }
-
-            // Mirror at 3' end: i=0 is last base, i=1 second-to-last, ...
-            // Used to recover C→T damage on 3' end for SS libraries and
-            // G→A damage on 3' end for DS libraries at joint-mixture time.
-            for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-                char base = decoded[len - 1 - i];
-                if (base == 'T') bin.t_counts_3prime[i]++;
-                else if (base == 'C') bin.c_counts_3prime[i]++;
-                else if (base == 'A') bin.a_counts_3prime[i]++;
-                else if (base == 'G') bin.g_counts_3prime[i]++;
-            }
-
-            // Accumulate interior baselines for both the signal and control channels.
-            constexpr size_t INTERIOR_TERM_PAD_GC = 15;
-            size_t mid_start = len / 3;
-            size_t mid_end = 2 * len / 3;
-            if (mid_start < INTERIOR_TERM_PAD_GC) mid_start = INTERIOR_TERM_PAD_GC;
-            if (len > INTERIOR_TERM_PAD_GC && mid_end + INTERIOR_TERM_PAD_GC > len)
-                mid_end = len - INTERIOR_TERM_PAD_GC;
-            if (mid_start < mid_end) {
-                for (size_t i = mid_start; i < mid_end; ++i) {
-                    char base = decoded[i];
-                    if (base == 'T') bin.t_interior++;
-                    else if (base == 'C') bin.c_interior++;
-                    else if (base == 'A') bin.a_interior++;
-                    else if (base == 'G') bin.g_interior++;
-                }
-            }
-
-            // Accumulate Channel B counts (stop codons at terminal positions)
-            for (int frame = 0; frame < 3; ++frame) {
-                for (size_t k = 0; ; ++k) {
-                    size_t codon_start = frame + 3 * k;
-                    if (codon_start + 3 > len || codon_start > 14) break;
-                    size_t p = codon_start;
-
-                    char b0 = decoded[codon_start];
-                    char b1 = decoded[codon_start + 1];
-                    char b2 = decoded[codon_start + 2];
-
-                    // CAA/TAA, CAG/TAG, CGA/TGA
-                    if (b1 == 'A' && b2 == 'A') {
-                        if (b0 == 'C') bin.pre_counts[p]++;
-                        else if (b0 == 'T') bin.stop_counts[p]++;
-                    }
-                    if (b1 == 'A' && b2 == 'G') {
-                        if (b0 == 'C') bin.pre_counts[p]++;
-                        else if (b0 == 'T') bin.stop_counts[p]++;
-                    }
-                    if (b1 == 'G' && b2 == 'A') {
-                        if (b0 == 'C') bin.pre_counts[p]++;
-                        else if (b0 == 'T') bin.stop_counts[p]++;
-                    }
-                }
-            }
-
-            // Accumulate Channel B interior baseline
-            // Guard: len >= 63 required to prevent unsigned underflow in len - 30
-            if (len >= 63) {
-                for (int frame = 0; frame < 3; ++frame) {
-                    for (size_t k = 0; ; ++k) {
-                        size_t codon_start = frame + 3 * k;
-                        if (codon_start < 30 || codon_start + 3 > len - 30) {
-                            if (codon_start + 3 > len - 30) break;
-                            continue;
-                        }
-
-                        char b0 = decoded[codon_start];
-                        char b1 = decoded[codon_start + 1];
-                        char b2 = decoded[codon_start + 2];
-
-                        if (b1 == 'A' && b2 == 'A') {
-                            if (b0 == 'C') bin.pre_interior++;
-                            else if (b0 == 'T') bin.stop_interior++;
-                        }
-                        if (b1 == 'A' && b2 == 'G') {
-                            if (b0 == 'C') bin.pre_interior++;
-                            else if (b0 == 'T') bin.stop_interior++;
-                        }
-                        if (b1 == 'G' && b2 == 'A') {
-                            if (b0 == 'C') bin.pre_interior++;
-                            else if (b0 == 'T') bin.stop_interior++;
-                        }
-                    }
-                }
-            }
-
-            bin.n_reads++;
-        }
-    }
-
-    // Per-length-bin terminal counts for the bulk damage law (Phase 1). Fine
-    // fixed bins here; finalize_sample_profile aggregates them into data-driven
-    // adaptive length bins. Every read contributes (no GC guard) so the bulk law
-    // sees the full length distribution.
-    {
-        auto& lbin = profile.len_bins[SampleDamageProfile::len_fine_bin(len)];
-        // per-read eligibility-stratified damage co-occurrence (mixture P2): in the first JP terminal
-        // positions count damaged sites k and ELIGIBLE sites S per channel (folded into existing scans).
-        constexpr size_t JP = static_cast<size_t>(JStrat::JP);
-        int t5 = 0, c5 = 0, t3 = 0, c3 = 0, a3 = 0, g3 = 0;
-        for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-            char base = decoded[i];
-            if (base == 'T') { lbin.t_counts[i]++; if (i < JP) ++t5; }
-            else if (base == 'C') { lbin.c_counts[i]++; if (i < JP) ++c5; }
-            else if (base == 'A') lbin.a_counts[i]++;
-            else if (base == 'G') lbin.g_counts[i]++;
-        }
-        for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-            char base = decoded[len - 1 - i];
-            if (base == 'T') { lbin.t_counts_3prime[i]++; if (i < JP) ++t3; }
-            else if (base == 'C') { lbin.c_counts_3prime[i]++; if (i < JP) ++c3; }
-            else if (base == 'A') { lbin.a_counts_3prime[i]++; if (i < JP) ++a3; }
-            else if (base == 'G') { lbin.g_counts_3prime[i]++; if (i < JP) ++g3; }
-        }
-        int S5 = t5 + c5, k5 = t5;          // 5' damage C→T: hits=T, eligible sites=T+C (ds & ss)
-        int S3d = a3 + g3, k3d = a3;        // ds 3' damage G→A: hits=A, eligible=A+G
-        int S3s = t3 + c3, k3s = t3;        // ss 3' damage C→T: hits=T, eligible=T+C
-        lbin.jstrat_ds.n[S5][S3d]++;  lbin.jstrat_ds.sk5[S5][S3d] += k5;
-        lbin.jstrat_ds.sk3[S5][S3d] += k3d; lbin.jstrat_ds.sk53[S5][S3d] += static_cast<uint64_t>(k5) * k3d;
-        lbin.jstrat_ss.n[S5][S3s]++;  lbin.jstrat_ss.sk5[S5][S3s] += k5;
-        lbin.jstrat_ss.sk3[S5][S3s] += k3s; lbin.jstrat_ss.sk53[S5][S3s] += static_cast<uint64_t>(k5) * k3s;
-        constexpr size_t INTERIOR_TERM_PAD_LEN = 15;
-        size_t mid_start = len / 3, mid_end = 2 * len / 3;
-        if (mid_start < INTERIOR_TERM_PAD_LEN) mid_start = INTERIOR_TERM_PAD_LEN;
-        if (len > INTERIOR_TERM_PAD_LEN && mid_end + INTERIOR_TERM_PAD_LEN > len)
-            mid_end = len - INTERIOR_TERM_PAD_LEN;
-        if (mid_start < mid_end) {
-            for (size_t i = mid_start; i < mid_end; ++i) {
-                char base = decoded[i];
-                if (base == 'T') lbin.t_interior++;
-                else if (base == 'C') lbin.c_interior++;
-                else if (base == 'A') lbin.a_interior++;
-                else if (base == 'G') lbin.g_interior++;
-            }
-        }
-        lbin.len_sum += len;
-        lbin.n_reads++;
-    }
-
-    if (len >= 18) {
-        // 5' terminal hexamer starting at position 0
-        char hex_5prime[7];
-        bool valid_5prime = true;
-        for (int i = 0; i < 6; ++i) {
-            char b = decoded[i];
-            if (b != 'A' && b != 'C' && b != 'G' && b != 'T') {
-                valid_5prime = false;
-                break;
-            }
-            hex_5prime[i] = b;
-        }
-        hex_5prime[6] = '\0';
-
-        if (valid_5prime) {
-            uint32_t code_5prime = encode_hexamer(hex_5prime);
-            if (code_5prime < 4096) {
-                profile.hexamer_count_5prime[code_5prime] += 1.0;
-                profile.n_hexamers_5prime++;
-            }
-        }
-
-        // Interior hexamer (starting at len/2 - 3, approximately middle)
-        size_t interior_start = len / 2 - 3;
-        char hex_interior[7];
-        bool valid_interior = true;
-        for (int i = 0; i < 6; ++i) {
-            char b = decoded[interior_start + i];
-            if (b != 'A' && b != 'C' && b != 'G' && b != 'T') {
-                valid_interior = false;
-                break;
-            }
-            hex_interior[i] = b;
-        }
-        hex_interior[6] = '\0';
-
-        if (valid_interior) {
-            uint32_t code_interior = encode_hexamer(hex_interior);
-            if (code_interior < 4096) {
-                profile.hexamer_count_interior[code_interior] += 1.0;
-                profile.n_hexamers_interior++;
-            }
-        }
-
-        // 3' terminal hexamer (last 6 bases of read)
-        char hex_3prime[7];
-        bool valid_3prime = true;
-        for (int i = 0; i < 6; ++i) {
-            char b = decoded[len - 6 + i];
-            if (b != 'A' && b != 'C' && b != 'G' && b != 'T') { valid_3prime = false; break; }
-            hex_3prime[i] = b;
-        }
-        hex_3prime[6] = '\0';
-        if (valid_3prime) {
-            uint32_t code_3prime = encode_hexamer(hex_3prime);
-            if (code_3prime < 4096) {
-                profile.hexamer_count_3prime[code_3prime] += 1.0;
-                profile.n_hexamers_3prime++;
-            }
-        }
-    }
-
-    // Interior clustered C→T: excess co-occurrence of T at non-CpG {C,T} sites
-    if (len >= 30) {
-        const int lo = static_cast<int>(len / 3);
-        const int hi = static_cast<int>(len - (len / 3));
-        const int wlen = hi - lo;
-        if (wlen >= 2) {
-            auto& acc = profile.interior_ct_cluster;
-            // Build eligible + indicator arrays for CT and AG tracks.
-            // Thread-local scratch reused across reads — eliminates 4 heap
-            // allocations per read on this hot path. Buffers grow monotonically
-            // and are zeroed in the prefix actually used (size_t wlen).
-            thread_local std::vector<uint8_t> ct_elig_buf, ct_pos_buf,
-                                              ag_elig_buf, ag_pos_buf;
-            const size_t W = static_cast<size_t>(wlen);
-            if (ct_elig_buf.size() < W) {
-                ct_elig_buf.resize(W);
-                ct_pos_buf .resize(W);
-                ag_elig_buf.resize(W);
-                ag_pos_buf .resize(W);
-            }
-            uint8_t* ct_elig = ct_elig_buf.data();
-            uint8_t* ct_pos  = ct_pos_buf.data();
-            uint8_t* ag_elig = ag_elig_buf.data();
-            uint8_t* ag_pos  = ag_pos_buf.data();
-            std::memset(ct_elig, 0, W);
-            std::memset(ct_pos,  0, W);
-            std::memset(ag_elig, 0, W);
-            std::memset(ag_pos,  0, W);
-            int n_ct = 0, k_ct = 0, n_ag = 0, k_ag = 0;
-            for (int i = lo; i < hi; ++i) {
-                const int j = i - lo;
-                const char b = decoded[i];
-                const char nx = (i + 1 < static_cast<int>(len)) ? decoded[i+1] : 'N';
-                const char pv = (i > 0) ? decoded[i-1] : 'N';
-                if ((b == 'C' || b == 'T') && nx != 'G') {
-                    ct_elig[j] = 1; ++n_ct;
-                    if (b == 'T') { ct_pos[j] = 1; ++k_ct; }
-                }
-                if ((b == 'A' || b == 'G') && pv != 'C') {
-                    ag_elig[j] = 1; ++n_ag;
-                    if (b == 'A') { ag_pos[j] = 1; ++k_ag; }
-                }
-            }
-            if (wlen <= 64) {
-                // Pack eligible/position flags into uint64 bitmaps; replace
-                // the O(W)×10 branchy j-loop with 10 shifted-AND-popcount ops.
-                uint64_t ct_elig_w = 0, ct_pos_w = 0;
-                uint64_t ag_elig_w = 0, ag_pos_w = 0;
-                for (int j = 0; j < wlen; ++j) {
-                    ct_elig_w |= static_cast<uint64_t>(ct_elig[j]) << j;
-                    ct_pos_w  |= static_cast<uint64_t>(ct_pos[j])  << j;
-                    ag_elig_w |= static_cast<uint64_t>(ag_elig[j]) << j;
-                    ag_pos_w  |= static_cast<uint64_t>(ag_pos[j])  << j;
-                }
-                if (n_ct >= 2) {
-                    ++acc.reads_used_ct;
-                    const double q_ct = (k_ct >= 2)
-                        ? (static_cast<double>(k_ct) * (k_ct - 1)) /
-                          (static_cast<double>(n_ct) * (n_ct - 1))
-                        : 0.0;
-                    for (int d = 1; d <= 10; ++d) {
-                        uint64_t e     = ct_elig_w & (ct_elig_w >> d);
-                        uint64_t pairs = static_cast<uint64_t>(__builtin_popcountll(e));
-                        uint64_t obs   = static_cast<uint64_t>(__builtin_popcountll(e & ct_pos_w & (ct_pos_w >> d)));
-                        acc.pairs_ct[d] += pairs;
-                        acc.obs_ct[d]   += obs;
-                        acc.exp_ct[d]   += static_cast<double>(pairs) * q_ct;
-                        acc.var_ct[d]   += static_cast<double>(pairs) * q_ct * (1.0 - q_ct);
-                    }
-                }
-                if (n_ag >= 2) {
-                    ++acc.reads_used_ag;
-                    const double q_ag = (k_ag >= 2)
-                        ? (static_cast<double>(k_ag) * (k_ag - 1)) /
-                          (static_cast<double>(n_ag) * (n_ag - 1))
-                        : 0.0;
-                    for (int d = 1; d <= 10; ++d) {
-                        uint64_t e     = ag_elig_w & (ag_elig_w >> d);
-                        uint64_t pairs = static_cast<uint64_t>(__builtin_popcountll(e));
-                        uint64_t obs   = static_cast<uint64_t>(__builtin_popcountll(e & ag_pos_w & (ag_pos_w >> d)));
-                        acc.pairs_ag[d] += pairs;
-                        acc.obs_ag[d]   += obs;
-                        acc.exp_ag[d]   += static_cast<double>(pairs) * q_ag;
-                        acc.var_ag[d]   += static_cast<double>(pairs) * q_ag * (1.0 - q_ag);
-                    }
-                }
-            } else {
-                if (n_ct >= 2) {
-                    ++acc.reads_used_ct;
-                    const double q_ct = (k_ct >= 2)
-                        ? (static_cast<double>(k_ct) * (k_ct - 1)) /
-                          (static_cast<double>(n_ct) * (n_ct - 1))
-                        : 0.0;
-                    for (int d = 1; d <= 10; ++d) {
-                        uint64_t pairs = 0, obs = 0;
-                        for (int j = 0; j + d < wlen; ++j) {
-                            if (!ct_elig[j] || !ct_elig[j + d]) continue;
-                            ++pairs;
-                            obs += static_cast<uint64_t>(ct_pos[j] & ct_pos[j + d]);
-                        }
-                        acc.pairs_ct[d] += pairs;
-                        acc.obs_ct[d]   += obs;
-                        acc.exp_ct[d]   += static_cast<double>(pairs) * q_ct;
-                        acc.var_ct[d]   += static_cast<double>(pairs) * q_ct * (1.0 - q_ct);
-                    }
-                }
-                if (n_ag >= 2) {
-                    ++acc.reads_used_ag;
-                    const double q_ag = (k_ag >= 2)
-                        ? (static_cast<double>(k_ag) * (k_ag - 1)) /
-                          (static_cast<double>(n_ag) * (n_ag - 1))
-                        : 0.0;
-                    for (int d = 1; d <= 10; ++d) {
-                        uint64_t pairs = 0, obs = 0;
-                        for (int j = 0; j + d < wlen; ++j) {
-                            if (!ag_elig[j] || !ag_elig[j + d]) continue;
-                            ++pairs;
-                            obs += static_cast<uint64_t>(ag_pos[j] & ag_pos[j + d]);
-                        }
-                        acc.pairs_ag[d] += pairs;
-                        acc.obs_ag[d]   += obs;
-                        acc.exp_ag[d]   += static_cast<double>(pairs) * q_ag;
-                        acc.var_ag[d]   += static_cast<double>(pairs) * q_ag * (1.0 - q_ag);
-                    }
-                }
-            }
-        } else {
-            ++profile.interior_ct_cluster.short_reads_skipped;
-        }
-    } else {
-        ++profile.interior_ct_cluster.short_reads_skipped;
-    }
-
-    profile.n_reads++;
-}
 
 // Context-split 1D amplitude fit for CpG-like / non-CpG-like C→T damage.
 // Fixed lambda (from global fit), golden-section search over d in [0,1].
@@ -1686,6 +454,25 @@ static CtCtxFit fit_ct5_ctx_amplitude(
     return fit;
 }
 
+// Oxidative strand-scission index: GG-vs-A breakpoint double-difference (reference-free,
+// composition-internal). Trinuc idx = prev*16 + mid*4 + next (A=0,C=1,G=2,T=3). 5'-of-GG run =
+// mid=G,next=G  => idx%16 == 10. A-depurination comparator = mid=A => (idx/4)%4 == 0.
+static float compute_oxscission_delta(const std::array<uint64_t, 64>& term,
+                                      const std::array<uint64_t, 64>& inter) {
+    auto frac = [](const std::array<uint64_t, 64>& s, bool gg) -> double {
+        uint64_t num = 0, den = 0;
+        for (int i = 0; i < 64; ++i) {
+            den += s[i];
+            const bool hit = gg ? ((i % 16) == 10) : (((i / 4) % 4) == 0);
+            if (hit) num += s[i];
+        }
+        return den ? static_cast<double>(num) / static_cast<double>(den) : 0.0;
+    };
+    const double gg = frac(term, true)  - frac(inter, true);
+    const double a  = frac(term, false) - frac(inter, false);
+    return static_cast<float>(gg - a);
+}
+
 void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     if (profile.n_reads == 0) return;
     // Lifecycle guard (see SampleDamageProfile::finalized): finalize mutates
@@ -1695,6 +482,25 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         throw std::logic_error(
             "finalize_sample_profile: profile already finalized; "
             "reset_sample_profile() must be called before re-running update/finalize.");
+    }
+
+    // Oxidative strand-scission index (GG-vs-A breakpoint double-difference; see header doc). The
+    // trinucleotide spectra are raw counts and are not modified by finalize, so compute here. Bulk
+    // (5'+3' mean) plus per-deam-bin (shows the scission co-occurs with deamination on ancient frags).
+    profile.oxidative_scission_delta_5prime =
+        compute_oxscission_delta(profile.tri_5prime_terminal, profile.tri_5prime_interior);
+    profile.oxidative_scission_delta_3prime =
+        compute_oxscission_delta(profile.tri_3prime_terminal, profile.tri_3prime_interior);
+    // PRIMARY = 5' only: the 3' terminus G is depleted by G->A deamination, contaminating the 3'
+    // GG-G count, so the 3' channel mixes oxidative scission with deamination/preservation. The 5'
+    // terminus is clean (5' deamination is C->T, leaves G and A untouched). delta_3prime is kept
+    // as the deamination-contaminated contrast only. Honest caveat: even clean, this signal is
+    // modest (V~0.05 level) and only suggestive at the depth-horizon n.
+    profile.oxidative_scission_delta = profile.oxidative_scission_delta_5prime;
+    for (int b = 0; b < SampleDamageProfile::N_OX_DEAM_STRATA; ++b) {
+        profile.oxidative_scission_delta_by_deam[b] =
+            compute_oxscission_delta(profile.tri_5prime_terminal_by_deam[b],
+                                     profile.tri_5prime_interior_by_deam[b]);
     }
 
     // Capture raw counts before normalization for statistical tests
@@ -2287,8 +1093,11 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             profile.ox_stop_rate_interior = static_cast<float>(ox_stop_mid / ox_total_mid);
 
             // Uniformity ratio: terminal/interior (≈1 for uniform oxidation)
-            if (profile.ox_stop_rate_interior > 0.001f) {
+            // F5: raise gate 0.001f -> 0.01f; add log-ratio field.
+            if (profile.ox_stop_rate_interior > 0.01f) {
                 profile.ox_uniformity_ratio = profile.ox_stop_rate_terminal / profile.ox_stop_rate_interior;
+                profile.log_ox_uniformity_ratio =
+                    std::log((profile.ox_stop_rate_terminal + 1e-9f) / (profile.ox_stop_rate_interior + 1e-9f));
                 // C1: 1.0f is also a genuine uniform value — flag the real measurement
                 // so the emitter can distinguish it from the not-computed default.
                 profile.ox_uniformity_ratio_computed = true;
@@ -2310,11 +1119,12 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         }
 
         bool elevated = ox_stop_excess > threshold;
-        // C5: require the uniformity ratio to be actually measured — the 1.0f
-        // not-computed default would otherwise pass this band trivially.
+        // Use log-ratio bands: scale-invariant, symmetric around 0, gate-independent.
+        // log(0.85)≈-0.163  log(1.15)≈0.140  log(0.7)≈-0.357  log(1.5)≈0.405
+        // _computed flag required so the 0.0f default (= log(1.0)) never spuriously fires.
         bool uniform = profile.ox_uniformity_ratio_computed
-                       && profile.ox_uniformity_ratio > 0.85f
-                       && profile.ox_uniformity_ratio < 1.15f;
+                       && profile.log_ox_uniformity_ratio > std::log(0.85f)
+                       && profile.log_ox_uniformity_ratio < std::log(1.15f);
 
         if (profile.channel_c_valid && elevated && uniform) {
             // C5: codon-block verdict is coupled to ox_d_max. Record it in the
@@ -2325,14 +1135,17 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
             profile.ox_d_max = std::max(0.0f, ox_stop_excess);  // fraction [0,1], consistent with other d_max fields
         }
 
-        // Terminal much higher than interior suggests deamination cross-contamination, not true G→T
-        if (profile.ox_uniformity_ratio > 1.5f) {
+        // Terminal >> interior: deamination cross-contamination, not true G→T oxidation.
+        if (profile.ox_uniformity_ratio_computed
+                && profile.log_ox_uniformity_ratio > std::log(1.5f)) {
             profile.ox_is_artifact = true;
             profile.ox_damage_detected_codon = false;
-            profile.ox_damage_detected = false;  // Override - not true oxidation
+            profile.ox_damage_detected = false;
         }
 
-        if (profile.ox_uniformity_ratio < 0.7f) {
+        // Interior >> terminal: anomalous suppression at terminus — also artifact.
+        if (profile.ox_uniformity_ratio_computed
+                && profile.log_ox_uniformity_ratio < std::log(0.7f)) {
             profile.ox_is_artifact = true;
             profile.ox_damage_detected_codon = false;
             profile.ox_damage_detected = false;
@@ -2366,9 +1179,11 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         if (ox_pre_mid3 + ox_stop_mid3 > 50) {
             profile.ox_stop_rate_interior_3prime = static_cast<float>(
                 ox_stop_mid3 / (ox_pre_mid3 + ox_stop_mid3));
-            if (profile.ox_stop_rate_interior_3prime > 1e-6f && profile.ox_stop_rate_terminal_3prime > 0.0f) {
+            if (profile.ox_stop_rate_interior_3prime > 0.01f && profile.ox_stop_rate_terminal_3prime > 0.0f) {
                 profile.ox_uniformity_ratio_3prime =
                     profile.ox_stop_rate_terminal_3prime / profile.ox_stop_rate_interior_3prime;
+                profile.log_ox_uniformity_ratio_3prime =
+                    std::log((profile.ox_stop_rate_terminal_3prime + 1e-9f) / (profile.ox_stop_rate_interior_3prime + 1e-9f));
                 profile.ox_uniformity_ratio_3prime_computed = true;  // C1: real measurement
             }
         }
@@ -2395,8 +1210,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         if (t_term + g_term >= 200.0) profile.ox_gt_rate_terminal = static_cast<float>(t_term / (t_term + g_term));
         if (t_mid  + g_mid  >= 200.0) {
             profile.ox_gt_rate_interior = static_cast<float>(t_mid / (t_mid + g_mid));
-            if (profile.ox_gt_rate_interior > 0.001f && profile.ox_gt_rate_terminal > 0.0f) {
+            if (profile.ox_gt_rate_interior > 0.01f && profile.ox_gt_rate_terminal > 0.0f) {
                 profile.ox_gt_uniformity = profile.ox_gt_rate_terminal / profile.ox_gt_rate_interior;
+                profile.log_ox_gt_uniformity =
+                    std::log((profile.ox_gt_rate_terminal + 1e-9f) / (profile.ox_gt_rate_interior + 1e-9f));
                 profile.ox_gt_uniformity_computed = true;  // C1: real measurement vs 0.0f default
             }
         }
@@ -2408,8 +1225,12 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         if (a_term + c_term >= 200.0) profile.ox_ca_rate_terminal = static_cast<float>(a_term / (a_term + c_term));
         if (a_mid  + c_mid  >= 200.0) {
             profile.ox_ca_rate_interior = static_cast<float>(a_mid / (a_mid + c_mid));
-            if (profile.ox_ca_rate_interior > 0.001f && profile.ox_ca_rate_terminal > 0.0f)
+            if (profile.ox_ca_rate_interior > 0.01f && profile.ox_ca_rate_terminal > 0.0f) {
                 profile.ox_ca_uniformity = profile.ox_ca_rate_terminal / profile.ox_ca_rate_interior;
+                profile.log_ox_ca_uniformity =
+                    std::log((profile.ox_ca_rate_terminal + 1e-9f) / (profile.ox_ca_rate_interior + 1e-9f));
+                profile.ox_ca_uniformity_computed = true;
+            }
         }
 
         // Chargaff asymmetry: excess T/(T+G) over A/(A+C) at interior (= Chargaff deviation)
@@ -3132,10 +1953,10 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         profile.fit_positions_ct5_cpg_like    = fit_cpg.fit_positions;
         profile.fit_positions_ct5_noncpg_like = fit_ncpg.fit_positions;
 
-        if (fit_cpg.valid && fit_ncpg.valid && fit_ncpg.dmax >= 0.005f) {
+        if (fit_cpg.valid && fit_ncpg.valid && fit_ncpg.dmax >= 0.015f) {
             profile.cpg_ratio    = fit_cpg.dmax / fit_ncpg.dmax;
             profile.log2_cpg_ratio = std::log2((fit_cpg.dmax + 1e-6f) / (fit_ncpg.dmax + 1e-6f));
-            profile.cpg_ratio_backwards = (profile.cpg_ratio < 1.0f);  // P5 QC: methylated aDNA expects CpG > non-CpG
+            profile.cpg_ratio_backwards = (profile.log2_cpg_ratio < 0.0f);  // P5 QC: methylated aDNA expects CpG > non-CpG
         }
 
         // oxoG 16-context finalization
@@ -3310,19 +2131,19 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     for (int p = 0; p < 3; p++) {
         size_t tc_total = profile.codon_pos_t_count_5prime[p] + profile.codon_pos_c_count_5prime[p];
         if (tc_total > 0) {
-            profile.codon_pos_t_rate_5prime[p] = static_cast<float>(profile.codon_pos_t_count_5prime[p]) / tc_total;
+            profile.codon_pos_t_fraction_5prime[p] = static_cast<float>(profile.codon_pos_t_count_5prime[p]) / tc_total;
         }
 
         size_t ag_total = profile.codon_pos_a_count_3prime[p] + profile.codon_pos_g_count_3prime[p];
         if (ag_total > 0) {
-            profile.codon_pos_a_rate_3prime[p] = static_cast<float>(profile.codon_pos_a_count_3prime[p]) / ag_total;
+            profile.codon_pos_a_fraction_3prime[p] = static_cast<float>(profile.codon_pos_a_count_3prime[p]) / ag_total;
         }
     }
 
     {
-        float pos1_t_rate = profile.codon_pos_t_rate_5prime[0];
-        float pos2_t_rate = profile.codon_pos_t_rate_5prime[1];
-        float pos3_t_rate = profile.codon_pos_t_rate_5prime[2];  // Wobble position
+        float pos1_t_rate = profile.codon_pos_t_fraction_5prime[0];
+        float pos2_t_rate = profile.codon_pos_t_fraction_5prime[1];
+        float pos3_t_rate = profile.codon_pos_t_fraction_5prime[2];  // Wobble position
 
         float baseline_tc_f = profile.fit_baseline_5prime;
         float baseline_c_f = 1.0f - profile.fit_baseline_5prime;
@@ -3338,26 +2159,26 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         }
 
         // Calculate wobble ratio: pos3 / ((pos1 + pos2) / 2)
+        // F4: gate at 0.015 (was 0.005); report on log2 scale; remove the [0.5,3] clamp.
         float avg_pos12_damage = (profile.codon_pos1_damage + profile.codon_pos2_damage) / 2.0f;
-        if (avg_pos12_damage > 0.005f) {
+        if (avg_pos12_damage > 0.015f) {
             profile.wobble_ratio = profile.codon_pos3_damage / avg_pos12_damage;
-        } else if (profile.codon_pos3_damage > 0.005f) {
-            profile.wobble_ratio = 2.0f;  // Cap at 2x
+            profile.log2_wobble_ratio =
+                std::log2((profile.codon_pos3_damage + 1e-6f) / (avg_pos12_damage + 1e-6f));
         } else {
             profile.wobble_ratio = 1.0f;
+            profile.log2_wobble_ratio = 0.0f;
         }
-
-        profile.wobble_ratio = std::clamp(profile.wobble_ratio, 0.5f, 3.0f);
     }
 
     size_t cpg_total = profile.cpg_c_count + profile.cpg_t_count;
     if (cpg_total > 10) {
-        profile.cpg_damage_rate = static_cast<float>(profile.cpg_t_count) / cpg_total;
+        profile.cpg_ct_fraction = static_cast<float>(profile.cpg_t_count) / cpg_total;
     }
 
     size_t non_cpg_total = profile.non_cpg_c_count + profile.non_cpg_t_count;
     if (non_cpg_total > 10) {
-        profile.non_cpg_damage_rate = static_cast<float>(profile.non_cpg_t_count) / non_cpg_total;
+        profile.non_cpg_ct_fraction = static_cast<float>(profile.non_cpg_t_count) / non_cpg_total;
     }
 
     profile.max_damage_5prime = profile.damage_rate_5prime[0];
@@ -4519,12 +3340,12 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     float wobble_boost = 0.0f;
 
     if (damage_signal > 0.01f) {
-        if (profile.cpg_damage_rate > profile.non_cpg_damage_rate + 0.05f) {
+        if (profile.cpg_ct_fraction > profile.non_cpg_ct_fraction + 0.05f) {
             cpg_boost = 0.03f;
         }
 
-        float wobble_enrichment = profile.codon_pos_t_rate_5prime[2] -
-                                  (profile.codon_pos_t_rate_5prime[0] + profile.codon_pos_t_rate_5prime[1]) / 2.0f;
+        float wobble_enrichment = profile.codon_pos_t_fraction_5prime[2] -
+                                  (profile.codon_pos_t_fraction_5prime[0] + profile.codon_pos_t_fraction_5prime[1]) / 2.0f;
         if (wobble_enrichment > 0.05f) {
             wobble_boost = 0.02f;
         }
@@ -4573,12 +3394,15 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
 
         float d_sum = raw_d_max_5prime + raw_d_max_3prime;
-        if (d_sum > 0.01f) {
+        // Require d_sum>0.04 (4x old 0.01 floor) so the denominator is not near-zero noise.
+        // No per-end floor: d5=0.06/d3=0.005 is genuine one-sided asymmetry, not noise.
+        if (d_sum > 0.04f) {
             profile.asymmetry = std::abs(raw_d_max_5prime - raw_d_max_3prime) / (d_sum / 2.0f);
+            profile.high_asymmetry = (profile.asymmetry > 0.5f);
         } else {
             profile.asymmetry = 0.0f;
+            profile.high_asymmetry = false;
         }
-        profile.high_asymmetry = (profile.asymmetry > 0.5f);
 
         {
             const uint64_t MIN_C_SITES = 10000;  // Minimum C sites for valid per-bin estimate
@@ -4682,8 +3506,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                         uint64_t n_obs = b.n_terminal_obs();
                         total_obs += n_obs;
 
-                        float ll_damaged = 0.0f;
-                        float ll_undamaged = 0.0f;
+                        double ll_damaged = 0.0;    // double: at 1e6-1e9 terminal obs the
+                        double ll_undamaged = 0.0;  // LLR>10 decision is below float epsilon
                         float lambda = profile.lambda_5prime;
                         const bool is_ss_bin_llr =
                             (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED);
@@ -4704,12 +3528,12 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
                                 n += static_cast<double>(b.t_counts_3prime[p] + b.c_counts_3prime[p]);
                             }
                             if (n > 0) {
-                                ll_damaged += static_cast<float>(k * std::log(pi_damaged) + (n - k) * std::log(1.0f - pi_damaged));
-                                ll_undamaged += static_cast<float>(k * std::log(pi_undamaged) + (n - k) * std::log(1.0f - pi_undamaged));
+                                ll_damaged += k * std::log(static_cast<double>(pi_damaged)) + (n - k) * std::log(1.0 - static_cast<double>(pi_damaged));
+                                ll_undamaged += k * std::log(static_cast<double>(pi_undamaged)) + (n - k) * std::log(1.0 - static_cast<double>(pi_undamaged));
                             }
                         }
 
-                        b.llr = ll_damaged - ll_undamaged;
+                        b.llr = static_cast<float>(ll_damaged - ll_undamaged);
 
                         b.classified_damaged = (b.llr > LLR_THRESHOLD) && (b.d_max > MIN_DMAX_THRESHOLD);
 
@@ -5347,1156 +4171,6 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
 
     // Lifecycle: mark finalized so re-entry is rejected (see SampleDamageProfile::finalized).
     profile.finalized = true;
-}
-
-void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const SampleDamageProfile& src) {
-    // Lifecycle guard: merge sums raw count arrays. After finalize they hold
-    // rates, so summing them produces nonsense. Reject explicitly rather than
-    // corrupt downstream silently.
-    if (dst.finalized || src.finalized) {
-        throw std::logic_error(
-            "merge_sample_profiles: profiles must be merged BEFORE "
-            "finalize_sample_profile() is called on either side.");
-    }
-    for (int i = 0; i < 15; ++i) {
-        dst.t_freq_5prime[i] += src.t_freq_5prime[i];
-        dst.c_freq_5prime[i] += src.c_freq_5prime[i];
-        dst.a_freq_3prime[i] += src.a_freq_3prime[i];
-        dst.g_freq_3prime[i] += src.g_freq_3prime[i];
-        dst.tc_total_5prime[i] += src.tc_total_5prime[i];
-        dst.ag_total_3prime[i] += src.ag_total_3prime[i];
-        dst.a_freq_5prime[i] += src.a_freq_5prime[i];
-        dst.g_freq_5prime[i] += src.g_freq_5prime[i];
-        dst.t_freq_3prime[i] += src.t_freq_3prime[i];
-        dst.c_freq_3prime[i] += src.c_freq_3prime[i];
-        dst.tc_total_3prime[i] += src.tc_total_3prime[i];
-    }
-    for (int i = 0; i < SampleDamageProfile::BG_TAIL_N; ++i) {
-        dst.tail_t_5prime[i]  += src.tail_t_5prime[i];
-        dst.tail_tc_5prime[i] += src.tail_tc_5prime[i];
-        dst.tail_a_3prime[i]  += src.tail_a_3prime[i];
-        dst.tail_ag_3prime[i] += src.tail_ag_3prime[i];
-    }
-    dst.pe_short_insert_skipped += src.pe_short_insert_skipped;
-    if (src.input_mode == SampleDamageProfile::InputMode::PAIRED) {
-        dst.input_mode = SampleDamageProfile::InputMode::PAIRED;
-    }
-
-    dst.baseline_t_freq += src.baseline_t_freq;
-    dst.baseline_c_freq += src.baseline_c_freq;
-    dst.baseline_a_freq += src.baseline_a_freq;
-    dst.baseline_g_freq += src.baseline_g_freq;
-
-    for (int p = 0; p < 3; ++p) {
-        dst.codon_pos_t_count_5prime[p] += src.codon_pos_t_count_5prime[p];
-        dst.codon_pos_c_count_5prime[p] += src.codon_pos_c_count_5prime[p];
-        dst.codon_pos_a_count_3prime[p] += src.codon_pos_a_count_3prime[p];
-        dst.codon_pos_g_count_3prime[p] += src.codon_pos_g_count_3prime[p];
-    }
-
-    dst.cpg_c_count += src.cpg_c_count;
-    dst.cpg_t_count += src.cpg_t_count;
-    dst.non_cpg_c_count += src.non_cpg_c_count;
-    dst.non_cpg_t_count += src.non_cpg_t_count;
-
-    for (int ctx = 0; ctx < SampleDamageProfile::N_CT_CTX; ++ctx) {
-        for (int p = 0; p < SampleDamageProfile::N_POS; ++p) {
-            dst.ct_ctx_t_5prime[ctx][p] += src.ct_ctx_t_5prime[ctx][p];
-            dst.ct_ctx_total_5prime[ctx][p] += src.ct_ctx_total_5prime[ctx][p];
-        }
-        dst.ct_ctx_t_interior[ctx] += src.ct_ctx_t_interior[ctx];
-        dst.ct_ctx_total_interior[ctx] += src.ct_ctx_total_interior[ctx];
-    }
-    for (int i = 0; i < SampleDamageProfile::N_OXOG16; ++i) {
-        dst.oxog16_t[i] += src.oxog16_t[i];
-        dst.oxog16_a_rc[i] += src.oxog16_a_rc[i];
-    }
-    for (int i = 0; i < SampleDamageProfile::N_TRINUC; ++i) {
-        dst.tri_5prime_terminal[i] += src.tri_5prime_terminal[i];
-        dst.tri_5prime_interior[i] += src.tri_5prime_interior[i];
-        dst.tri_3prime_terminal[i] += src.tri_3prime_terminal[i];
-        dst.tri_3prime_interior[i] += src.tri_3prime_interior[i];
-    }
-    for (int p = 0; p < SampleDamageProfile::N_POS_TRI; ++p)
-        for (int i = 0; i < SampleDamageProfile::N_TRINUC; ++i) {
-            dst.tri_5prime_pos[p][i] += src.tri_5prime_pos[p][i];
-            dst.tri_3prime_pos[p][i] += src.tri_3prime_pos[p][i];
-        }
-    // Merge upstream-context-aware accumulators
-    for (int uctx = 0; uctx < SampleDamageProfile::N_UPSTREAM_CTX; ++uctx) {
-        for (int p = 0; p < SampleDamageProfile::N_POS; ++p) {
-            dst.ct5_t_by_upstream[uctx][p] += src.ct5_t_by_upstream[uctx][p];
-            dst.ct5_total_by_upstream[uctx][p] += src.ct5_total_by_upstream[uctx][p];
-        }
-        dst.ct5_t_interior_by_upstream[uctx] += src.ct5_t_interior_by_upstream[uctx];
-        dst.ct5_total_interior_by_upstream[uctx] += src.ct5_total_interior_by_upstream[uctx];
-    }
-
-    {
-        auto& da = dst.interior_ct_cluster;
-        const auto& sa = src.interior_ct_cluster;
-        da.reads_used_ct        += sa.reads_used_ct;
-        da.reads_used_ag        += sa.reads_used_ag;
-        da.short_reads_skipped  += sa.short_reads_skipped;
-        for (int d = 1; d <= 10; ++d) {
-            da.obs_ct[d]   += sa.obs_ct[d];
-            da.pairs_ct[d] += sa.pairs_ct[d];
-            da.exp_ct[d]   += sa.exp_ct[d];
-            da.var_ct[d]   += sa.var_ct[d];
-            da.obs_ag[d]   += sa.obs_ag[d];
-            da.pairs_ag[d] += sa.pairs_ag[d];
-            da.exp_ag[d]   += sa.exp_ag[d];
-            da.var_ag[d]   += sa.var_ag[d];
-        }
-    }
-
-    for (uint32_t i = 0; i < 4096; ++i) {
-        dst.hexamer_count_5prime[i] += src.hexamer_count_5prime[i];
-        dst.hexamer_count_interior[i] += src.hexamer_count_interior[i];
-        dst.hexamer_count_3prime[i] += src.hexamer_count_3prime[i];
-        dst.ca_pre_terminal_by_pfx[i]          += src.ca_pre_terminal_by_pfx[i];
-        dst.ca_stop_terminal_by_pfx[i]         += src.ca_stop_terminal_by_pfx[i];
-        dst.ca_deam_shadow_terminal_by_pfx[i]  += src.ca_deam_shadow_terminal_by_pfx[i];
-        dst.cg_pre_terminal_by_pfx[i]    += src.cg_pre_terminal_by_pfx[i];
-        dst.cg_stop_terminal_by_pfx[i]   += src.cg_stop_terminal_by_pfx[i];
-        dst.at_pre_terminal_by_pfx[i]         += src.at_pre_terminal_by_pfx[i];
-        dst.at_stop_terminal_by_pfx[i]        += src.at_stop_terminal_by_pfx[i];
-        dst.at_pre_terminal_p2plus_by_pfx[i]  += src.at_pre_terminal_p2plus_by_pfx[i];
-        dst.at_stop_terminal_p2plus_by_pfx[i] += src.at_stop_terminal_p2plus_by_pfx[i];
-        dst.ca_pre_terminal_3p_by_pfx[i]  += src.ca_pre_terminal_3p_by_pfx[i];
-        dst.ca_stop_terminal_3p_by_pfx[i] += src.ca_stop_terminal_3p_by_pfx[i];
-        dst.cg_pre_terminal_3p_by_pfx[i]  += src.cg_pre_terminal_3p_by_pfx[i];
-        dst.cg_stop_terminal_3p_by_pfx[i] += src.cg_stop_terminal_3p_by_pfx[i];
-        dst.at_pre_terminal_3p_by_pfx[i]  += src.at_pre_terminal_3p_by_pfx[i];
-        dst.at_stop_terminal_3p_by_pfx[i] += src.at_stop_terminal_3p_by_pfx[i];
-    }
-    dst.n_hexamers_5prime += src.n_hexamers_5prime;
-    dst.n_hexamers_interior += src.n_hexamers_interior;
-    dst.n_hexamers_3prime += src.n_hexamers_3prime;
-
-    for (int i = 0; i < 15; ++i) {
-        dst.convertible_caa_5prime[i] += src.convertible_caa_5prime[i];
-        dst.convertible_taa_5prime[i] += src.convertible_taa_5prime[i];
-        dst.convertible_cag_5prime[i] += src.convertible_cag_5prime[i];
-        dst.convertible_tag_5prime[i] += src.convertible_tag_5prime[i];
-        dst.convertible_cga_5prime[i] += src.convertible_cga_5prime[i];
-        dst.convertible_tga_5prime[i] += src.convertible_tga_5prime[i];
-        dst.total_codons_5prime[i] += src.total_codons_5prime[i];
-    }
-    dst.convertible_caa_interior += src.convertible_caa_interior;
-    dst.convertible_taa_interior += src.convertible_taa_interior;
-    dst.convertible_cag_interior += src.convertible_cag_interior;
-    dst.convertible_tag_interior += src.convertible_tag_interior;
-    dst.convertible_cga_interior += src.convertible_cga_interior;
-    dst.convertible_tga_interior += src.convertible_tga_interior;
-    dst.total_codons_interior += src.total_codons_interior;
-
-    for (int i = 0; i < 15; ++i) {
-        dst.convertible_gag_5prime[i] += src.convertible_gag_5prime[i];
-        dst.convertible_tca_5prime[i]    += src.convertible_tca_5prime[i];
-        dst.convertible_tcg_5prime[i]    += src.convertible_tcg_5prime[i];
-        dst.convertible_tac_5prime[i]    += src.convertible_tac_5prime[i];
-        dst.convertible_tgc_5prime[i]    += src.convertible_tgc_5prime[i];
-        dst.convertible_taa_ca_5prime[i] += src.convertible_taa_ca_5prime[i];
-        dst.convertible_tag_ca_5prime[i] += src.convertible_tag_ca_5prime[i];
-        dst.convertible_tga_ca_5prime[i]  += src.convertible_tga_ca_5prime[i];
-        dst.ca_deam_shadow_5prime[i]      += src.ca_deam_shadow_5prime[i];
-        dst.convertible_tca_3prime[i]    += src.convertible_tca_3prime[i];
-        dst.convertible_tcg_3prime[i]    += src.convertible_tcg_3prime[i];
-        dst.convertible_tac_3prime[i]    += src.convertible_tac_3prime[i];
-        dst.convertible_tgc_3prime[i]    += src.convertible_tgc_3prime[i];
-        dst.convertible_taa_ca_3prime[i] += src.convertible_taa_ca_3prime[i];
-        dst.convertible_tag_ca_3prime[i] += src.convertible_tag_ca_3prime[i];
-        dst.convertible_tga_ca_3prime[i]  += src.convertible_tga_ca_3prime[i];
-        dst.ca_deam_shadow_3prime[i]      += src.ca_deam_shadow_3prime[i];
-        dst.convertible_tca_cg_5prime[i]  += src.convertible_tca_cg_5prime[i];
-        dst.convertible_tac_cg_5prime[i]  += src.convertible_tac_cg_5prime[i];
-        dst.convertible_tga_cg_5prime[i]  += src.convertible_tga_cg_5prime[i];
-        dst.convertible_tag_cg_5prime[i]  += src.convertible_tag_cg_5prime[i];
-        dst.convertible_tca_cg_3prime[i]  += src.convertible_tca_cg_3prime[i];
-        dst.convertible_tac_cg_3prime[i]  += src.convertible_tac_cg_3prime[i];
-        dst.convertible_tga_cg_3prime[i]  += src.convertible_tga_cg_3prime[i];
-        dst.convertible_tag_cg_3prime[i]  += src.convertible_tag_cg_3prime[i];
-        dst.convertible_aaa_h_5prime[i]   += src.convertible_aaa_h_5prime[i];
-        dst.convertible_aag_h_5prime[i]   += src.convertible_aag_h_5prime[i];
-        dst.convertible_aga_h_5prime[i]   += src.convertible_aga_h_5prime[i];
-        dst.convertible_taa_at_5prime[i]  += src.convertible_taa_at_5prime[i];
-        dst.convertible_tag_at_5prime[i]  += src.convertible_tag_at_5prime[i];
-        dst.convertible_tga_at_5prime[i]  += src.convertible_tga_at_5prime[i];
-        dst.convertible_aaa_h_3prime[i]   += src.convertible_aaa_h_3prime[i];
-        dst.convertible_aag_h_3prime[i]   += src.convertible_aag_h_3prime[i];
-        dst.convertible_aga_h_3prime[i]   += src.convertible_aga_h_3prime[i];
-        dst.convertible_taa_at_3prime[i]  += src.convertible_taa_at_3prime[i];
-        dst.convertible_tag_at_3prime[i]  += src.convertible_tag_at_3prime[i];
-        dst.convertible_tga_at_3prime[i]  += src.convertible_tga_at_3prime[i];
-        dst.ca_pre_interior  += src.ca_pre_interior;
-        dst.ca_stop_interior         += src.ca_stop_interior;
-        dst.ca_deam_shadow_interior  += src.ca_deam_shadow_interior;
-        for (int k = 0; k < 3; ++k) {
-            dst.ca_pre_interior_by_ctx[k]    += src.ca_pre_interior_by_ctx[k];
-            dst.ca_stop_interior_by_ctx[k]   += src.ca_stop_interior_by_ctx[k];
-            dst.ca_shadow_interior_by_ctx[k] += src.ca_shadow_interior_by_ctx[k];
-        }
-        for (int p = 0; p < 15; ++p) {
-            dst.ca_shadow_5prime_ctx0[p] += src.ca_shadow_5prime_ctx0[p];
-            dst.ca_shadow_5prime_ctx1[p] += src.ca_shadow_5prime_ctx1[p];
-            dst.ca_shadow_5prime_ctx2[p] += src.ca_shadow_5prime_ctx2[p];
-        }
-        dst.cg_pre_interior  += src.cg_pre_interior;
-        dst.cg_stop_interior += src.cg_stop_interior;
-        dst.at_pre_interior  += src.at_pre_interior;
-        dst.at_stop_interior += src.at_stop_interior;
-
-
-
-        dst.convertible_gag_3prime[i]    += src.convertible_gag_3prime[i];
-        dst.convertible_tag_ox_3prime[i] += src.convertible_tag_ox_3prime[i];
-        dst.convertible_gaa_3prime[i]    += src.convertible_gaa_3prime[i];
-        dst.convertible_taa_ox_3prime[i] += src.convertible_taa_ox_3prime[i];
-        dst.convertible_gga_3prime[i]    += src.convertible_gga_3prime[i];
-        dst.convertible_tga_ox_3prime[i] += src.convertible_tga_ox_3prime[i];
-
-        dst.convertible_tag_ox_5prime[i] += src.convertible_tag_ox_5prime[i];
-        dst.convertible_gaa_5prime[i] += src.convertible_gaa_5prime[i];
-        dst.convertible_taa_ox_5prime[i] += src.convertible_taa_ox_5prime[i];
-        dst.convertible_gga_5prime[i] += src.convertible_gga_5prime[i];
-        dst.convertible_tga_ox_5prime[i] += src.convertible_tga_ox_5prime[i];
-        dst.g_count_5prime[i]    += src.g_count_5prime[i];
-        dst.t_from_g_5prime[i]  += src.t_from_g_5prime[i];
-        dst.c_count_ox_5prime[i]+= src.c_count_ox_5prime[i];
-        dst.a_from_c_5prime[i]  += src.a_from_c_5prime[i];
-    }
-    dst.baseline_g_to_t_count  += src.baseline_g_to_t_count;
-    dst.baseline_g_total       += src.baseline_g_total;
-    dst.baseline_c_to_a_count  += src.baseline_c_to_a_count;
-    dst.baseline_c_ox_total    += src.baseline_c_ox_total;
-
-    dst.convertible_gag_interior += src.convertible_gag_interior;
-    dst.convertible_tca_interior    += src.convertible_tca_interior;
-    dst.convertible_tcg_interior    += src.convertible_tcg_interior;
-    dst.convertible_tac_interior    += src.convertible_tac_interior;
-    dst.convertible_tgc_interior    += src.convertible_tgc_interior;
-    dst.convertible_taa_ca_interior += src.convertible_taa_ca_interior;
-    dst.convertible_tag_ca_interior += src.convertible_tag_ca_interior;
-    dst.convertible_tga_ca_interior += src.convertible_tga_ca_interior;
-
-    dst.convertible_tag_ox_interior += src.convertible_tag_ox_interior;
-    dst.convertible_gaa_interior += src.convertible_gaa_interior;
-    dst.convertible_taa_ox_interior += src.convertible_taa_ox_interior;
-    dst.convertible_gga_interior += src.convertible_gga_interior;
-    dst.convertible_tga_ox_interior += src.convertible_tga_ox_interior;
-
-
-    for (int i = 0; i < SampleDamageProfile::OxoTwoMarkerBins::TOTAL; ++i) {
-        auto& dc = dst.oxo_two_marker.cells[i];
-        const auto& sc = src.oxo_two_marker.cells[i];
-        dc.n_reads += sc.n_reads;
-        dc.sum_nGT += sc.sum_nGT;
-        dc.sum_T   += sc.sum_T;
-        dc.sum_nAC += sc.sum_nAC;
-        dc.sum_A   += sc.sum_A;
-    }
-
-    for (int i = 0; i < SampleDamageProfile::N_OX_BINS; ++i) {
-        auto& d = dst.oxidation_like_bins[i];
-        const auto& s = src.oxidation_like_bins[i];
-        for (int j = 0; j < SampleDamageProfile::N_OX_DEAM_STRATA; ++j) {
-            auto& ds = d.strata[j];
-            const auto& ss = s.strata[j];
-            ds.term_t5 += ss.term_t5; ds.term_tc5 += ss.term_tc5;
-            ds.term_a3 += ss.term_a3; ds.term_ag3 += ss.term_ag3;
-            ds.int_t += ss.int_t; ds.int_tc += ss.int_tc;
-            ds.int_a += ss.int_a; ds.int_ag += ss.int_ag;
-            ds.sig_t += ss.sig_t; ds.sig_tg += ss.sig_tg;
-            ds.sig_a += ss.sig_a; ds.sig_ac += ss.sig_ac;
-            ds.ctrl_a += ss.ctrl_a; ds.ctrl_at += ss.ctrl_at;
-            ds.ctrl_c += ss.ctrl_c; ds.ctrl_cg += ss.ctrl_cg;
-            ds.reads += ss.reads;
-        }
-    }
-
-    for (int bin = 0; bin < SampleDamageProfile::N_GC_BINS; ++bin) {
-        auto& db = dst.gc_bins[bin];
-        const auto& sb = src.gc_bins[bin];
-        for (int p = 0; p < 15; ++p) {
-            db.t_counts[p] += sb.t_counts[p];
-            db.c_counts[p] += sb.c_counts[p];
-            db.a_counts[p] += sb.a_counts[p];
-            db.g_counts[p] += sb.g_counts[p];
-            db.t_counts_3prime[p] += sb.t_counts_3prime[p];
-            db.c_counts_3prime[p] += sb.c_counts_3prime[p];
-            db.a_counts_3prime[p] += sb.a_counts_3prime[p];
-            db.g_counts_3prime[p] += sb.g_counts_3prime[p];
-            db.stop_counts[p] += sb.stop_counts[p];
-            db.pre_counts[p] += sb.pre_counts[p];
-        }
-        db.t_interior += sb.t_interior;
-        db.c_interior += sb.c_interior;
-        db.a_interior += sb.a_interior;
-        db.g_interior += sb.g_interior;
-        db.stop_interior += sb.stop_interior;
-        db.pre_interior += sb.pre_interior;
-        db.n_reads += sb.n_reads;
-    }
-
-    for (int b = 0; b < SampleDamageProfile::N_LEN_FINE; ++b) {
-        auto& dl = dst.len_bins[b];
-        const auto& sl = src.len_bins[b];
-        for (int p = 0; p < 15; ++p) {
-            dl.t_counts[p] += sl.t_counts[p];
-            dl.c_counts[p] += sl.c_counts[p];
-            dl.a_counts[p] += sl.a_counts[p];
-            dl.g_counts[p] += sl.g_counts[p];
-            dl.t_counts_3prime[p] += sl.t_counts_3prime[p];
-            dl.c_counts_3prime[p] += sl.c_counts_3prime[p];
-            dl.a_counts_3prime[p] += sl.a_counts_3prime[p];
-            dl.g_counts_3prime[p] += sl.g_counts_3prime[p];
-        }
-        dl.t_interior += sl.t_interior;
-        dl.c_interior += sl.c_interior;
-        dl.a_interior += sl.a_interior;
-        dl.g_interior += sl.g_interior;
-        dl.n_reads += sl.n_reads;
-        dl.len_sum += sl.len_sum;
-        dl.jstrat_ds.add(sl.jstrat_ds);
-        dl.jstrat_ss.add(sl.jstrat_ss);
-    }
-
-    dst.n_reads += src.n_reads;
-}
-
-// Paired-end variant. R1 contributes 5'-end counters + interior baseline;
-// R2 (complement-mapped) contributes 3'-end counters. Read 3' ends are
-// ignored — for inserts shorter than read length, R2's 5' end may read
-// through into R1's 5' adapter, contaminating per_pos_3prime. The caller
-// (fqdup PE worker) skips short pairs before calling this.
-//
-// Coverage scope: per-pos C->T and G->A counters at both ends, tail-anchored
-// background counters, codon-position counters, hexamer counts at 5', and
-// interior baseline. Advanced features filled by single-end update
-// (CpG-like ctx, upstream ctx, oxoG 16-ctx, trinuc spectrum, channel D
-// transversions, GC bins, channel B stop codons, channel C oxidative codons,
-// interior CT cluster) are NOT recomputed here — PE mode is intended for
-// raw bilateral 5'/3' damage QA, not full library profiling. Use SE on
-// merged reads when those signals are needed.
-bool FrameSelector::update_sample_profile_paired(
-    SampleDamageProfile& profile,
-    std::string_view r1,
-    std::string_view r2)
-{
-    if (r1.length() < 30 || r2.length() < 30) return false;
-
-    // Short-insert detection via R1/R2 overlap. When the molecule (insert)
-    // is shorter than the read length, R1 reads through the molecule into
-    // adapter A1 and R2 into adapter A2; the per-position damage windows
-    // and tail counters then mix molecule and adapter bases, producing an
-    // "anti-damage" shape at the 3' end (R2 first 15 bases are largely
-    // adapter, complement-mapped into top-strand frame as A-depletion at
-    // the 3'-end window).
-    //
-    // For an insert of length M, R1[M-K..M-1] is the molecule's 3' tail
-    // and should reverse-complement to R2[0..K-1] (which reads the
-    // molecule's bottom strand from the same end). We scan plausible M
-    // values; require K=15 bases of overlap with at most 3 mismatches
-    // (allows for sequencing error and aDNA damage at the molecule 3'
-    // end). When overlap is detected, the pair is short-insert by
-    // definition and belongs to the merged-read SE workflow — skip it.
-    // Native PE is intended for true long-insert pairs (insert > read
-    // length) where R1 and R2 do not overlap and the per-position
-    // windows are clean molecule bases.
-    {
-        auto rc_base = [](char c) -> char {
-            switch (c) { case 'A': return 'T'; case 'T': return 'A';
-                         case 'C': return 'G'; case 'G': return 'C'; }
-            return 'N';
-        };
-        constexpr int CHECK_LEN = 15;
-        constexpr int MAX_MISMATCH = 3;
-        const int max_M = static_cast<int>(std::min(r1.length(), r2.length()));
-        bool overlap_found = false;
-        for (int M = CHECK_LEN; M <= max_M; ++M) {
-            int mismatches = 0;
-            for (int i = 0; i < CHECK_LEN; ++i) {
-                const char r1b = fast_upper(r1[M - 1 - i]);
-                const char r2b = fast_upper(r2[i]);
-                if (r1b == 'N' || r2b == 'N' || rc_base(r2b) != r1b) {
-                    if (++mismatches > MAX_MISMATCH) break;
-                }
-            }
-            if (mismatches <= MAX_MISMATCH) {
-                overlap_found = true;
-                break;
-            }
-        }
-        if (overlap_found) {
-            profile.pe_short_insert_skipped++;
-            return false;
-        }
-    }
-
-    profile.input_mode = SampleDamageProfile::InputMode::PAIRED;
-
-    const size_t l1 = r1.length();
-    const size_t l2 = r2.length();
-
-    // R1 → 5' end counters
-    for (size_t i = 0; i < std::min(size_t(15), l1); ++i) {
-        char b = fast_upper(r1[i]);
-        if (b == 'T')      { profile.t_freq_5prime[i]++; profile.tc_total_5prime[i]++; }
-        else if (b == 'C') { profile.c_freq_5prime[i]++; profile.tc_total_5prime[i]++; }
-        if (b == 'A')      profile.a_freq_5prime[i]++;
-        else if (b == 'G') profile.g_freq_5prime[i]++;
-    }
-
-    // R2 → 3' end counters (complement-mapped: R2 reads bottom strand from
-    // the molecule 3' inward, so R2[i] = complement(top_strand_at_3prime[i]).
-    // The damage signal we want is G->A on top strand 3' end, which appears
-    // as C->T on R2. Map R2 base to its complement, then accumulate with the
-    // same logic as the SE 3'-end loop.
-    for (size_t i = 0; i < std::min(size_t(15), l2); ++i) {
-        char b = fast_upper(r2[i]);
-        // complement: R2[i] → top_strand_at_3prime[i]
-        char top;
-        switch (b) {
-            case 'A': top = 'T'; break;
-            case 'T': top = 'A'; break;
-            case 'C': top = 'G'; break;
-            case 'G': top = 'C'; break;
-            default:  top = 'N'; break;
-        }
-        if (top == 'A')      { profile.a_freq_3prime[i]++; profile.ag_total_3prime[i]++; }
-        else if (top == 'G') { profile.g_freq_3prime[i]++; profile.ag_total_3prime[i]++; }
-        if (top == 'T')      profile.t_freq_3prime[i]++;
-        else if (top == 'C') profile.c_freq_3prime[i]++;
-    }
-
-    // 5' tail from R1, 3' tail from R2 (complement-mapped)
-    {
-        const int lo = SampleDamageProfile::BG_TAIL_LO;
-        const int hi = SampleDamageProfile::BG_TAIL_HI;
-        for (int i = lo; i <= hi && static_cast<size_t>(i) < l1; ++i) {
-            const int idx = i - lo;
-            const char b = fast_upper(r1[i]);
-            if (b == 'T')      { profile.tail_t_5prime[idx]++; profile.tail_tc_5prime[idx]++; }
-            else if (b == 'C') profile.tail_tc_5prime[idx]++;
-        }
-        for (int i = lo; i <= hi && static_cast<size_t>(i) < l2; ++i) {
-            const int idx = i - lo;
-            const char b = fast_upper(r2[i]);
-            char top;
-            switch (b) {
-                case 'A': top = 'T'; break;
-                case 'T': top = 'A'; break;
-                case 'C': top = 'G'; break;
-                case 'G': top = 'C'; break;
-                default:  top = 'N'; break;
-            }
-            if (top == 'A')      { profile.tail_a_3prime[idx]++; profile.tail_ag_3prime[idx]++; }
-            else if (top == 'G') profile.tail_ag_3prime[idx]++;
-        }
-    }
-
-    // Interior baseline from R1's middle third (R2's middle would mostly
-    // overlap for short inserts; tracking only R1's middle avoids double-
-    // counting and keeps the baseline consistent with SE behavior).
-    {
-        constexpr size_t INTERIOR_TERM_PAD = 15;
-        size_t mid_start = l1 / 3;
-        size_t mid_end   = 2 * l1 / 3;
-        if (mid_start < INTERIOR_TERM_PAD) mid_start = INTERIOR_TERM_PAD;
-        if (l1 > INTERIOR_TERM_PAD && mid_end + INTERIOR_TERM_PAD > l1)
-            mid_end = l1 - INTERIOR_TERM_PAD;
-        if (mid_start < mid_end) {
-            for (size_t i = mid_start; i < mid_end; ++i) {
-                char b = fast_upper(r1[i]);
-                if (b == 'T') profile.baseline_t_freq++;
-                else if (b == 'C') profile.baseline_c_freq++;
-                else if (b == 'A') profile.baseline_a_freq++;
-                else if (b == 'G') profile.baseline_g_freq++;
-            }
-        }
-    }
-
-    // Codon-position counters: 5' from R1, 3' from R2 (complement-mapped)
-    for (size_t i = 0; i < std::min(size_t(15), l1); ++i) {
-        char b = fast_upper(r1[i]);
-        int cp = i % 3;
-        if (b == 'T') profile.codon_pos_t_count_5prime[cp]++;
-        else if (b == 'C') profile.codon_pos_c_count_5prime[cp]++;
-    }
-    for (size_t i = 0; i < std::min(size_t(15), l2); ++i) {
-        char b = fast_upper(r2[i]);
-        char top;
-        switch (b) { case 'A': top='T'; break; case 'T': top='A'; break;
-                     case 'C': top='G'; break; case 'G': top='C'; break;
-                     default: top='N'; }
-        // Codon position in R2: position i in R2 == position (l_mol-1-i) in
-        // top strand. Without alignment we can't recover exact codon phase
-        // on the top strand, so we use the natural R2 codon phase (which
-        // matches the molecule's 3' frame for inserts of length 3k).
-        int cp = i % 3;
-        if (top == 'A') profile.codon_pos_a_count_3prime[cp]++;
-        else if (top == 'G') profile.codon_pos_g_count_3prime[cp]++;
-    }
-
-    // 5' hexamer + interior hexamer (from R1)
-    if (l1 >= 18) {
-        char hex_5prime[7];
-        bool valid_5prime = true;
-        for (int i = 0; i < 6; ++i) {
-            char b = fast_upper(r1[i]);
-            if (b != 'A' && b != 'C' && b != 'G' && b != 'T') { valid_5prime = false; break; }
-            hex_5prime[i] = b;
-        }
-        hex_5prime[6] = '\0';
-        if (valid_5prime) {
-            uint32_t code = encode_hexamer(hex_5prime);
-            if (code < 4096) {
-                profile.hexamer_count_5prime[code] += 1.0;
-                profile.n_hexamers_5prime++;
-            }
-        }
-
-        size_t interior_start = l1 / 2 - 3;
-        char hex_interior[7];
-        bool valid_interior = true;
-        for (int i = 0; i < 6; ++i) {
-            char b = fast_upper(r1[interior_start + i]);
-            if (b != 'A' && b != 'C' && b != 'G' && b != 'T') { valid_interior = false; break; }
-            hex_interior[i] = b;
-        }
-        hex_interior[6] = '\0';
-        if (valid_interior) {
-            uint32_t code = encode_hexamer(hex_interior);
-            if (code < 4096) {
-                profile.hexamer_count_interior[code] += 1.0;
-                profile.n_hexamers_interior++;
-            }
-        }
-
-        // 3' terminal hexamer (last 6 bases of read)
-        char hex_3prime[7];
-        bool valid_3prime = true;
-        for (int i = 0; i < 6; ++i) {
-            char b = fast_upper(r1[l1 - 6 + i]);
-            if (b != 'A' && b != 'C' && b != 'G' && b != 'T') { valid_3prime = false; break; }
-            hex_3prime[i] = b;
-        }
-        hex_3prime[6] = '\0';
-        if (valid_3prime) {
-            uint32_t code = encode_hexamer(hex_3prime);
-            if (code < 4096) {
-                profile.hexamer_count_3prime[code] += 1.0;
-                profile.n_hexamers_3prime++;
-            }
-        }
-    }
-
-    profile.n_reads++;
-    return true;
-}
-
-void FrameSelector::update_sample_profile_weighted(
-    SampleDamageProfile& profile,
-    std::string_view seq,
-    float weight) {
-
-    if (seq.length() < 30 || weight < 0.001f) return;
-
-    size_t len = seq.length();
-
-    for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-        char base = fast_upper(seq[i]);
-        if (base == 'T') {
-            profile.t_freq_5prime[i] += weight;
-            profile.tc_total_5prime[i] += weight;
-        } else if (base == 'C') {
-            profile.c_freq_5prime[i] += weight;
-            profile.tc_total_5prime[i] += weight;
-        }
-    }
-
-    for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-        size_t pos = len - 1 - i;
-        char base = fast_upper(seq[pos]);
-        if (base == 'A') {
-            profile.a_freq_3prime[i] += weight;
-            profile.ag_total_3prime[i] += weight;
-        } else if (base == 'G') {
-            profile.g_freq_3prime[i] += weight;
-            profile.ag_total_3prime[i] += weight;
-        }
-    }
-
-    // Tail-anchored background sampling (weighted variant)
-    {
-        const int lo = SampleDamageProfile::BG_TAIL_LO;
-        const int hi = SampleDamageProfile::BG_TAIL_HI;
-        for (int i = lo; i <= hi && static_cast<size_t>(i) < len; ++i) {
-            const int idx = i - lo;
-            const char b5 = fast_upper(seq[i]);
-            if (b5 == 'T') { profile.tail_t_5prime[idx] += weight; profile.tail_tc_5prime[idx] += weight; }
-            else if (b5 == 'C') { profile.tail_tc_5prime[idx] += weight; }
-
-            const size_t pos3 = len - 1 - i;
-            const char b3 = fast_upper(seq[pos3]);
-            if (b3 == 'A') { profile.tail_a_3prime[idx] += weight; profile.tail_ag_3prime[idx] += weight; }
-            else if (b3 == 'G') { profile.tail_ag_3prime[idx] += weight; }
-        }
-    }
-
-    constexpr size_t INTERIOR_TERM_PAD = 15;
-    size_t mid_start = len / 3;
-    size_t mid_end   = 2 * len / 3;
-    if (mid_start < INTERIOR_TERM_PAD)     mid_start = INTERIOR_TERM_PAD;
-    if (len > INTERIOR_TERM_PAD && mid_end + INTERIOR_TERM_PAD > len)
-        mid_end = len - INTERIOR_TERM_PAD;
-    const bool interior_safe = (mid_start < mid_end);
-    if (interior_safe) {
-        for (size_t i = mid_start; i < mid_end; ++i) {
-            char base = fast_upper(seq[i]);
-            if (base == 'T') profile.baseline_t_freq += weight;
-            else if (base == 'C') profile.baseline_c_freq += weight;
-            else if (base == 'A') profile.baseline_a_freq += weight;
-            else if (base == 'G') profile.baseline_g_freq += weight;
-        }
-    }
-
-    size_t weight_count = std::max(size_t(1), static_cast<size_t>(weight * 10 + 0.5));
-    for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-        int codon_pos = i % 3;
-        char base = fast_upper(seq[i]);
-        if (base == 'T') profile.codon_pos_t_count_5prime[codon_pos] += weight_count;
-        else if (base == 'C') profile.codon_pos_c_count_5prime[codon_pos] += weight_count;
-    }
-
-    for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
-        size_t pos = len - 1 - i;
-        int codon_pos = (len - 1 - i) % 3;
-        char base = fast_upper(seq[pos]);
-        if (base == 'A') profile.codon_pos_a_count_3prime[codon_pos] += weight_count;
-        else if (base == 'G') profile.codon_pos_g_count_3prime[codon_pos] += weight_count;
-    }
-
-    for (size_t i = 0; i < std::min(size_t(5), len - 1); ++i) {
-        char base = fast_upper(seq[i]);
-        char next = fast_upper(seq[i + 1]);
-
-        if (next == 'G') {
-            if (base == 'C') {
-                profile.cpg_c_count += weight_count;
-            } else if (base == 'T') {
-                profile.cpg_t_count += weight_count;
-            }
-        } else {
-            if (base == 'C') {
-                profile.non_cpg_c_count += weight_count;
-            } else if (base == 'T') {
-                profile.non_cpg_t_count += weight_count;
-            }
-        }
-    }
-
-    profile.n_reads++;
-}
-
-void FrameSelector::recompute_fgh_excluding_adapter_prefixes(
-    SampleDamageProfile& profile,
-    const std::vector<uint32_t>& excl_5p,
-    const std::vector<uint32_t>& excl_3p)
-{
-    if (excl_5p.empty() && excl_3p.empty()) return;
-
-    bool skip5[4096] = {}, skip3[4096] = {};
-    for (auto c : excl_5p) if (c < 4096) skip5[c] = true;
-    for (auto c : excl_3p) if (c < 4096) skip3[c] = true;
-
-    // Helper: resum prefix-binned arrays excluding flagged codes, then recompute
-    // binom_z and fin_oxog-style rate fields.
-    auto resum = [](const std::array<double,4096>& pre_arr,
-                    const std::array<double,4096>& stop_arr,
-                    const bool skip[4096]) -> std::pair<double,double> {
-        double pre = 0, stop = 0;
-        for (uint32_t i = 0; i < 4096; ++i) {
-            if (!skip[i]) { pre += pre_arr[i]; stop += stop_arr[i]; }
-        }
-        return {pre, stop};
-    };
-
-    // Interior baselines are not prefix-split; reuse existing values.
-    // Channel F/G/H z is recomputed from the adapter-excluded terminal counts vs unchanged interior
-    // via the single binom_z_clamped (the duplicated binom_z_f lambda was deleted in P3).
-
-    uint32_t n_excl = 0;
-
-    // Single-producer invariant across the exclusion path: the emitted z/rate are overwritten below
-    // from a Layer-0 row rebuilt on the adapter-excluded counts, and that row REPLACES the primary
-    // row in profile.count_tables, so the golden gate sees exactly what is emitted. The
-    // Mantel-Haenszel strata are not adapter-excluded (channel_f_mh_z is a separate stratified
-    // statistic computed on the full window and not recomputed here), so preserve them from the
-    // primary row.
-    auto replace_ct_row = [&profile](char type, StopChannelCountTable nct) {
-        for (auto& row : profile.count_tables) {
-            if (row.channel_type == type) {
-                nct.strata = row.strata;
-                nct.has_strata = row.has_strata;
-                row = std::move(nct);
-                return;
-            }
-        }
-    };
-
-    if (!excl_5p.empty()) {
-        // Channel F 5' — rebuild the Layer-0 row from the adapter-excluded terminal counts (interior
-        // is not prefix-split), then take z and shadow-free rates straight from that row.
-        auto [pf, sf] = resum(profile.ca_pre_terminal_by_pfx,
-                               profile.ca_stop_terminal_by_pfx, skip5);
-        double shadow_f = 0;
-        for (uint32_t i = 0; i < 4096; ++i)
-            if (!skip5[i]) shadow_f += profile.ca_deam_shadow_terminal_by_pfx[i];
-        StopChannelCountTable f_ct = make_stop_count_table(stop_channel_spec('F'),
-            pf, sf, profile.ca_pre_interior, profile.ca_stop_interior,
-            shadow_f, profile.ca_deam_shadow_interior);
-        replace_ct_row('F', f_ct);
-        profile.channel_f_z = static_cast<float>(f_ct.post_clamp_z);
-        profile.ca_stop_rate_terminal = static_cast<float>(f_ct.raw_rate_term);  // shadow-free (registry shadow_in_rate=false), matches primary path
-        profile.ca_stop_rate_interior = static_cast<float>(f_ct.raw_rate_int);
-        if (profile.ca_stop_rate_interior > 1e-6f && profile.ca_stop_rate_terminal > 0.0f)
-            profile.ca_uniformity_ratio = profile.ca_stop_rate_terminal / profile.ca_stop_rate_interior;
-        profile.channel_f_valid = (f_ct.z_den_term >= 10 && f_ct.z_den_int >= 10);
-        // Channel G 5'
-        auto [pg, sg] = resum(profile.cg_pre_terminal_by_pfx,
-                               profile.cg_stop_terminal_by_pfx, skip5);
-        StopChannelCountTable g_ct = make_stop_count_table(stop_channel_spec('G'),
-            pg, sg, profile.cg_pre_interior, profile.cg_stop_interior, 0.0, 0.0);
-        replace_ct_row('G', g_ct);
-        profile.channel_g_z = static_cast<float>(g_ct.post_clamp_z);
-        profile.channel_g_or = static_cast<float>(stop_channel_or_haldane(g_ct));
-        profile.cg_stop_rate_terminal = static_cast<float>(g_ct.raw_rate_term);
-        profile.cg_stop_rate_interior = static_cast<float>(g_ct.raw_rate_int);
-        profile.channel_g_valid = (g_ct.z_den_term >= 10 && g_ct.z_den_int >= 10);
-        // Channel H 5'
-        auto [ph, sh] = resum(profile.at_pre_terminal_by_pfx,
-                               profile.at_stop_terminal_by_pfx, skip5);
-        double ni_h = profile.at_pre_interior + profile.at_stop_interior;
-        StopChannelCountTable h_ct = make_stop_count_table(stop_channel_spec('H'),
-            ph, sh, profile.at_pre_interior, profile.at_stop_interior, 0.0, 0.0);
-        replace_ct_row('H', h_ct);
-        profile.channel_h_z = static_cast<float>(h_ct.post_clamp_z);
-        profile.channel_h_or = static_cast<float>(stop_channel_or_haldane(h_ct));
-        auto [ph2, sh2] = resum(profile.at_pre_terminal_p2plus_by_pfx,
-                                 profile.at_stop_terminal_p2plus_by_pfx, skip5);
-        profile.channel_h_z_p2plus = binom_z_clamped(sh2, ph2+sh2,
-                                                 profile.at_stop_interior, ni_h);
-        profile.at_stop_rate_terminal = static_cast<float>(h_ct.raw_rate_term);
-        profile.at_stop_rate_interior = static_cast<float>(h_ct.raw_rate_int);
-        profile.channel_h_valid = (h_ct.z_den_term >= 10 && h_ct.z_den_int >= 10);
-        // C5: recompute h_z sign-consistency after adapter-prefix exclusion.
-        profile.channel_h_z_consistent =
-            std::isfinite(profile.channel_h_z) && std::isfinite(profile.channel_h_z_p2plus) &&
-            ((profile.channel_h_z >= 0.0f) == (profile.channel_h_z_p2plus >= 0.0f));
-        for (auto c : excl_5p) if (c < 4096) ++n_excl;
-    }
-
-    if (!excl_3p.empty()) {
-        // 3' side: channels F/G/H have no separate z-score fields; update rate
-        // fields so JSON output reflects the adapter-excluded terminal window.
-        auto [pf3, sf3] = resum(profile.ca_pre_terminal_3p_by_pfx,
-                                 profile.ca_stop_terminal_3p_by_pfx, skip3);
-        profile.ca_stop_rate_terminal_3prime = (pf3+sf3 > 0) ? sf3/(pf3+sf3) : 0.0;
-        profile.channel_f3_valid = (pf3+sf3 >= 10);
-        auto [pg3, sg3] = resum(profile.cg_pre_terminal_3p_by_pfx,
-                                 profile.cg_stop_terminal_3p_by_pfx, skip3);
-        profile.cg_stop_rate_terminal_3prime = (pg3+sg3 > 0) ? sg3/(pg3+sg3) : 0.0;
-        profile.channel_g3_valid = (pg3+sg3 >= 10);
-        auto [ph3, sh3] = resum(profile.at_pre_terminal_3p_by_pfx,
-                                 profile.at_stop_terminal_3p_by_pfx, skip3);
-        profile.at_stop_rate_terminal_3prime = (ph3+sh3 > 0) ? sh3/(ph3+sh3) : 0.0;
-        profile.channel_h3_valid = (ph3+sh3 >= 10);
-        for (auto c : excl_3p) if (c < 4096) ++n_excl;
-    }
-
-    profile.fgh_adapter_prefixes_excluded = n_excl;
-}
-
-void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
-    // Default-construct first: covers every field (including ones the previous
-    // hand-rolled reset missed: d_max_*, damage_status, composition_bias_*,
-    // inverted_pattern_*, library_bic_*, etc.) and stays in sync as new
-    // members are added to SampleDamageProfile. Then restore the few
-    // historical non-zero defaults the manual reset relied on (below).
-    profile = SampleDamageProfile{};
-    for (int i = 0; i < 15; ++i) {
-        profile.t_freq_5prime[i] = 0.0;
-        profile.c_freq_5prime[i] = 0.0;
-        profile.a_freq_5prime[i] = 0.0;
-        profile.g_freq_5prime[i] = 0.0;
-        profile.a_freq_3prime[i] = 0.0;
-        profile.g_freq_3prime[i] = 0.0;
-        profile.t_freq_3prime[i] = 0.0;
-        profile.c_freq_3prime[i] = 0.0;
-        profile.damage_rate_5prime[i] = 0.0f;
-        profile.damage_rate_3prime[i] = 0.0f;
-        profile.tc_total_5prime[i] = 0.0;
-        profile.ag_total_3prime[i] = 0.0;
-    }
-
-    profile.baseline_t_freq = 0.0;
-    profile.baseline_c_freq = 0.0;
-    profile.baseline_a_freq = 0.0;
-    profile.baseline_g_freq = 0.0;
-
-    for (int p = 0; p < 3; ++p) {
-        profile.codon_pos_t_count_5prime[p] = 0;
-        profile.codon_pos_c_count_5prime[p] = 0;
-        profile.codon_pos_a_count_3prime[p] = 0;
-        profile.codon_pos_g_count_3prime[p] = 0;
-        profile.codon_pos_t_rate_5prime[p] = 0.5f;
-        profile.codon_pos_a_rate_3prime[p] = 0.5f;
-    }
-
-    profile.cpg_c_count = 0;
-    profile.cpg_t_count = 0;
-    profile.non_cpg_c_count = 0;
-    profile.non_cpg_t_count = 0;
-    profile.cpg_damage_rate = 0.0f;
-    profile.non_cpg_damage_rate = 0.0f;
-
-    for (int ctx = 0; ctx < SampleDamageProfile::N_CT_CTX; ++ctx) {
-        profile.ct_ctx_t_5prime[ctx].fill(0.0f);
-        profile.ct_ctx_total_5prime[ctx].fill(0.0f);
-        profile.ct_ctx_t_interior[ctx] = 0.0f;
-        profile.ct_ctx_total_interior[ctx] = 0.0f;
-    }
-    profile.fit_baseline_ct5_cpg_like    = std::numeric_limits<float>::quiet_NaN();
-    profile.fit_baseline_ct5_noncpg_like = std::numeric_limits<float>::quiet_NaN();
-    profile.dmax_ct5_cpg_like    = std::numeric_limits<float>::quiet_NaN();
-    profile.dmax_ct5_noncpg_like = std::numeric_limits<float>::quiet_NaN();
-    profile.cpg_ratio     = std::numeric_limits<float>::quiet_NaN();
-    profile.log2_cpg_ratio = std::numeric_limits<float>::quiet_NaN();
-
-    // Reset upstream-context-aware accumulators
-    for (int uctx = 0; uctx < SampleDamageProfile::N_UPSTREAM_CTX; ++uctx) {
-        profile.ct5_t_by_upstream[uctx].fill(0.0);
-        profile.ct5_total_by_upstream[uctx].fill(0.0);
-        profile.ct5_t_interior_by_upstream[uctx] = 0.0;
-        profile.ct5_total_interior_by_upstream[uctx] = 0.0;
-        profile.dmax_ct5_by_upstream[uctx] = std::numeric_limits<float>::quiet_NaN();
-        profile.baseline_ct5_by_upstream[uctx] = std::numeric_limits<float>::quiet_NaN();
-        profile.cov_ct5_terminal_by_upstream[uctx] = 0.0f;
-        profile.cov_ct5_interior_by_upstream[uctx] = 0.0f;
-    }
-    profile.dipyr_contrast = std::numeric_limits<float>::quiet_NaN();
-    profile.context_heterogeneity_chi2 = 0.0f;
-    profile.context_heterogeneity_chi2_raw = 0.0f;
-    profile.context_heterogeneity_p = 1.0f;
-    profile.context_heterogeneity_detected = false;
-    profile.context_heterogeneity_computed = false;
-    profile.effcov_ct5_cpg_like_terminal    = 0.0f;
-    profile.effcov_ct5_noncpg_like_terminal = 0.0f;
-    profile.effcov_ct5_cpg_like_interior    = 0.0f;
-    profile.effcov_ct5_noncpg_like_interior = 0.0f;
-    profile.cov_ct5_cpg_like_terminal       = 0.0f;
-    profile.cov_ct5_noncpg_like_terminal    = 0.0f;
-    profile.cov_ct5_cpg_like_interior       = 0.0f;
-    profile.cov_ct5_noncpg_like_interior    = 0.0f;
-    profile.fit_positions_ct5_cpg_like    = 0;
-    profile.fit_positions_ct5_noncpg_like = 0;
-    profile.oxog16_t.fill(0.0f);
-    profile.oxog16_a_rc.fill(0.0f);
-    profile.s_oxog_16ctx.fill(0.0f);
-    profile.cov_oxog_16ctx.fill(0.0f);
-    profile.tri_5prime_terminal.fill(0.0);
-    profile.tri_5prime_interior.fill(0.0);
-    profile.tri_3prime_terminal.fill(0.0);
-    profile.tri_3prime_interior.fill(0.0);
-    for (auto& a : profile.tri_5prime_pos) a.fill(0);
-    for (auto& a : profile.tri_3prime_pos) a.fill(0);
-
-    profile.max_damage_5prime = 0.0f;
-    profile.max_damage_3prime = 0.0f;
-    profile.sample_damage_prob = 0.0f;
-    profile.lambda_5prime = 0.3f;
-    profile.lambda_3prime = 0.3f;
-    profile.lambda_5prime_fitted = false;  // D22
-    profile.lambda_3prime_fitted = false;  // D22
-    profile.terminal_shift_5prime = 0.0f;
-    profile.terminal_shift_3prime = 0.0f;
-    profile.terminal_z_5prime = 0.0f;
-    profile.terminal_z_3prime = 0.0f;
-    profile.terminal_inversion = false;
-    profile.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
-    profile.library_type_auto_detected = false;
-    profile.tc_total_3prime.fill(0.0);
-
-    profile.hexamer_count_5prime.fill(0.0);
-    profile.hexamer_count_interior.fill(0.0);
-    profile.hexamer_count_3prime.fill(0.0);
-    profile.n_hexamers_5prime = 0;
-    profile.n_hexamers_interior = 0;
-    profile.n_hexamers_3prime = 0;
-    profile.hexamer_damage_llr = 0.0f;
-
-    profile.convertible_caa_5prime.fill(0.0);
-    profile.convertible_taa_5prime.fill(0.0);
-    profile.convertible_cag_5prime.fill(0.0);
-    profile.convertible_tag_5prime.fill(0.0);
-    profile.convertible_cga_5prime.fill(0.0);
-    profile.convertible_tga_5prime.fill(0.0);
-    profile.total_codons_5prime.fill(0.0);
-    profile.convertible_caa_interior = 0.0;
-    profile.convertible_taa_interior = 0.0;
-    profile.convertible_cag_interior = 0.0;
-    profile.convertible_tag_interior = 0.0;
-    profile.convertible_cga_interior = 0.0;
-    profile.convertible_tga_interior = 0.0;
-    profile.total_codons_interior = 0.0;
-    profile.stop_conversion_rate_baseline = 0.0f;
-    profile.stop_decay_llr_5prime = 0.0f;
-    profile.stop_amplitude_5prime = 0.0f;
-    profile.channel_b_valid = false;
-    profile.channel_b_valid_tga = false;
-    profile.channel_b_valid_taa = false;  // D24
-    profile.channel_b_valid_tag = false;  // D24
-    profile.damage_validated = false;
-    profile.damage_artifact = false;
-
-    profile.joint_delta_max = 0.0f;
-    profile.joint_lambda = 0.0f;
-    profile.joint_a_max = 0.0f;
-    profile.joint_log_lik_m1 = 0.0f;
-    profile.joint_log_lik_m0 = 0.0f;
-    profile.joint_delta_bic = 0.0f;
-    profile.joint_bayes_factor = 0.0f;
-    profile.joint_p_damage = 0.0f;
-    profile.joint_z_delta = 0.0f;
-    profile.joint_z_delta_capped = false;
-    profile.joint_n_informative = 0;
-    profile.joint_model_valid = false;
-
-    profile.bulk_damage = {};
-    profile.bulk_headline_delta = 0.0;
-    profile.bulk_attempted = false;
-
-    profile.mixture_K = 0;
-    profile.mixture_n_components = 0;
-    profile.mixture_d_population = 0.0f;
-    profile.mixture_d_ancient = 0.0f;
-    profile.mixture_d_population_highgc = 0.0f;
-    profile.mixture_pi_ancient = 0.0f;
-    profile.mixture_bic = 0.0f;
-    profile.mixture_converged = false;
-    profile.mixture_identifiable = false;
-    profile.gc_histogram.fill(0.0);
-    profile.adaptive_gc_threshold = 0.0f;
-    profile.gc_threshold_computed = false;
-    profile.gc_bins = {};
-    profile.len_bins = {};
-    profile.gc_stratified_d_max_weighted = 0.0f;
-    profile.gc_stratified_d_max_joint = 0.0f;
-    profile.gc_stratified_d_max_peak = 0.0f;
-    profile.gc_peak_bin = -1;
-    profile.gc_stratified_valid = false;
-    profile.pi_damaged = 0.0f;
-    profile.d_ancient = 0.0f;
-    profile.d_population = 0.0f;
-    profile.n_damaged_bins = 0;
-    profile.n_reads_gc_filtered = 0;
-    profile.n_reads_sampled = 0;
-
-    profile.fit_offset_5prime = 1;
-    profile.fit_offset_3prime = 1;
-
-    profile.forced_library_type = SampleDamageProfile::LibraryType::UNKNOWN;
-    profile.library_type_rescued = false;
-
-    // oxoG / Channel-D accumulators
-    profile.g_count_5prime.fill(0.0);
-    profile.t_from_g_5prime.fill(0.0);
-    profile.baseline_g_to_t_count = 0.0;
-    profile.baseline_g_total = 0.0;
-    profile.baseline_c_to_a_count = 0.0;
-    profile.baseline_c_ox_total = 0.0;
-    profile.convertible_gag_5prime.fill(0.0);
-    profile.convertible_tca_5prime.fill(0.0);
-    profile.convertible_tcg_5prime.fill(0.0);
-    profile.convertible_tac_5prime.fill(0.0);
-    profile.convertible_tgc_5prime.fill(0.0);
-    profile.convertible_taa_ca_5prime.fill(0.0);
-    profile.convertible_tag_ca_5prime.fill(0.0);
-    profile.convertible_tga_ca_5prime.fill(0.0);
-    profile.ca_deam_shadow_5prime.fill(0.0);
-    profile.convertible_tca_3prime.fill(0.0);
-    profile.convertible_tcg_3prime.fill(0.0);
-    profile.convertible_tac_3prime.fill(0.0);
-    profile.convertible_tgc_3prime.fill(0.0);
-    profile.convertible_taa_ca_3prime.fill(0.0);
-    profile.convertible_tag_ca_3prime.fill(0.0);
-    profile.convertible_tga_ca_3prime.fill(0.0);
-    profile.ca_deam_shadow_3prime.fill(0.0);
-    profile.ca_stop_rate_baseline          = 0.0f;
-    profile.ca_stop_rate_terminal          = 0.0f;
-    profile.ca_stop_rate_interior          = 0.0f;
-    profile.channel_f_z                    = std::numeric_limits<float>::quiet_NaN();  // C1: NaN = not computed
-    profile.channel_f_mh_z                 = std::numeric_limits<float>::quiet_NaN();  // C1: NaN = not computed
-    profile.channel_f_common_or            = 0.0f;
-    profile.ca_uniformity_ratio            = 0.0f;
-    profile.ca_stop_rate_baseline_3prime        = 0.0f;
-    profile.ca_stop_rate_terminal_3prime   = 0.0f;
-    profile.ca_stop_rate_interior_3prime   = 0.0f;
-    profile.ca_uniformity_ratio_3prime     = 0.0f;
-    profile.channel_f_valid                = false;
-    profile.channel_f3_valid               = false;
-    profile.convertible_tca_cg_5prime.fill(0.0);
-    profile.convertible_tac_cg_5prime.fill(0.0);
-    profile.convertible_tga_cg_5prime.fill(0.0);
-    profile.convertible_tag_cg_5prime.fill(0.0);
-    profile.convertible_tca_cg_3prime.fill(0.0);
-    profile.convertible_tac_cg_3prime.fill(0.0);
-    profile.convertible_tga_cg_3prime.fill(0.0);
-    profile.convertible_tag_cg_3prime.fill(0.0);
-    profile.cg_stop_rate_terminal          = 0.0f;
-    profile.cg_stop_rate_interior          = 0.0f;
-    profile.cg_stop_rate_baseline          = 0.0f;
-    profile.channel_g_z                    = std::numeric_limits<float>::quiet_NaN();  // C1: NaN = not computed
-    profile.cg_uniformity_ratio            = 0.0f;
-    profile.cg_stop_rate_terminal_3prime   = 0.0f;
-    profile.cg_stop_rate_interior_3prime   = 0.0f;
-    profile.cg_stop_rate_baseline_3prime   = 0.0f;
-    profile.cg_uniformity_ratio_3prime     = 0.0f;
-    profile.channel_g_valid                = false;
-    profile.channel_g3_valid               = false;
-    profile.convertible_aaa_h_5prime.fill(0.0);
-    profile.convertible_aag_h_5prime.fill(0.0);
-    profile.convertible_aga_h_5prime.fill(0.0);
-    profile.convertible_taa_at_5prime.fill(0.0);
-    profile.convertible_tag_at_5prime.fill(0.0);
-    profile.convertible_tga_at_5prime.fill(0.0);
-    profile.convertible_aaa_h_3prime.fill(0.0);
-    profile.convertible_aag_h_3prime.fill(0.0);
-    profile.convertible_aga_h_3prime.fill(0.0);
-    profile.convertible_taa_at_3prime.fill(0.0);
-    profile.convertible_tag_at_3prime.fill(0.0);
-    profile.convertible_tga_at_3prime.fill(0.0);
-    profile.at_stop_rate_terminal          = 0.0f;
-    profile.at_stop_rate_interior          = 0.0f;
-    profile.at_stop_rate_baseline          = 0.0f;
-    profile.channel_h_z                    = std::numeric_limits<float>::quiet_NaN();  // C1: NaN = not computed
-    profile.channel_h_z_p2plus             = std::numeric_limits<float>::quiet_NaN();  // C1: NaN = not computed
-    profile.channel_h_z_consistent         = false;
-    profile.at_uniformity_ratio            = 0.0f;
-    profile.at_stop_rate_terminal_3prime   = 0.0f;
-    profile.at_stop_rate_interior_3prime   = 0.0f;
-    profile.at_stop_rate_baseline_3prime   = 0.0f;
-    profile.at_uniformity_ratio_3prime     = 0.0f;
-    profile.channel_h_valid                = false;
-    profile.channel_h3_valid               = false;
-    profile.ca_pre_interior  = 0;
-    profile.ca_stop_interior        = 0;
-    profile.ca_deam_shadow_interior = 0;
-    profile.ca_pre_interior_by_ctx.fill(0.0);
-    profile.ca_stop_interior_by_ctx.fill(0.0);
-    profile.ca_shadow_interior_by_ctx.fill(0.0);
-    profile.ca_shadow_5prime_ctx0.fill(0.0);
-    profile.ca_shadow_5prime_ctx1.fill(0.0);
-    profile.ca_shadow_5prime_ctx2.fill(0.0);
-    profile.cg_pre_interior  = 0;
-    profile.cg_stop_interior = 0;
-    profile.at_pre_interior  = 0;
-    profile.at_stop_interior = 0;
-
-
-    profile.convertible_tca_interior = 0;
-    profile.convertible_tcg_interior = 0;
-    profile.convertible_tac_interior = 0;
-    profile.convertible_tgc_interior = 0;
-    profile.convertible_taa_ca_interior = 0;
-    profile.convertible_tag_ca_interior = 0;
-    profile.convertible_tga_ca_interior = 0;
-
-    profile.convertible_gag_3prime.fill(0.0);
-    profile.convertible_tag_ox_3prime.fill(0.0);
-    profile.convertible_gaa_3prime.fill(0.0);
-    profile.convertible_taa_ox_3prime.fill(0.0);
-    profile.convertible_gga_3prime.fill(0.0);
-    profile.convertible_tga_ox_3prime.fill(0.0);
-    profile.ox_stop_rate_terminal_3prime = 0.0f;
-    profile.ox_stop_rate_interior_3prime = 0.0f;
-    profile.ox_stop_baseline_3prime      = 0.0f;
-    profile.ox_uniformity_ratio_3prime   = 0.0f;
-    profile.channel_c3_valid             = false;
-    profile.ox_uniformity_ratio_3prime_computed = false;
-
-    profile.convertible_gaa_5prime.fill(0.0);
-    profile.convertible_gga_5prime.fill(0.0);
-    profile.convertible_tag_ox_5prime.fill(0.0);
-    profile.convertible_taa_ox_5prime.fill(0.0);
-    profile.convertible_tga_ox_5prime.fill(0.0);
-    profile.c_count_ox_5prime.fill(0.0);
-    profile.a_from_c_5prime.fill(0.0);
-    profile.oxidation_like_bins = {};
-    profile.oxo_two_marker = {};
-    profile.oxidation_like_signal = 0.0f;
-    profile.oxidation_like_signal_se = 0.0f;
-    profile.oxidation_like_control = 0.0f;
-    profile.oxidation_like_control_se = 0.0f;
-    profile.oxidation_like_adjusted = 0.0f;
-    profile.oxidation_like_excess = 0.0f;
-    profile.oxidation_like_se = 0.0f;
-    profile.oxidation_like_z = 0.0f;
-    profile.oxidation_like_reliability = 0.0f;
-    profile.oxidation_like_bins_used = 0;
-    profile.oxidation_like_effective_bins = 0.0f;
-    profile.oxidation_like_heterogeneity = 0.0f;
-    profile.oxidation_like_artifact_suspect = false;
-
-    // Interior oxoG codon accumulators (merged in merge_sample_profiles)
-    profile.convertible_gag_interior = 0;
-    profile.convertible_gaa_interior = 0;
-    profile.convertible_gga_interior = 0;
-    profile.convertible_tag_ox_interior = 0;
-    profile.convertible_taa_ox_interior = 0;
-    profile.convertible_tga_ox_interior = 0;
-
-    profile.ox_is_artifact = false;
-    profile.ox_d_max = 0.0f;
-    profile.ox_damage_detected = false;
-    profile.ox_damage_detected_codon = false;
-    profile.ox_damage_detected_model = false;
-
-    // Neutral default for oxidation uniformity ratio (real-zero vs not-computed is
-    // disambiguated by ox_uniformity_ratio_computed, reset to false here).
-    profile.ox_uniformity_ratio = 1.0f;
-    profile.ox_uniformity_ratio_computed     = false;
-    profile.ox_stop_rate_positional_computed = false;
-    profile.ox_gt_uniformity_computed        = false;
-    profile.d_computed                       = false;
-    profile.channel_e_valid                  = false;
-
-    // GT exponential-background fit boundary/degeneracy flags (C4) + companions.
-    profile.gt_decay_at_upper_boundary = false;
-    profile.gt_term_zero_clamped       = false;
-    profile.gt_bg_at_upper_boundary    = false;
-    profile.g_bg_fitted_unclamped      = 0.0f;
-    profile.ox_theta_at_clamp          = false;
-    // binom_z fields (channel_f_z/f_mh_z/g_z/h_z/h_z_p2plus) are reset to NaN
-    // in the per-channel F/G/H reset blocks above.
-
-    profile.n_reads = 0;
-}
-
-SampleDamageProfile FrameSelector::compute_sample_profile(
-    const std::vector<std::string>& sequences) {
-
-    SampleDamageProfile profile;
-    reset_sample_profile(profile);
-
-    for (const auto& seq : sequences) {
-        update_sample_profile(profile, seq);
-    }
-
-    finalize_sample_profile(profile);
-    return profile;
 }
 
 } // namespace taph
