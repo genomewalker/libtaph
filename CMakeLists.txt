@@ -8,6 +8,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(taph
     src/damage_estimation_update.cpp
     src/damage_estimation_finalize.cpp
+    src/damage_estimation_finalize_init.cpp
+    src/damage_estimation_finalize_decay.cpp
+    src/damage_estimation_finalize_oxidation.cpp
+    src/damage_estimation_finalize_context.cpp
+    src/damage_estimation_finalize_libtype.cpp
+    src/damage_estimation_finalize_dmax.cpp
+    src/damage_estimation_finalize_preservation.cpp
     src/damage_estimation_channels.cpp
     src/bulk_damage_model.cpp
     src/damage_c_api.cpp
