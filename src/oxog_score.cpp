@@ -30,8 +30,8 @@ OxScoreResult compute_ox_scores(const OxBinAcc* bins, int n_bins) {
             double p_bg  = x.C / x.D;
             r.s_oxog += alpha * (p_anc - p_bg);
 
-            // C→A co-movement: same q-weighting on the C/(C+A) channel.
-            // Oxidation predicts s_oxog > 0 AND s_ca > 0 (G→T and its complement
+            // C->A co-movement: same q-weighting on the A/(C+A) channel.
+            // Oxidation predicts s_oxog > 0 AND s_ca > 0 (G->T and its complement
             // both enriched in ancient reads vs modern).
             if (x.B_ca > 0 && x.D_ca > 0)
                 r.s_ca += alpha * (x.A_ca / x.B_ca - x.C_ca / x.D_ca);

@@ -1,15 +1,14 @@
 # Damage types and channels
 
-libtaph scans raw FASTQ reads for nine biochemical damage channels and writes a
-structured JSON report. Damage values are fractions in [0, 1]; multiply by 100 for
-percentages.
+libtaph scans raw FASTQ reads for reference-free damage observables and empirical
+endpoint/context proxies, then writes a structured JSON report. Damage values are
+fractions in [0, 1]; multiply by 100 for percentages.
 
 Ancient DNA degradation falls into three broad categories: **hydrolytic damage**
-(cytosine deamination; depurination and AP-site fragmentation), **oxidative damage**
+(cytosine deamination; depurination/AP-site chemistry), **oxidative damage**
 (8-oxoguanine formation), and **library-preparation artefacts** that mimic or confound
-these signals. Each channel targets one of these processes. Together they cross-validate
-that the detected signal is genuine ancient damage rather than a composition or
-preparation artefact.
+these signals. Some channels target established lesions; others are empirical
+reference-free observables that require cautious mechanism interpretation.
 
 ---
 
@@ -313,14 +312,13 @@ reported so consumers can flag or down-weight F/G z-scores when strongly negativ
 are TCA/TCG/TAC/TGC; stop contexts are TAA/TAG/TGA. Elevated terminal C→A rate indicates
 8-oxoG on the opposite strand read as C→A in the sequenced strand.
 
-**Channel G — C→G terminal enrichment (further-oxidized guanine products).**
-Pre-contexts are TCA/TAC; stop contexts are TGA (from TCA) and TAG (from TAC). 8-oxoG is a kinetically
-accessible substrate for further one-electron oxidation. The two principal products are
-guanidinohydantoin (Gh) and spiroiminodihydantoin (Sp, two diastereomers). Both lesions
-preferentially template cytosine incorporation opposite the damaged base; where the
-complementary strand carries the Gh/Sp lesion (oxidized guanine), the sequenced strand
-shows a C→G transversion [[Henderson et al. 2002](#references);
-[Neeley & Essigmann 2006](#references)].
+**Channel G — C→G terminal enrichment (empirical oxidative-context proxy).**
+Pre-contexts are TCA/TAC; stop contexts are TGA (from TCA) and TAG (from TAC).
+Further-oxidized guanine products such as guanidinohydantoin (Gh) and
+spiroiminodihydantoin (Sp) provide one possible biochemical route to C→G-like
+readouts [[Henderson et al. 2002](#references); [Neeley & Essigmann 2006](#references)],
+but the reference-free statistic itself is the observed terminal C→G enrichment,
+not a lesion-specific call.
 
 **Channel H — A→T terminal enrichment (empirical; mechanism uncertain).** Pre-contexts
 are AAA/AAG/AGA; stop contexts are TAA/TAG/TGA. The biological basis has not been
@@ -412,7 +410,7 @@ permafrost specimens.
 
 ---
 
-### `depurination` block — AP-site fragmentation (Channel E)
+### `depurination` block — terminal purine enrichment / AP-site proxy (Channel E)
 
 The glycosidic bond linking a purine base (adenine or guanine) to the deoxyribose sugar
 is susceptible to acid-catalyzed hydrolysis. The rate under physiological conditions is approximately 3 × 10⁻¹¹ per purine per
@@ -420,22 +418,53 @@ second (~2,000–10,000 events per cell per day), substantially faster than cyto
 deamination [[Lindahl & Nyberg 1972](#references); [Lindahl 1993](#references)]. The
 resulting apurinic (AP) site is a metastable abasic residue: β-elimination converts the
 AP deoxyribose to a strand break, fragmenting the molecule at the site of base loss.
-Because purines (A and G) are lost preferentially over pyrimidines (C and T), and because
-fragmentation at an AP site leaves the removed purine's position at the 5′ end of the
-newly formed fragment, the sequenced 5′ termini are enriched for purines — the signature
-detected by Channel E. This signal provides evidence of ancient fragmentation independent
-of deamination, and is particularly informative for samples where deamination is low but
-preservation conditions are known to be acidic or warm [[Dabney et al. 2013](#references)].
+Because purines (A and G) are lost preferentially over pyrimidines (C and T), AP-site
+breakage can enrich A+G at newly exposed read starts. Channel E measures this directly as
+terminal `(A+G)/(A+C+G+T)` minus the middle-of-read purine fraction. The signal is an
+empirical AP-site/depurination proxy independent of deamination; it supports but does not
+prove a specific lesion without orthogonal controls [[Dabney et al. 2013](#references)].
 
 | Field | Description |
 |-------|-------------|
-| `detected` | `true` when 5′ purine enrichment is statistically significant |
-| `enrichment_5prime` | Purine excess at 5′ terminal positions relative to interior |
-| `enrichment_3prime` | Purine excess at 3′ terminal positions relative to interior |
+| `valid` | `true` when the 5′ terminal and interior all-base denominators are adequate |
+| `detected` | `true` when valid 5′ purine enrichment is positive and statistically significant; `null` when invalid |
+| `rate_terminal_5prime` | A+G fraction at the 5′ read start |
+| `rate_terminal_3prime` | A+G fraction at the 3′ read end when evaluable |
+| `enrichment_5prime` | Terminal 5′ A+G fraction minus interior A+G fraction |
+| `enrichment_3prime` | Terminal 3′ A+G fraction minus interior A+G fraction |
 | `rate_interior` | Interior A+G fraction (composition baseline) |
+| `purine_z_5prime` | Exploratory two-proportion z-score for the 5′ enrichment |
+| `ag_skew_ctrl_shift_5prime` | Deprecated A/(A+G) control shift; not the depurination statistic |
 
 Channel E is reported for sample characterisation and is not used by fqdup for position
 masking.
+
+---
+
+### `fragmentation` block — read-length and damage-length coupling proxy
+
+Reference-free FASTQ can observe fragment-size structure, but it cannot by itself assign a
+unique strand-break mechanism. The `fragmentation` block therefore reports read-length
+distribution summaries and the already fitted damage-versus-length coupling as an
+empirical proxy. It is explicitly separate from `bulk_damage.lambda`, which is a positional
+terminal-damage decay parameter.
+
+| Field | Description |
+|-------|-------------|
+| `valid` | `true` when at least 100 reads contributed to the read-length histogram |
+| `observable` | `read_length_distribution_and_damage_length_coupling` |
+| `mechanism_status` | `empirical_proxy` |
+| `reference_free_identifiability` | Notes that this is a fragmentation/selection proxy, not a causal strand-break rate |
+| `not_equivalent_to` | Always `bulk_damage.lambda` |
+| `mean_length`, `median_length`, `n50_length` | Reference-free length-distribution summaries |
+| `short_fraction_lt_50bp`, `short_fraction_lt_70bp` | Fraction of reads in short-fragment bins |
+| `topbin_fraction_ge_225bp` | Fraction in the overflow long-fragment bin |
+| `damage_length_coupling_slope`, `damage_length_coupling_weight` | Coupling between terminal-damage excess and read length from the bulk model |
+| `length_histogram` | Fixed-width read-length histogram used for the summaries |
+
+Interpret this block alongside extraction method, size selection, trimming, library type,
+and deamination evidence. It is the appropriate place for fragmentation-like analyses;
+do not use `bulk_damage.lambda` as a fragment-length or strand-break rate.
 
 ---
 
@@ -477,10 +506,11 @@ near zero.
 | B / B₃′ | Stop codon C→T / G→A frequency | Deamination in triplet context | `validated`, `artifact` |
 | C | G→T stop codon uniformity | 8-oxoG oxidation | `ox_gt_uniformity`, `ox_gt_asymmetry`, `s_oxog_16ctx` |
 | D | G→T and C→A transversion rates | 8-oxoG oxidation | `complement_asymmetry` |
-| E | Purine 5′ enrichment | AP-site fragmentation | `depurination` |
+| E | Terminal A+G enrichment over all bases | AP-site/depurination proxy | `depurination` |
+| Length | Read-length distribution and damage-length coupling | Fragmentation/selection proxy | `fragmentation` |
 | F | C→A terminal enrichment (bottom-strand 8-oxoG) | 8-oxoG complement | `complement_asymmetry` |
-| G | C→G terminal enrichment (Gh/Sp further-oxidized guanine) | Further guanine oxidation products | `complement_asymmetry` |
-| H | A→T terminal enrichment (empirical; mechanism uncertain) | Adenine oxidation | `complement_asymmetry` |
+| G | C→G terminal enrichment | Empirical oxidative-context proxy | `complement_asymmetry` |
+| H | A→T terminal enrichment | Empirical; mechanism uncertain | `complement_asymmetry` |
 | CpG split | C→T amplitude by CpG / non-CpG context | Methylation-enhanced deamination | `cpg_like` |
 | Interior clustering | Adjacent CT co-occurrence in read interior | Clustered interior deamination | `interior_ct_cluster` |
 | 8-oxoG 16-ctx | G→T asymmetry by trinucleotide context | 8-oxoG context specificity | `s_oxog_16ctx` |

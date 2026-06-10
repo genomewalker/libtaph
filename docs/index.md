@@ -6,7 +6,7 @@
 
 ## What it does
 
-libtaph estimates ancient-DNA terminal damage directly from raw reads, without a reference genome or read alignment. It measures nine damage and fragmentation channels, fits exponential terminal-decay models, cross-validates apparent C→T damage against composition-robust stop-codon evidence, and reports an asymmetry-aware `d_max_combined`.
+libtaph estimates ancient-DNA terminal damage directly from raw reads, without a reference genome or read alignment. It measures reference-free damage observables and empirical endpoint/context proxies, fits exponential terminal-decay models, cross-validates apparent C→T damage against composition-robust stop-codon evidence, and reports an asymmetry-aware `d_max_combined`.
 
 It also classifies each library as **double-stranded (DS)**, **single-stranded (SS)**, or **UNKNOWN** using a four-channel BIC classifier. `UNKNOWN` is the expected result when no damage model clearly beats the null.
 
@@ -44,11 +44,11 @@ std::cout << "Library:    " << profile.library_type_str() << "\n";
 | Reference-free | Works directly on FASTQ, no BAM, no alignment |
 | D_max estimation | Calibrated, metaDMG-comparable damage rates |
 | Library-type detection | BIC classifier: DS / SS / UNKNOWN |
-| Multi-channel validation | 9 damage channels (A, B, B₃′, C, D, E, F, G, H) cross-validate signal |
+| Multi-channel validation | Reference-free damage observables and empirical endpoint/context proxies cross-validate signal |
 | GC-stratified estimation | Separates ancient from modern DNA in mixed samples |
 | Length-stratified estimation | Up to four length bins with BIC-selected edges; shared-component length × GC joint mixture |
 | Context-aware C→T | Per-upstream-base amplitudes with dipyrimidine / CpG contrasts and chi-squared heterogeneity test |
-| Damage-context profile | Training-free six-score summary (deamination, CpG, dipyrimidine, oxidative, fragmentation, artifact) with a deterministic dominant-process label |
+| Damage-context profile | Training-free six-score summary (deamination, CpG, dipyrimidine, oxidative, purine-endpoint, artifact) with a deterministic dominant-process label |
 | Streaming API | Incremental updates for memory-efficient processing |
 
 ---

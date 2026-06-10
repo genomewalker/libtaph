@@ -185,16 +185,19 @@ DepurScore compute_depur_score(const SampleDamageProfile& dp, bool is_ss) {
         double p = 0.5 * std::erfc(z / std::sqrt(2.0));
         return std::max(p, std::numeric_limits<double>::min());
     };
-    r.z5     = clamp_z(static_cast<double>(dp.ctrl_z_5prime));
+    r.z5     = clamp_z(static_cast<double>(dp.purine_z_5prime));
     r.shift5 = static_cast<double>(dp.purine_enrichment_5prime);
     r.shift3 = static_cast<double>(dp.purine_enrichment_3prime);
 
     double p5 = erfc_p(r.z5);
-    if (!is_ss) {
-        // BEHAVIORAL CHANGE (C5): use terminal_z_3prime (A/(A+G) purine channel)
-        // not ctrl_z_3prime (T/(T+C) pyrimidine negative-control) for the DS
-        // 3' depurination signal; the conjunction must mix two purine ratios.
-        r.z3      = clamp_z(static_cast<double>(dp.terminal_z_3prime));
+    if (!std::isfinite(r.z5)) {
+        r.z = std::numeric_limits<double>::quiet_NaN();
+        r.p = std::numeric_limits<double>::quiet_NaN();
+    } else if (!is_ss && std::isfinite(dp.purine_z_3prime)) {
+        // DS libraries can expose both molecular ends. The 3' term is the same
+        // A+G-over-all-bases endpoint contrast, not the A/(A+G) deamination axis
+        // and not the T/(T+C) negative control.
+        r.z3      = clamp_z(static_cast<double>(dp.purine_z_3prime));
         double p3 = erfc_p(r.z3);
         r.z = std::min(r.z5, r.z3);
         r.p = std::max(p5, p3);

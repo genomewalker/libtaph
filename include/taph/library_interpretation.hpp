@@ -136,7 +136,8 @@ struct DepurScore {
     double shift3 = 0.0;
 };
 
-// Conjunction test on 5' A/(A+G) and (DS only) 3' T/(T+C) terminal enrichment.
+// Test on terminal A+G enrichment over all observed bases; DS libraries also
+// report the analogous 3' endpoint contrast when coverage permits.
 DepurScore compute_depur_score(const SampleDamageProfile& dp, bool is_ss);
 
 // ── Damage mask ───────────────────────────────────────────────────────────────

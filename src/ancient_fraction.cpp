@@ -70,8 +70,6 @@ AncientFractionResult compute_ancient_fraction(
         dp.modern_fraction_d3_computed = true;
     }
 
-    auto anc_bg5 = pool_interior_bg(anc_t5, anc_tc5, NP, bg5);
-    auto anc_bg3 = pool_interior_bg(anc_h3, anc_n3,  NP, bg3);
     auto mod_bg5 = pool_interior_bg(mod_t5, mod_tc5, NP, bg5);
     auto mod_bg3 = pool_interior_bg(mod_h3, mod_n3,  NP, bg3);
 
@@ -87,13 +85,12 @@ AncientFractionResult compute_ancient_fraction(
         return static_cast<double>(h[0]) / n[0] < frac_bg_mean;
     };
 
-    // Use modern interior (genomic T proxy) as the ancient fraction fit background.
-    // This makes d_max_5prime_fit = terminal deamination above genomic T rather than
-    // above the ancient component's own (elevated) interior, which previously
-    // confounded damage with interior deamination signal.
+    // Use modern interior as the ancient fraction fit background.  This makes
+    // d_max_*_fit terminal deamination above the genomic channel baseline rather
+    // than above the ancient component's own elevated interior signal.
     auto [ad5, al5] = fit_exp_decay_irls(anc_t5, anc_tc5, NP, mod_bg5, p0a5);
-    auto [ad3, al3] = fit_exp_decay_irls(anc_h3, anc_n3,  NP, anc_bg3,
-                                          frac_p0a3(anc_h3, anc_n3, anc_bg3.mean));
+    auto [ad3, al3] = fit_exp_decay_irls(anc_h3, anc_n3,  NP, mod_bg3,
+                                          frac_p0a3(anc_h3, anc_n3, mod_bg3.mean));
     auto [md5, ml5] = fit_exp_decay_irls(mod_t5, mod_tc5, NP, mod_bg5, p0a5);
     auto [md3, ml3] = fit_exp_decay_irls(mod_h3, mod_n3,  NP, mod_bg3,
                                           frac_p0a3(mod_h3, mod_n3, mod_bg3.mean));

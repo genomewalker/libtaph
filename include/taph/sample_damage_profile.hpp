@@ -201,21 +201,14 @@ struct SampleDamageProfile {
     std::array<std::array<uint64_t, N_TRINUC>, N_OX_DEAM_STRATA> tri_3prime_interior_by_deam = {};
     std::array<uint64_t, N_OX_DEAM_STRATA> deam_stratum_reads = {};  // read count per deam_bin
 
-    // Oxidative strand-scission index (reference-free, composition-internal). Oxidation past 8-oxoG
-    // SCISSIONS the backbone (G-specific, GG-localized: hole transport parks at the 5'-G of GpG),
-    // exporting its signal out of the surviving-substitution channel (where it is below the
-    // composition floor) into the BREAKPOINT geometry. Read as a double-difference at the read
-    // termini, with A-depurination (purine-flat) as the within-read neutral comparator so base
-    // composition cancels:  delta = (terminal[5'-of-GG G] - interior[5'-of-GG G])
-    //                              - (terminal[A]         - interior[A]).
-    // Duplex (ds)-meaningful; anti-correlates with the paleoredox gradient (Fe2+-Fenton in reduced
-    // facies). Per-deam-bin values show it co-occurs with deamination on surviving ancient fragments.
-    // PRIMARY delta = 5' ONLY (clean): the 3' terminus G is depleted by G->A deamination, so the 3'
-    // channel mixes scission with deamination -- kept only as a contrast. HONEST CAVEAT: even clean,
-    // the signal is modest (~V 0.05) and only suggestive (rho~-0.4, p~0.09) at the depth-horizon n;
-    // it is directionally consistent with the reference-based G->T, not a strong standalone detector.
-    float oxidative_scission_delta = 0.0f;          // = delta_5prime (clean primary)
-    float oxidative_scission_delta_5prime = 0.0f;   // clean oxidative-scission readout
+    // Empirical GG-breakpoint contrast (reference-free, composition-internal).
+    // This is an observable terminal-context double difference, not a direct lesion call:
+    //   delta = (terminal[5'-of-GG G] - interior[5'-of-GG G])
+    //         - (terminal[mid=A]      - interior[mid=A]).
+    // PRIMARY delta = 5' only. The 3' terminus G can be depleted by G->A deamination,
+    // so delta_3prime is retained as a deamination-contaminated contrast.
+    float oxidative_scission_delta = 0.0f;          // legacy name: empirical GG-breakpoint delta_5prime
+    float oxidative_scission_delta_5prime = 0.0f;   // primary empirical GG-breakpoint readout
     float oxidative_scission_delta_3prime = 0.0f;   // G->A-deamination-contaminated contrast only
     std::array<float, N_OX_DEAM_STRATA> oxidative_scission_delta_by_deam = {};  // 5' per deam_bin
 
@@ -1075,13 +1068,20 @@ struct SampleDamageProfile {
     bool  ox_theta_at_clamp          = false;  // g_bg_fitted at 0.5 clamp while degenerate
     float s_gt = 0.0f;               // B - ox_ca_baseline: Chargaff contrast (signal for SS; ~0 for DS)
 
-    // Channel E: depurination (purine loss at strand breaks)
+    // Channel E: terminal purine enrichment, a reference-free AP-site/depurination proxy.
+    // Primary 5' statistic is (A+G)/(A+C+G+T) at the read start minus the
+    // middle-of-read purine fraction. This is distinct from the A/(A+G)
+    // negative-control channel used for composition/artifact checks.
     float purine_rate_terminal_5prime = 0.0f;
+    float purine_rate_terminal_3prime = 0.0f;
     float purine_rate_interior = 0.0f;
     float purine_enrichment_5prime = 0.0f;
     float purine_enrichment_3prime = 0.0f;
+    float purine_z_5prime = std::numeric_limits<float>::quiet_NaN();
+    float purine_z_3prime = std::numeric_limits<float>::quiet_NaN();
     bool depurination_detected = false;
-    // Channel E validity (C1): true only when total_terminal > 100 AND purine_baseline > 0.01.
+    // Channel E validity (C1): true only when 5' terminal and interior all-base
+    // denominators are adequate and the interior purine baseline is estimable.
     // Emitter nulls rate_interior/enrichment_* and three-states `detected` when false.
     bool channel_e_valid = false;
 

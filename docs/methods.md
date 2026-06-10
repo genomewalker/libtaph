@@ -102,12 +102,12 @@ libtaph addresses this by evaluating several independent biochemical channels. S
 | B₃′ | Stop codon conversion via G→A at 3' (TGG → TAG/TGA) | Validates SS 3' damage |
 | C | G→T transversions (8-oxoG) via stop codon uniformity | Uniform across read; distinguishes oxidation from terminal deamination |
 | D | G→T / C→A direct transversion rates | Terminal/interior contrast for oxidative damage |
-| E | Purine enrichment at 5' termini (depurination) | Independent evidence of fragmentation at AP sites |
+| E | A+G enrichment over all bases at 5' termini | Reference-free AP-site/depurination proxy |
 | F | C→A terminal enrichment (bottom-strand 8-oxoG complement) | Binomial z-score, terminal vs far-interior trinucleotide context rate |
-| G | C→G terminal enrichment (further-oxidized guanine: Gh, Sp) | Same statistic; Gh/Sp template C opposite the lesion |
+| G | C→G terminal enrichment | Empirical oxidative-context proxy; not lesion-specific |
 | H | A→T terminal enrichment (empirical; mechanism uncertain) | Same statistic; secondary score `channel_h_z_p2plus` from positions 2–4 |
 
-In practice, the decision about whether 5' deamination is real is driven by a joint model built from Channel A, its 5' control channel, and Channel B. The other channels remain informative diagnostics, especially in asymmetric or unusual libraries, but they do not replace the core logic: a valid deamination call should be supported by an independent signal that composition alone cannot mimic. Channels D and E are described in detail in [Damage types](damage-types.md); the biochemical basis for Channel D (8-oxoG G→T misincorporation) is reviewed in [Shibutani et al. (1991)](#ref-shibutani1991) and [Neeley & Essigmann (2006)](#ref-neeley2006), and for Channel E (depurination fragmentation and AP-site strand cleavage) in [Lindahl (1993)](#ref-lindahl1993). Channels F, G, and H are complement-asymmetry oxidative channels also described in [Damage types](damage-types.md).
+In practice, the decision about whether 5' deamination is real is driven by a joint model built from Channel A, its 5' control channel, and Channel B. The other channels remain informative diagnostics, especially in asymmetric or unusual libraries, but they do not replace the core logic: a valid deamination call should be supported by an independent signal that composition alone cannot mimic. Channels D and E are described in detail in [Damage types](damage-types.md); the biochemical basis for Channel D (8-oxoG G→T misincorporation) is reviewed in [Shibutani et al. (1991)](#ref-shibutani1991) and [Neeley & Essigmann (2006)](#ref-neeley2006). Channel E is a terminal purine-enrichment proxy motivated by depurination/AP-site chemistry in [Lindahl (1993)](#ref-lindahl1993), not direct lesion identification. Channels F, G, and H are complement-asymmetry oxidative channels also described in [Damage types](damage-types.md).
 
 At a high level, `damage_validated` means the primary nucleotide signal is supported by composition-robust evidence. Conversely, `damage_artifact` means terminal enrichment is present in Channel A but contradicted by the stop-codon signal, so the observed excess is more plausibly explained by composition than by genuine damage.
 
@@ -430,7 +430,7 @@ Six scores are emitted in `[0, 1]`, with `NaN` when the underlying signal is not
 | `cpg_context_score` | `sigmoid(cpg_z)` from `compute_cpg_score` | `log2_cpg_ratio`, `effcov_ct5_cpg_like_*` |
 | `dipyrimidine_context_score` | `clamp(dp.dipyr_contrast / 0.05, 0, 1)` where `dipyr_contrast = 0.5·(d_CC + d_TC) − 0.5·(d_AC + d_GC)` | `dipyr_contrast`, `dmax_ct5_by_upstream[AC,CC,GC,TC]` |
 | `oxidative_context_score` | `clamp(max(|ox_gt_asymmetry|, mean(s_oxog_16ctx)) / 0.05, 0, 1)` | `ox_gt_asymmetry`, `s_oxog_16ctx` |
-| `fragmentation_context_score` | `clamp(purine_enrichment_5prime / 0.15, 0, 1)` | `purine_enrichment_5prime` |
+| `purine_endpoint_context_score` | `clamp(purine_enrichment_5prime / 0.15, 0, 1)` | `purine_enrichment_5prime` (terminal A+G over all bases, minus interior). JSON also emits legacy `fragmentation_context_score` for compatibility. |
 | `library_artifact_score` | `max(indicator(flag_hex_artifact ∨ adapter_clipped ∨ adapter3_clipped ∨ pos0 artifact ∨ fit_offset_{5,3}prime > 1), sigmoid(hex_shift_z − 4))` | `flag_hex_artifact`, `adapter_clipped`, `hex_shift_z`, `position_0_artifact_*`, `fit_offset_{5,3}prime` |
 
 A single `dominant_process` label is assigned by a deterministic rule over the six scores. The rule is evaluated top-to-bottom and stops at the first match:
@@ -438,7 +438,7 @@ A single `dominant_process` label is assigned by a deterministic rule over the s
 1. `n_reads < 1000` → `none` (insufficient coverage). The six scores are populated where the underlying signals are evaluable; fields whose source signal is `NaN` remain `NaN` in the output.
 2. Terminal deamination score `NaN` (neither end has a finite `d_max`) → `none`.
 3. A boolean artifact flag is set (`flag_hex_artifact`, `adapter_clipped`, `adapter3_clipped`, a position-0 artifact on either end, or `fit_offset_{5,3}prime > 1`) **and** `terminal_deamination_score < 0.5` → `library_artifact_likely`. The categorical label fires only when adapter/hexamer evidence is present *and* genuine deamination is not dominating; strong terminal damage alongside adapter contamination keeps a damage label (the artifact booleans remain visible in `evidence`). A high `hex_shift_z` alone is reported in the score but cannot trigger the label on its own, because clean libraries can reach z ≈ 10–20 purely from compositional variance.
-4. `fragmentation_context_score > 0.5` and `terminal_deamination_score < 0.3` → `fragmentation_bias`.
+4. `purine_endpoint_context_score > 0.5` and `terminal_deamination_score < 0.3` → legacy `fragmentation_bias` label, meaning purine endpoint bias rather than a direct strand-break rate.
 5. `terminal_deamination_score < 0.10` → `low_damage`.
 6. `cpg_context_score > 0.7`, `terminal_deamination_score > 0.3`, and `log2_cpg_ratio > 0.15` → `cpg_enriched_deamination`. The effect-size floor on `log2_cpg_ratio` prevents large-sample z-scores from assigning the label on negligible CpG vs non-CpG differences.
 7. `oxidative_context_score > 0.5` and `terminal_deamination_score < 0.5` → `oxidative_like`.

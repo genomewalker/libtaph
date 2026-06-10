@@ -1,5 +1,5 @@
 #pragma once
-// Oxidation co-movement score: reference-free G→T + C→A ancient-vs-modern contrast.
+// Oxidation co-movement score: reference-free G->T + C->A ancient-vs-modern contrast.
 //
 // Usage pattern (mirrors ancient_fraction.hpp):
 //   1. Allocate OxBinAcc bins[N_GC_BINS] = {} per worker thread.
@@ -8,8 +8,8 @@
 //   4. Call compute_ox_scores(merged_bins, N_GC_BINS) for S_oxog, s_ca, D_oriented.
 //
 // Interpretation:
-//   s_oxog > 0 AND s_ca > 0 → oxidation-consistent co-movement (G→T and its complement
-//   C→A both enriched in ancient-weighted reads vs modern-weighted reads).
+//   s_oxog > 0 AND s_ca > 0 -> oxidation-consistent co-movement (G->T and its complement
+//   C->A both enriched in ancient-weighted reads vs modern-weighted reads).
 //   Neither positive → no reference-free oxidation signal detected.
 #include <cmath>
 #include <cstdint>
@@ -17,10 +17,10 @@
 
 namespace taph {
 
-// Per-GC-bin accumulator.  Trivially copyable; holds q-weighted moments for G→T
-// (s_oxog) and C→A (s_ca) channels plus unweighted totals for D_oriented.
+// Per-GC-bin accumulator.  Trivially copyable; holds q-weighted moments for G->T
+// (s_oxog) and C->A (s_ca) channels plus unweighted totals for D_oriented.
 struct OxBinAcc {
-    double A=0,B=0,C=0,D=0;        // q-weighted G→T: A=Σq·T, B=Σq·(T+G)
+    double A=0,B=0,C=0,D=0;        // q-weighted G->T: A=sum(q*T), B=sum(q*(T+G))
     double AA=0,AB=0,BB=0;          // second moments (ancient G→T)
     double CC=0,CD=0,DD=0;          // second moments (modern G→T)
     double AC=0,AD=0,BC=0,BD=0;     // cross moments
@@ -28,15 +28,15 @@ struct OxBinAcc {
     uint64_t reads=0;
     double T_all=0,TG_all=0;        // unweighted T, T+G (for D_oriented)
     double C_all=0,CA_all=0;        // unweighted C, C+A (for D_oriented)
-    double A_ca=0,B_ca=0;           // q-weighted C→A ancient: A_ca=Σq·Cv, B_ca=Σq·(Cv+Av)
-    double C_ca=0,D_ca=0;           // q-weighted C→A modern
+    double A_ca=0,B_ca=0;           // q-weighted C->A ancient: A_ca=sum(q*Av), B_ca=sum(q*(Cv+Av))
+    double C_ca=0,D_ca=0;           // q-weighted C->A modern
 };
 static_assert(std::is_trivially_copyable_v<OxBinAcc>);
 
 struct OxScoreResult {
-    double s_oxog     = 0.0;  // ancient G→T rate minus modern (co-movement numerator)
+    double s_oxog     = 0.0;  // ancient G->T rate minus modern (co-movement numerator)
     double se_s_oxog  = 0.0;  // standard error of s_oxog
-    double s_ca       = 0.0;  // ancient C→A rate minus modern (co-movement complement)
+    double s_ca       = 0.0;  // ancient C->A rate minus modern (co-movement complement)
     double d_oriented = 0.0;  // log(T·A/G·C) ilr contrast (log-odds D_oriented)
     bool   has_score  = false;
 };
@@ -54,7 +54,7 @@ inline void update_ox_bins(OxBinAcc& x, double q, int T, int G, int Cv, int Av) 
     x.M_total += M; ++x.reads;
     x.T_all += T; x.TG_all += M;
     x.C_all += Cv; x.CA_all += Cv + Av;
-    double a_ca=q*Cv, b_ca=q*(Cv+Av), c_ca=(1.0-q)*Cv, d_ca=(1.0-q)*(Cv+Av);
+    double a_ca=q*Av, b_ca=q*(Cv+Av), c_ca=(1.0-q)*Av, d_ca=(1.0-q)*(Cv+Av);
     x.A_ca += a_ca; x.B_ca += b_ca; x.C_ca += c_ca; x.D_ca += d_ca;
 }
 

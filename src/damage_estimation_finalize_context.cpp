@@ -3,32 +3,8 @@
 namespace taph {
 
 void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
-    // Channel E: depurination detection (terminal purine enrichment)
-    {
-        double purine_terminal = 0.0, total_terminal = 0.0;
-        for (int p = 0; p < 5; ++p) {
-            // a_freq_5prime/g_freq_5prime are normalized; reconstruct purine count via tc_total
-            purine_terminal += profile.tc_total_5prime[p] * (1.0 - profile.t_freq_5prime[p] - profile.c_freq_5prime[p]);
-            total_terminal += profile.tc_total_5prime[p];
-        }
-
-        double purine_baseline = profile.baseline_a_freq + profile.baseline_g_freq;
-
-        if (total_terminal > 100 && purine_baseline > 0.01) {
-            // C1: channel_e_valid certifies rate_interior / enrichment_* together,
-            // so the emitter can null them (and three-state `detected`) when the gate fails.
-            profile.channel_e_valid = true;
-            profile.purine_rate_interior = static_cast<float>(purine_baseline);
-
-            profile.purine_enrichment_5prime = profile.ctrl_shift_5prime;
-            profile.purine_enrichment_3prime = profile.ctrl_shift_3prime;
-
-            if (profile.purine_enrichment_5prime > 0.02f &&
-                profile.channel_divergence_5prime > 0.01f) {
-                profile.depurination_detected = true;
-            }
-        }
-    }
+    // Channel E is computed in finalize_init before raw terminal counts are
+    // normalized. Do not recompute it here from mutated rate arrays.
 
     // Update lambda from fit if reasonable
     // D22: inclusive bounds match the fit's internal clamp range [0.05,0.50]; a steep

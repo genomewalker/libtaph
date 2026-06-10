@@ -13,18 +13,15 @@ void finalize_init(SampleDamageProfile& profile, FinalCtx& ctx) {
             "reset_sample_profile() must be called before re-running update/finalize.");
     }
 
-    // Oxidative strand-scission index (GG-vs-A breakpoint double-difference; see header doc). The
-    // trinucleotide spectra are raw counts and are not modified by finalize, so compute here. Bulk
-    // (5'+3' mean) plus per-deam-bin (shows the scission co-occurs with deamination on ancient frags).
+    // Empirical GG-breakpoint contrast (GG-vs-A terminal double-difference; see header doc). The
+    // trinucleotide spectra are raw counts and are not modified by finalize, so compute here.
     profile.oxidative_scission_delta_5prime =
         compute_oxscission_delta(profile.tri_5prime_terminal, profile.tri_5prime_interior);
     profile.oxidative_scission_delta_3prime =
         compute_oxscission_delta(profile.tri_3prime_terminal, profile.tri_3prime_interior);
     // PRIMARY = 5' only: the 3' terminus G is depleted by G->A deamination, contaminating the 3'
-    // GG-G count, so the 3' channel mixes oxidative scission with deamination/preservation. The 5'
-    // terminus is clean (5' deamination is C->T, leaves G and A untouched). delta_3prime is kept
-    // as the deamination-contaminated contrast only. Honest caveat: even clean, this signal is
-    // modest (V~0.05 level) and only suggestive at the depth-horizon n.
+    // GG-G count, so the 3' channel mixes the endpoint-context contrast with deamination/preservation.
+    // This is an empirical proxy, not direct oxidative lesion identification.
     profile.oxidative_scission_delta = profile.oxidative_scission_delta_5prime;
     for (int b = 0; b < SampleDamageProfile::N_OX_DEAM_STRATA; ++b) {
         profile.oxidative_scission_delta_by_deam[b] =
@@ -141,6 +138,62 @@ void finalize_init(SampleDamageProfile& profile, FinalCtx& ctx) {
     // Low divergence = composition bias (both channels elevated together)
     profile.channel_divergence_5prime = std::abs(profile.terminal_shift_5prime - profile.ctrl_shift_5prime);
     profile.channel_divergence_3prime = std::abs(profile.terminal_shift_3prime - profile.ctrl_shift_3prime);
+
+    // Channel E: terminal purine enrichment for AP-site/depurination proxy.
+    // This uses A+G over all A/C/G/T bases. It must be computed before the
+    // per-position arrays are normalized below.
+    struct PurineStats {
+        float terminal_rate = std::numeric_limits<float>::quiet_NaN();
+        float baseline_rate = std::numeric_limits<float>::quiet_NaN();
+        float enrichment = std::numeric_limits<float>::quiet_NaN();
+        float z = std::numeric_limits<float>::quiet_NaN();
+        bool valid = false;
+    };
+    auto compute_purine_stats = [](double term_a, double term_g, double term_c, double term_t,
+                                   double base_a, double base_g, double base_c, double base_t) {
+        PurineStats r;
+        const double term_pur = term_a + term_g;
+        const double base_pur = base_a + base_g;
+        const double term_total = term_pur + term_c + term_t;
+        const double base_total = base_pur + base_c + base_t;
+        if (term_total < 100.0 || base_total < 100.0) return r;
+        const double p_term = term_pur / term_total;
+        const double p_base = base_pur / base_total;
+        if (p_base <= 0.01 || p_base >= 0.99) return r;
+        const double p_pool = (term_pur + base_pur) / (term_total + base_total);
+        const double se = std::sqrt(std::max(
+            1e-12,
+            p_pool * (1.0 - p_pool) * (1.0 / term_total + 1.0 / base_total)));
+        r.terminal_rate = static_cast<float>(p_term);
+        r.baseline_rate = static_cast<float>(p_base);
+        r.enrichment = static_cast<float>(p_term - p_base);
+        r.z = static_cast<float>((p_term - p_base) / se);
+        r.valid = true;
+        return r;
+    };
+    const double base_a = profile.baseline_a_freq;
+    const double base_g = profile.baseline_g_freq;
+    const double base_c = profile.baseline_c_freq;
+    const double base_t = profile.baseline_t_freq;
+    const PurineStats pur5 = compute_purine_stats(
+        profile.a_freq_5prime[0], profile.g_freq_5prime[0],
+        profile.c_freq_5prime[0], profile.t_freq_5prime[0],
+        base_a, base_g, base_c, base_t);
+    const PurineStats pur3 = compute_purine_stats(
+        profile.a_freq_3prime[0], profile.g_freq_3prime[0],
+        profile.c_freq_3prime[0], profile.t_freq_3prime[0],
+        base_a, base_g, base_c, base_t);
+    profile.channel_e_valid = pur5.valid;
+    profile.purine_rate_terminal_5prime = pur5.terminal_rate;
+    profile.purine_rate_terminal_3prime = pur3.terminal_rate;
+    profile.purine_rate_interior = pur5.baseline_rate;
+    profile.purine_enrichment_5prime = pur5.enrichment;
+    profile.purine_enrichment_3prime = pur3.enrichment;
+    profile.purine_z_5prime = pur5.z;
+    profile.purine_z_3prime = pur3.z;
+    profile.depurination_detected =
+        pur5.valid && pur5.enrichment > 0.02f && pur5.z > 3.0f &&
+        !profile.position_0_artifact_5prime;
 
     // Normalize baseline frequencies (using double to preserve precision)
     double mid_total = profile.baseline_t_freq + profile.baseline_c_freq +

@@ -721,13 +721,11 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"artifact_suspect\": " << (dp.oxidation_like_artifact_suspect ? "true" : "false") << "\n";
     j << "  },\n";
 
-    // Oxidative strand-scission index (GG-vs-A breakpoint double-difference; reference-free,
-    // composition-internal). Oxidation past 8-oxoG scissions the backbone and exports its signal
-    // from the surviving-substitution channel (below the composition floor) into breakpoint geometry.
-    // delta anti-correlates with the paleoredox gradient (more oxidative scission in reduced facies);
-    // delta_by_deam (0=non-deaminated..4=ancient) shows co-occurrence with deamination on surviving
-    // ancient fragments. ds-meaningful (duplex hole transport).
+    // Empirical GG-breakpoint contrast (GG-vs-A terminal double-difference; reference-free,
+    // composition-internal). This is an endpoint-context proxy, not direct lesion identification.
     j << "  \"oxidative_scission\": {\n";
+    j << "    \"observable\": \"terminal_gg_vs_a_breakpoint_delta\",\n";
+    j << "    \"mechanism_status\": \"empirical_proxy\",\n";
     j << "    \"delta\": " << nan_or(dp.oxidative_scission_delta) << ",\n";
     j << "    \"delta_5prime\": " << nan_or(dp.oxidative_scission_delta_5prime) << ",\n";
     j << "    \"delta_3prime\": " << nan_or(dp.oxidative_scission_delta_3prime) << ",\n";
@@ -786,18 +784,29 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "  },\n";
 
     // ── Depurination ──────────────────────────────────────────────────────────
+    const float nan_f = std::numeric_limits<float>::quiet_NaN();
     j << "  \"depurination\": {\n";
-    j << "    \"detected\": " << (dp.depurination_detected ? "true" : "false") << ",\n";
-    j << "    \"enrichment_5prime\": " << std::setprecision(6) << dp.purine_enrichment_5prime << ",\n";
-    j << "    \"enrichment_3prime\": " << dp.purine_enrichment_3prime << ",\n";
-    j << "    \"rate_interior\": " << std::setprecision(6) << dp.purine_rate_interior << ",\n";
-    j << "    \"depur_ctrl_shift_5prime\": " << ds.shift5 << ",\n";
-    j << "    \"depur_ctrl_shift_3prime\": " << ds.shift3 << ",\n";
-    j << "    \"depur_score_z_5prime\": " << ds.z5 << ",\n";
-    j << "    \"depur_score_z_3prime\": "
-      << (std::isnan(ds.z3) ? "null" : std::to_string(ds.z3)) << ",\n";
-    j << "    \"depur_score_z\": " << ds.z << ",\n";
-    j << "    \"depur_score_p\": " << std::scientific << std::setprecision(3) << ds.p
+    j << "    \"valid\": " << (dp.channel_e_valid ? "true" : "false") << ",\n";
+    j << "    \"observable\": \"terminal_purine_fraction_minus_interior\",\n";
+    j << "    \"mechanism_status\": \"empirical_proxy\",\n";
+    j << "    \"detected\": " << (dp.channel_e_valid ? (dp.depurination_detected ? "true" : "false") : "null") << ",\n";
+    j << "    \"rate_terminal_5prime\": " << nan_or(dp.channel_e_valid ? dp.purine_rate_terminal_5prime : nan_f) << ",\n";
+    j << "    \"rate_terminal_3prime\": " << nan_or(dp.purine_rate_terminal_3prime) << ",\n";
+    j << "    \"enrichment_5prime\": " << nan_or(dp.channel_e_valid ? dp.purine_enrichment_5prime : nan_f) << ",\n";
+    j << "    \"enrichment_3prime\": " << nan_or(dp.purine_enrichment_3prime) << ",\n";
+    j << "    \"rate_interior\": " << nan_or(dp.channel_e_valid ? dp.purine_rate_interior : nan_f) << ",\n";
+    j << "    \"purine_z_5prime\": " << nan_or(dp.channel_e_valid ? dp.purine_z_5prime : nan_f) << ",\n";
+    j << "    \"purine_z_3prime\": " << nan_or(dp.purine_z_3prime) << ",\n";
+    j << "    \"ag_skew_ctrl_shift_5prime\": " << dp.ctrl_shift_5prime << ",\n";
+    j << "    \"tc_skew_ctrl_shift_3prime\": " << dp.ctrl_shift_3prime << ",\n";
+    j << "    \"depur_ctrl_shift_5prime\": " << nan_or(ds.shift5) << ",\n";
+    j << "    \"depur_ctrl_shift_3prime\": " << nan_or(ds.shift3) << ",\n";
+    j << "    \"depur_score_z_5prime\": " << nan_or(ds.z5) << ",\n";
+    j << "    \"depur_score_z_3prime\": " << nan_or(ds.z3) << ",\n";
+    j << "    \"depur_score_z\": " << nan_or(ds.z) << ",\n";
+    j << "    \"depur_score_p\": " << (std::isfinite(ds.p) ? "" : "null");
+    if (std::isfinite(ds.p)) j << std::scientific << std::setprecision(3) << ds.p;
+    j
       << std::fixed << std::setprecision(6) << "\n";
     j << "  },\n";
 
@@ -1567,6 +1576,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         emit_score("cpg_context_score",           dcp.cpg_context_score,           true);
         emit_score("dipyrimidine_context_score",  dcp.dipyrimidine_context_score,  true);
         emit_score("oxidative_context_score",     dcp.oxidative_context_score,     true);
+        emit_score("purine_endpoint_context_score", dcp.fragmentation_context_score, true);
         emit_score("fragmentation_context_score", dcp.fragmentation_context_score, true);
         emit_score("library_artifact_score",      dcp.library_artifact_score,      true);
         j << "    \"evidence\": {\n";
@@ -1739,6 +1749,8 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"n_sweeps\": "   << bd.n_sweeps << ",\n";
         j << "    \"log_lik\": ";        jn(bd.log_lik);              j << ",\n";
         j << "    \"lambda\": ";         jn(bd.lambda);               j << ",\n";
+        j << "    \"lambda_name\": \"terminal_decay_lambda\",\n";
+        j << "    \"lambda_interpretation\": \"exponential positional decay of terminal damage/overhang signal; not a direct fragment-length or strand-break rate\",\n";
         j << "    \"lambda_at_boundary\": " << (bd.lambda_at_boundary ? "true" : "false") << ",\n";
         j << "    \"headline_delta\": "; jn(dp.bulk_headline_delta);  j << ",\n";
         // threshold-free length-coupling weight: w_length∈[0,1] = P(terminal-damage mass falls with read
@@ -1831,10 +1843,108 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "  },\n";
     }
 
+    // ── Fragmentation / read-length structure ────────────────────────────────
+    // Reference-free fragmentation is observable as the read-length distribution
+    // and, secondarily, as the coupling between terminal-damage excess and read
+    // length. It is not the bulk_damage.lambda positional decay parameter.
+    {
+        auto jn = [&](double v, int prec = 6) {
+            if (std::isfinite(v)) j << std::setprecision(prec) << v;
+            else                  j << "null";
+        };
+        uint64_t total_reads = 0;
+        uint64_t total_bases = 0;
+        uint64_t short_lt50 = 0;
+        uint64_t short_lt70 = 0;
+        uint64_t topbin_ge225 = 0;
+        for (int i = 0; i < SampleDamageProfile::N_LEN_FINE; ++i) {
+            const auto& lb = dp.len_bins[i];
+            total_reads += lb.n_reads;
+            total_bases += lb.len_sum;
+            const int lo = SampleDamageProfile::LEN_FINE_MIN + i * SampleDamageProfile::LEN_FINE_W;
+            const bool top = (i == SampleDamageProfile::N_LEN_FINE - 1);
+            const int hi = top ? 0 : lo + SampleDamageProfile::LEN_FINE_W;
+            if (!top && hi <= 50) short_lt50 += lb.n_reads;
+            if (!top && hi <= 70) short_lt70 += lb.n_reads;
+            if (top) topbin_ge225 += lb.n_reads;
+        }
+
+        auto mean_len_bin = [&](int i) -> double {
+            const auto& lb = dp.len_bins[i];
+            if (lb.n_reads == 0) return std::numeric_limits<double>::quiet_NaN();
+            return static_cast<double>(lb.len_sum) / static_cast<double>(lb.n_reads);
+        };
+        auto read_quantile = [&](double q) -> double {
+            if (total_reads == 0) return std::numeric_limits<double>::quiet_NaN();
+            uint64_t target = static_cast<uint64_t>(std::ceil(q * static_cast<double>(total_reads)));
+            if (target == 0) target = 1;
+            uint64_t acc = 0;
+            for (int i = 0; i < SampleDamageProfile::N_LEN_FINE; ++i) {
+                acc += dp.len_bins[i].n_reads;
+                if (acc >= target) return mean_len_bin(i);
+            }
+            return mean_len_bin(SampleDamageProfile::N_LEN_FINE - 1);
+        };
+        auto n50_length = [&]() -> double {
+            if (total_bases == 0) return std::numeric_limits<double>::quiet_NaN();
+            const uint64_t target = (total_bases + 1) / 2;
+            uint64_t acc = 0;
+            for (int i = SampleDamageProfile::N_LEN_FINE - 1; i >= 0; --i) {
+                acc += dp.len_bins[i].len_sum;
+                if (acc >= target) return mean_len_bin(i);
+            }
+            return mean_len_bin(0);
+        };
+
+        j << "  \"fragmentation\": {\n";
+        j << "    \"valid\": " << (total_reads >= 100 ? "true" : "false") << ",\n";
+        j << "    \"observable\": \"read_length_distribution_and_damage_length_coupling\",\n";
+        j << "    \"mechanism_status\": \"empirical_proxy\",\n";
+        j << "    \"reference_free_identifiability\": \"fragmentation_or_selection_proxy_not_causal_strand_break_rate\",\n";
+        j << "    \"not_equivalent_to\": \"bulk_damage.lambda\",\n";
+        j << "    \"known_confounders\": [\"size_selection\",\"extraction_protocol\",\"library_type\",\"adapter_trimming\",\"quality_filtering\"],\n";
+        j << "    \"n_reads\": " << static_cast<unsigned long long>(total_reads) << ",\n";
+        j << "    \"mean_length\": "; jn(total_reads ? static_cast<double>(total_bases) / static_cast<double>(total_reads)
+                                                    : std::numeric_limits<double>::quiet_NaN()); j << ",\n";
+        j << "    \"median_length\": "; jn(read_quantile(0.5)); j << ",\n";
+        j << "    \"n50_length\": "; jn(n50_length()); j << ",\n";
+        j << "    \"short_fraction_lt_50bp\": "; jn(total_reads ? static_cast<double>(short_lt50) / static_cast<double>(total_reads)
+                                                               : std::numeric_limits<double>::quiet_NaN()); j << ",\n";
+        j << "    \"short_fraction_lt_70bp\": "; jn(total_reads ? static_cast<double>(short_lt70) / static_cast<double>(total_reads)
+                                                               : std::numeric_limits<double>::quiet_NaN()); j << ",\n";
+        j << "    \"topbin_fraction_ge_225bp\": "; jn(total_reads ? static_cast<double>(topbin_ge225) / static_cast<double>(total_reads)
+                                                                  : std::numeric_limits<double>::quiet_NaN()); j << ",\n";
+        j << "    \"damage_length_coupling\": "; jn(static_cast<double>(dp.bulk_damage.length_coupling)); j << ",\n";
+        j << "    \"damage_length_coupling_slope\": "; jn(dp.bulk_damage.length_coupling_slope); j << ",\n";
+        j << "    \"damage_length_coupling_weight\": "; jn(dp.bulk_damage.w_length); j << ",\n";
+        j << "    \"length_histogram\": [";
+        bool first = true;
+        for (int i = 0; i < SampleDamageProfile::N_LEN_FINE; ++i) {
+            const auto& lb = dp.len_bins[i];
+            if (lb.n_reads == 0) continue;
+            const int lo = SampleDamageProfile::LEN_FINE_MIN + i * SampleDamageProfile::LEN_FINE_W;
+            const bool top = (i == SampleDamageProfile::N_LEN_FINE - 1);
+            if (!first) j << ",";
+            first = false;
+            j << "\n      {\"length_lo\": " << lo
+              << ", \"length_hi_exclusive\": ";
+            if (top) j << "null"; else j << (lo + SampleDamageProfile::LEN_FINE_W);
+            j << ", \"n_reads\": " << static_cast<unsigned long long>(lb.n_reads)
+              << ", \"mean_length\": "; jn(mean_len_bin(i), 3);
+            j << "}";
+        }
+        if (!first) j << "\n    ";
+        j << "]\n";
+        j << "  },\n";
+    }
+
     // ── Damage types ──────────────────────────────────────────────────────────
     {
         auto jbool = [](bool v) -> const char* { return v ? "true" : "false"; };
-        auto jfloat = [&](double v) { j << std::setprecision(6) << v; };
+        auto jfloat = [&](double v) {
+            if (std::isfinite(v)) j << std::setprecision(6) << v;
+            else j << "null";
+        };
 
         double cf_ratio = (dp.channel_c_valid && dp.channel_f_valid
                            && dp.ca_stop_rate_baseline > 1e-6f)
@@ -1945,9 +2055,12 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    {\n";
         j << "      \"channel\": \"E\",\n";
         j << "      \"name\": \"purine_enrichment\",\n";
-        j << "      \"description\": \"A/G enrichment at 5' read starts; fragmentation-bias / depurination\",\n";
-        j << "      \"mechanism\": \"depurination_fragmentation\",\n";
-        j << "      \"detected\": " << jbool(dp.depurination_detected) << ",\n";
+        j << "      \"description\": \"A+G enrichment over all bases at read starts; reference-free AP-site/depurination proxy\",\n";
+        j << "      \"mechanism\": \"depurination_fragmentation_proxy\",\n";
+        j << "      \"observable\": \"terminal_purine_fraction_minus_interior\",\n";
+        j << "      \"mechanism_status\": \"empirical_proxy\",\n";
+        j << "      \"valid\": " << jbool(dp.channel_e_valid) << ",\n";
+        j << "      \"detected\": " << (dp.channel_e_valid ? jbool(dp.depurination_detected) : "null") << ",\n";
         j << "      \"enrichment_5prime\": "; jfloat(dp.purine_enrichment_5prime); j << ",\n";
         j << "      \"enrichment_3prime\": "; jfloat(dp.purine_enrichment_3prime); j << "\n";
         j << "    },\n";

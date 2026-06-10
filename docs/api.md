@@ -378,7 +378,7 @@ Pre-contexts: TCA/TCG/TAC/TGC. Stop contexts: TAA/TAG/TGA.
 | `ca_pre_interior` | `uint64_t` | Raw pre-context count, far-interior (pos ≥ 30) |
 | `ca_stop_interior` | `uint64_t` | Raw stop-context count, far-interior |
 
-#### Channel G — C→G (further-oxidized guanine: Gh, Sp)
+#### Channel G — C→G empirical oxidative-context proxy
 
 Pre-contexts: TCA/TAC. Stop contexts: TGA (from TCA), TAG (from TAC).
 
@@ -533,7 +533,7 @@ taph::LibraryQcFlags taph::compute_library_qc_flags(
     double h_term, double short_read_frac);
 ```
 
-Nine boolean flags covering adapter remnants, hexamer biases, short-read spikes, depurination, absent 3' signal (DS), and inward-displaced G→A.
+Boolean flags covering adapter remnants, hexamer biases, short-read spikes, depurination proxies, absent 3' signal (DS), and inward-displaced G→A.
 
 ### Preservation summary
 
@@ -583,7 +583,7 @@ taph::DamageContextProfile taph::compute_damage_context_profile(
     bool adapter_clipped, bool adapter3_clipped, bool flag_hex_artifact);
 ```
 
-Training-free, reference-free summary aggregator. Six scores are in `[0, 1]` (or `NaN` when not evaluable); `dominant_process` is a deterministic rule over the scores. Underlying raw numbers are mirrored into `evidence` for auditing and re-normalisation by downstream tools. See [methods.md](methods.md#damage-context-profile) for score formulas and the rule.
+Training-free, reference-free summary aggregator. Six scores are in `[0, 1]` (or `NaN` when not evaluable); `dominant_process` is a deterministic rule over the scores. JSON emits `purine_endpoint_context_score` as the preferred name for the legacy `fragmentation_context_score` member. Underlying raw numbers are mirrored into `evidence` for auditing and re-normalisation by downstream tools. See [methods.md](methods.md#damage-context-profile) for score formulas and the rule.
 
 ---
 

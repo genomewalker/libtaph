@@ -2,7 +2,7 @@
 
 Reference-free ancient DNA damage estimation and library-type classification from raw FASTQ reads.
 
-libtaph scans raw FASTQ reads for nine independent damage and fragmentation channels, estimates terminal deamination, cross-validates C→T damage with composition-robust stop-codon signals, and classifies each library as double-stranded (DS), single-stranded (SS), or UNKNOWN. No reference genome or read alignment required.
+libtaph scans raw FASTQ reads for reference-free damage observables and empirical endpoint/context proxies, estimates terminal deamination, cross-validates C→T damage with composition-robust stop-codon signals, and classifies each library as double-stranded (DS), single-stranded (SS), or UNKNOWN. No reference genome or read alignment required.
 
 **Documentation:** [Methods](https://genomewalker.github.io/libtaph/methods/) · [API Reference](https://genomewalker.github.io/libtaph/api/) · [Changelog](https://genomewalker.github.io/libtaph/changelog/) · [Full site](https://genomewalker.github.io/libtaph)
 
@@ -16,8 +16,8 @@ Reference-based damage estimation (mapDamage, metaDMG) requires a mapped BAM fil
 
 ## What it measures
 
-Nine biochemical damage channels plus three context-sensitive metrics, together
-covering a panel of reference-free, FASTQ-detectable aDNA damage channels:
+Reference-free damage observables plus context-sensitive metrics, together
+covering a panel of FASTQ-detectable aDNA damage signals and empirical proxies:
 
 ### Channel A: Cytosine deamination (primary damage signal)
 
@@ -73,15 +73,14 @@ terminal vs. interior positions. High terminal/interior ratio with correlated
 G→T and C→A signals on opposite strands confirms genuine 8-oxoG oxidation.
 Flags `ox_damage_detected` and `ox_is_artifact` independently of Channel C.
 
-### Channel E: Depurination / AP-site fragmentation
+### Channel E: Terminal purine enrichment / AP-site proxy
 
 Purines (A and G) are lost by hydrolysis under acidic or warm burial
-conditions, leaving apurinic (AP) sites that become strand-break points.
-Fragmentation at AP sites enriches purines at the newly exposed 5' ends.
-Channel E measures this purine enrichment at 5' terminal positions versus
-the interior baseline. High enrichment confirms that fragmentation occurred
-at AP sites, independent evidence of genuine ancient origin even when
-deamination is low.
+conditions, leaving apurinic (AP) sites that can become strand-break points.
+Channel E measures A+G over all observed A/C/G/T bases at the read start
+against the middle-of-read purine fraction. High enrichment is a reference-free
+AP-site/depurination proxy; it does not by itself prove the underlying lesion
+without orthogonal controls.
 
 ### Channels F, G, H: Complement-asymmetry oxidative channels
 
@@ -90,7 +89,7 @@ trinucleotide-context enrichment (binomial z-score, terminal positions 0–4
 vs far-interior baseline):
 
 - **Channel F** — C→A enrichment (8-oxoG on the opposite strand, read as C→A)
-- **Channel G** — C→G enrichment (further-oxidized guanine products: Gh/Sp)
+- **Channel G** — C→G enrichment (empirical oxidative-context proxy)
 - **Channel H** — A→T enrichment (empirical; mechanism uncertain)
 
 Channel H provides two scores: `channel_h_z` (full terminal window) and
@@ -224,7 +223,7 @@ UNKNOWN is the correct call when no library type can be inferred from the damage
 
 ### Damage-context profile
 
-Alongside the library-type call, libtaph emits a training-free damage-context profile that summarises the per-process signals it has already computed (`d_max`, `log2_cpg_ratio`, upstream-context C→T contrasts, 8-oxoG 16-context panel, purine enrichment at fragment starts, hexamer composition shift, adapter-stub and position-0 flags). Six scores in `[0, 1]` — terminal deamination, CpG context, dipyrimidine context, oxidative context, fragmentation context, library artifact — and one `dominant_process` label (`cytosine_deamination`, `cpg_enriched_deamination`, `dipyrimidine_biased`, `oxidative_like`, `fragmentation_bias`, `library_artifact_likely`, `low_damage`, or `none`) are assigned by a deterministic rule. No trained model, no reference panel, no alignment. The raw underlying numbers are mirrored into an `evidence` block so downstream tools can re-normalise or replace the rule without rescanning. See [Methods](https://genomewalker.github.io/libtaph/methods/#damage-context-profile).
+Alongside the library-type call, libtaph emits a training-free damage-context profile that summarises the per-process signals it has already computed (`d_max`, `log2_cpg_ratio`, upstream-context C→T contrasts, 8-oxoG 16-context panel, terminal purine enrichment, hexamer composition shift, adapter-stub and position-0 flags). Six scores in `[0, 1]` — terminal deamination, CpG context, dipyrimidine context, oxidative context, purine-endpoint context, library artifact — and one `dominant_process` label (`cytosine_deamination`, `cpg_enriched_deamination`, `dipyrimidine_biased`, `oxidative_like`, legacy `fragmentation_bias`, `library_artifact_likely`, `low_damage`, or `none`) are assigned by a deterministic rule. `fragmentation_bias` is a compatibility label for strong purine endpoint enrichment with weak terminal deamination, not a direct strand-break rate. No trained model, no reference panel, no alignment. The raw underlying numbers are mirrored into an `evidence` block so downstream tools can re-normalise or replace the rule without rescanning. See [Methods](https://genomewalker.github.io/libtaph/methods/#damage-context-profile).
 
 ---
 

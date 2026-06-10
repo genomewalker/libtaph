@@ -341,12 +341,12 @@ int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
         step_delta_isotonic(s, P, live, block_id, pinned_idx, pinned_val);   // PAVA + δ_{Lmax}=0
         step_lambda(s, P, live);
         double ll = log_lik(s, P);
-        // Stop on EITHER a tiny parameter move OR a flat likelihood. The LL is monotone
-        // (every step is ascent-guarded) so ll − ll_prev ≥ 0; on the near-zero-δ ridge the
-        // parameters keep sliding while the LL has already plateaued — the LL test stops there.
+        // Stop only when both the parameters and likelihood are flat.  Individual
+        // coordinate updates can backtrack to the saved value, so a tiny net parameter
+        // move alone is not reliable convergence evidence on the near-zero-delta ridge.
         bool ll_flat   = (ll - ll_prev) <= TOL_LL_ABS + TOL_LL_REL * std::fabs(ll);
         bool par_small = max_param_change(old, P, live) < TOL_PARAM;
-        if (par_small || ll_flat) { ++sweep; break; }
+        if (par_small && ll_flat) { ++sweep; break; }
         ll_prev = ll;
     }
     return sweep;

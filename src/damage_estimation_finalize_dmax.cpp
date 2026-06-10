@@ -141,7 +141,7 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
 
                         double baseline_tc = static_cast<double>(b.t_interior) /
                                             std::max(1.0, static_cast<double>(b.t_interior + b.c_interior));
-                        b.baseline_tc = static_cast<float>(std::clamp(ctx.baseline_tc, 0.01, 0.99));
+                        b.baseline_tc = static_cast<float>(std::clamp(baseline_tc, 0.01, 0.99));
 
                         uint64_t n_obs = b.n_terminal_obs();
                         total_obs += n_obs;

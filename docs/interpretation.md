@@ -223,29 +223,30 @@ oxidation; it can also be noise when coverage is borderline. When
 `s_oxog_16ctx` is `null` or only a couple of contexts are populated, treat
 the panel as uninformative and rely on the F/G/H z-scores instead.
 
-## 6. Channel E — depurination and AP-site fragmentation
+## 6. Channel E — terminal purine enrichment / AP-site proxy
 
-Channel E captures the AP-site-mediated fragmentation pattern: ancient DNA
-preferentially breaks 3′ of purine residues (A and G), so reads from
-fragmented aDNA have purines enriched at the position immediately 5′ of the
-fragmentation site.
+Channel E captures a reference-free endpoint-composition pattern motivated by
+AP-site chemistry: ancient DNA can break at depurinated purine residues, so reads
+from affected molecules may have A+G enriched at the read start.
 
-`purine_enrichment_5prime` is the headline statistic — the excess of A+G in
-the −1 / 5′-flanking position over what a uniform composition would predict.
+`purine_enrichment_5prime` is the headline statistic: terminal
+`(A+G)/(A+C+G+T)` at the 5′ read start minus the middle-of-read A+G fraction.
 
-- **Positive enrichment** (e.g. > 0.05) is the expected aDNA signature;
-  values above 0.15 are strong evidence of AP-site-mediated fragmentation.
+- **Positive enrichment** (e.g. > 0.05) is the expected AP-site proxy;
+  values above 0.15 are strong endpoint evidence, but not direct lesion proof.
 - **Near-zero enrichment** is consistent with random shearing, USER
   treatment, or modern DNA where AP-site chemistry has not had time to
   operate.
-- **Negative enrichment** is unusual and typically indicates a
-  sonication-driven or otherwise non-biological fragmentation profile.
+- **Negative enrichment** is unusual and typically indicates endpoint
+  composition bias, size-selection/trimming effects, or another non-AP-site
+  process.
 
 Channel E is independent of the deamination channels. A sample can show
-strong fragmentation enrichment with weak `d_max` (USER-treated aDNA, or
+strong purine endpoint enrichment with weak `d_max` (USER-treated aDNA, or
 material where deamination has saturated and lost its terminal asymmetry).
 In the dominant-process rule (see below), a strong Channel E with weak
-deamination is what produces the `fragmentation_bias` label.
+deamination is what produces the legacy `fragmentation_bias` label. Interpret
+that label as purine endpoint bias, not a direct strand-break rate.
 
 ## 7. Damage-context profile and `dominant_process`
 
@@ -261,7 +262,7 @@ deterministic rule top-to-bottom; the first match wins. See
 | `cpg_enriched_deamination` | Deamination is amplified at CpG sites; consistent with vertebrate methylation. Suggests host-mammalian aDNA. |
 | `dipyrimidine_biased` | Damage is enriched at CC/TC dipyrimidine contexts; a UV-photoproduct signature seen in surface-exposed material (skin, sun-exposed bone fragments). |
 | `oxidative_like` | Oxidative-channel score is high relative to terminal deamination. May reflect long-term storage oxidation, post-mortem oxygen exposure, or — if F+G+ but H≈0 — bacterial-composition contamination masquerading as oxidation. |
-| `fragmentation_bias` | Strong purine enrichment with weak terminal deamination. Often seen in chemically-treated libraries or very old material where deamination has saturated. |
+| `fragmentation_bias` | Legacy label: strong purine endpoint enrichment with weak terminal deamination. This is an endpoint-composition proxy, not a direct fragmentation rate. |
 | `library_artifact_likely` | Adapter / hexamer / position-0 evidence is present *and* terminal deamination is below the threshold for a damage call. The library is unreliable; investigate trimming and re-prep. |
 | `low_damage` | Terminal deamination is essentially zero. Either modern DNA, a USER-treated library, or contamination so heavy that ancient signal is diluted. |
 | `none` | Insufficient reads (< 1000) or no finite `d_max` at either end. The classifier abstains. |
@@ -433,7 +434,7 @@ Several flags should override an otherwise positive damage call.
 | `d_max ≈ 0` and `dominant_process == low_damage` | Modern DNA, USER-treated library, or contamination so heavy that ancient signal is diluted. |
 | SS library with `d_max_5prime ≈ d_max_3prime` | Single-stranded library showing the expected symmetric C→T at both ends. |
 | `dominant_process == dipyrimidine_biased` | UV-driven photoproduct signature. Common in skin, hair, or surface-exposed bone fragments. |
-| `dominant_process == fragmentation_bias` | AP-site-mediated fragmentation dominates over terminal deamination. Typical of USER-treated or heavily chemically processed libraries. |
+| `dominant_process == fragmentation_bias` | Purine endpoint bias dominates over terminal deamination; inspect the `depurination` and `fragmentation` blocks before making a mechanistic AP-site claim. |
 | `terminal_inversion == true` with otherwise high `d_max` | Likely orientation or trimming bug upstream — investigate before trusting the call. |
 | Mixture model: `mixture_pi_ancient = 0.3`, `mixture_d_ancient = 0.18`, `d_max_combined = 0.06` | A genuine ancient signal diluted by ~70% modern DNA (0.3 × 0.18 ≈ 0.054 ≈ 0.06, assuming d_mod ≈ 0). Note: `mixture_pi_ancient` is the fraction of **C-sites** in the high-damage component, not necessarily the read fraction — they differ when ancient and modern reads have unequal GC or length. Report `mixture_d_ancient` as the ancient damage rate. |
 

@@ -457,9 +457,9 @@ static CtCtxFit fit_ct5_ctx_amplitude(
     return fit;
 }
 
-// Oxidative strand-scission index: GG-vs-A breakpoint double-difference (reference-free,
+// Empirical GG-breakpoint proxy: GG-vs-A endpoint double-difference (reference-free,
 // composition-internal). Trinuc idx = prev*16 + mid*4 + next (A=0,C=1,G=2,T=3). 5'-of-GG run =
-// mid=G,next=G  => idx%16 == 10. A-depurination comparator = mid=A => (idx/4)%4 == 0.
+// mid=G,next=G  => idx%16 == 10. A-context comparator = mid=A => (idx/4)%4 == 0.
 static float compute_oxscission_delta(const std::array<uint64_t, 64>& term,
                                       const std::array<uint64_t, 64>& inter) {
     auto frac = [](const std::array<uint64_t, 64>& s, bool gg) -> double {

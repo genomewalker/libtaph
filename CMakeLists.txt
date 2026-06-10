@@ -100,6 +100,11 @@ if(TAPH_BUILD_TESTS)
     target_compile_options(test_ss_overhang_kernel PRIVATE -O2 -Wall -Wextra)
     add_test(NAME ss_overhang_kernel COMMAND test_ss_overhang_kernel)
 
+    add_executable(test_damage_regressions tests/test_damage_regressions.cpp)
+    target_link_libraries(test_damage_regressions PRIVATE taph)
+    target_compile_options(test_damage_regressions PRIVATE -O2 -Wall -Wextra)
+    add_test(NAME damage_regressions COMMAND test_damage_regressions)
+
     # Layer-0 count-table golden gate: re-profiles fixtured samples and diffs the pre-clamp count
     # tables (catches cap-masked z regressions the emitted-JSON gate cannot see). Self-skips when the
     # external panel inputs / fqdup binary are absent, so it is green in a data-less CI checkout.
