@@ -576,6 +576,19 @@ struct SampleDamageProfile {
     float d_max_5prime = 0.0f;  // Calibrated D_max for 5' end
     float d_max_3prime = 0.0f;  // Calibrated D_max for 3' end
     float d_max_combined = 0.0f;  // Final D_max using asymmetry-aware combination
+    // Channel-A estimand relabel (math-panel Correction 1): d_max = A/(1-b) divides out composition,
+    // so it consistently estimates the PRODUCT π_dmg·A_b (damaged-molecule fraction × per-ancient
+    // terminal C→T amplitude), NOT per-ancient A_b (unidentifiable reference-free). This mirror of
+    // d_max_combined carries the true estimand label downstream; numerically identical to d_max_combined.
+    float terminal_ct_mixture_amp = 0.0f;  // = d_max_combined; estimand = π_dmg·A_b_true (attenuated lower bound on A_b_true)
+    // False when d_max_source selects an order-statistic (max_ss_asymmetry / min_asymmetry): the scalar
+    // is order-stat biased, so the per-end d_max_5prime/d_max_3prime are the honest objects, not this point.
+    bool  terminal_ct_mixture_amp_valid_as_point = true;
+    // Per-ancient amplitude LOWER BOUND (Correction 2, audit-corrected). A_b_true = amp / π_dmg with
+    // π_dmg ∈ (0,1], so A_b_true ∈ [amp, ∞): the attenuated amp is a rigorous lower bound and the upper
+    // bound is UNIDENTIFIED reference-free (a finite ceiling would smuggle in a π_dmg ≥ threshold prior).
+    // terminal_ct_mixture_amp / w_ancient is NEVER emitted as a quotient point.
+    float per_ancient_A_b_lower = 0.0f;  // = terminal_ct_mixture_amp
     float asymmetry = 0.0f;  // |D_5p - D_3p| / ((D_5p + D_3p) / 2)
     bool high_asymmetry = false;  // True if asymmetry > 0.5 (possible artifact)
 
@@ -921,8 +934,13 @@ struct SampleDamageProfile {
     float cg_stop_rate_terminal    = 0.0f;
     float cg_stop_rate_interior    = 0.0f;
     float cg_stop_rate_baseline    = 0.0f;
-    float channel_g_z              = std::numeric_limits<float>::quiet_NaN();  // C1/C2: NaN = not computed; clamped when computed
+    float channel_g_z              = std::numeric_limits<float>::quiet_NaN();  // C1/C2: NaN = not computed; clamped when computed (pooled; legacy)
     float channel_g_or             = std::numeric_limits<float>::quiet_NaN();  // P4: 2x2 Haldane-Anscombe odds ratio (primary effect size; z is exploratory)
+    // Correction 3 (Tier 2): context-stratified Mantel-Haenszel z + common OR for G, mirroring F's 3-strata
+    // machinery. G strata = the 2 C→G pre-contexts (TCA→TGA, TAC→TAG). This is the CORRECTED statistic;
+    // channel_g_z stays as the legacy pooled alias. No deamination shadow (G is empirical, has_deam_shadow=false).
+    float channel_g_mh_z           = std::numeric_limits<float>::quiet_NaN();
+    float channel_g_common_or      = 0.0f;
     float cg_uniformity_ratio      = 0.0f;
     float cg_stop_rate_terminal_3prime = 0.0f;
     float cg_stop_rate_interior_3prime = 0.0f;
@@ -951,9 +969,13 @@ struct SampleDamageProfile {
     float at_stop_rate_terminal    = 0.0f;
     float at_stop_rate_interior    = 0.0f;
     float at_stop_rate_baseline    = 0.0f;
-    float channel_h_z              = std::numeric_limits<float>::quiet_NaN();  // C1/C2: NaN = not computed; clamped when computed
+    float channel_h_z              = std::numeric_limits<float>::quiet_NaN();  // C1/C2: NaN = not computed; clamped when computed (pooled; legacy)
     float channel_h_z_p2plus       = std::numeric_limits<float>::quiet_NaN();  // C1/C2: NaN = not computed; clamped when computed
     float channel_h_or             = std::numeric_limits<float>::quiet_NaN();  // P4: 2x2 Haldane-Anscombe odds ratio (primary effect size; z is exploratory)
+    // Correction 3 (Tier 2): context-stratified MH z + common OR for H, mirroring F. H strata = the 3
+    // A→T pre-contexts (AAA→TAA, AAG→TAG, AGA→TGA). Corrected statistic; channel_h_z stays legacy pooled.
+    float channel_h_mh_z           = std::numeric_limits<float>::quiet_NaN();
+    float channel_h_common_or      = 0.0f;
     float at_uniformity_ratio      = 0.0f;
     // C5: h_z and h_z_p2plus can have opposite signs; this flag (same-sign) lets
     // the emitter/consumer see the contradiction. AND-gate detection lives in the emitter.
@@ -975,6 +997,12 @@ struct SampleDamageProfile {
     uint64_t cg_stop_interior = 0;
     uint64_t at_pre_interior  = 0;  // Channel H far-interior
     uint64_t at_stop_interior = 0;
+    // Correction 3 (Tier 2): per-context interior reference for G/H Mantel-Haenszel stratification.
+    // G ctx: [0]=TCA→TGA, [1]=TAC→TAG.  H ctx: [0]=AAA→TAA, [1]=AAG→TAG, [2]=AGA→TGA.
+    std::array<double, 2> cg_pre_interior_by_ctx  = {};
+    std::array<double, 2> cg_stop_interior_by_ctx = {};
+    std::array<double, 3> at_pre_interior_by_ctx  = {};
+    std::array<double, 3> at_stop_interior_by_ctx = {};
 
 
 
@@ -1067,6 +1095,10 @@ struct SampleDamageProfile {
     float g_bg_fitted_unclamped      = 0.0f;   // B_raw point estimate (auditable when clamped)
     bool  ox_theta_at_clamp          = false;  // g_bg_fitted at 0.5 clamp while degenerate
     float s_gt = 0.0f;               // B - ox_ca_baseline: Chargaff contrast (signal for SS; ~0 for DS)
+    // Correction 4: s_gt is a strand-asymmetric oxidation CONTRAST, valid only when interior base
+    // composition is Chargaff-balanced (|G-C|/(G+C) small) so the contrast is not composition-driven.
+    float chargaff_gc_balance = 0.0f;  // |G_interior - C_interior| / (G_interior + C_interior) over interior composition
+    bool  s_gt_valid = false;          // chargaff_gc_balance <= 0.02 AND d_computed (C/D coverage gate)
 
     // Channel E: terminal purine enrichment, a reference-free AP-site/depurination proxy.
     // Primary 5' statistic is (A+G)/(A+C+G+T) at the read start minus the
@@ -1221,6 +1253,18 @@ struct SampleDamageProfile {
     float mixture_bic = 0.0f;          // BIC for model selection
     bool mixture_converged = false;    // Did EM converge?
     bool mixture_identifiable = false; // Are non-trivial classes well-separated?
+    // Correction 2: EM ancient-component weight surfaced beside terminal_ct_mixture_amp. This is the
+    // w_ancient (= mixture_pi_ancient) used only to document the attenuation; it is NEVER divided into
+    // the amplitude to form a per-ancient point estimate (that quotient is unidentifiable reference-free).
+    enum class WAncientGate { UNAVAILABLE, UNDETERMINED, IDENTIFIED };
+    WAncientGate w_ancient_gate = WAncientGate::UNAVAILABLE;
+    const char* w_ancient_gate_str() const {
+        switch (w_ancient_gate) {
+            case WAncientGate::IDENTIFIED:   return "identified";
+            case WAncientGate::UNDETERMINED: return "undetermined";
+            default:                         return "unavailable";
+        }
+    }
 
     // Preservation index
     enum class PreservationLabel {

@@ -57,6 +57,14 @@ thymine, after accounting for the background T proportion.
 | `d_max_5prime` | C→T excess at the 5′ terminus above the interior background |
 | `d_max_3prime` | G→A excess at the 3′ terminus (DS) or C→T excess (SS original-strand) above background |
 | `d_max_combined` | Best single damage estimate for this library; `source` records how it was derived |
+| `terminal_ct_mixture_amp` | **Relabel of `d_max_combined` to its true estimand.** Channel A's `d_max = A/(1−b)` divides out composition, so it consistently estimates the *product* π_dmg·A_b (damaged-molecule fraction × per-ancient terminal C→T amplitude), **not** per-ancient A_b — which is unidentifiable reference-free. Numerically byte-identical to `d_max_combined`; the `terminal_ct_estimand` object states what it measures. It is an attenuated **lower bound** on the per-ancient amplitude, **not comparable** to mapped metaDMG D_max. |
+| `terminal_ct_mixture_amp_valid_as_point` | `false` when `source ∈ {max_ss_asymmetry, min_asymmetry}` (the scalar is order-statistic biased); use `d_max_5prime`/`d_max_3prime` as the honest per-end objects in that case |
+| `terminal_ct_estimand` | Static metadata object: `estimand=pi_dmg*A_b_true`, `is_lower_bound_on=A_b_true`, `not_comparable_to=mapped_metaDMG_Dmax`, plus the assumptions under which it holds |
+| `w_ancient` | EM ancient-component weight (= `mixture_pi_ancient`) or `null` if EM did not run. Documents the attenuation only — **never** divided into the amplitude to form a per-ancient point estimate |
+| `w_ancient_gate_status` | `identified` / `undetermined` / `unavailable` from the mixture-EM status |
+| `per_ancient_A_b_lower` | **Lower bound only** on the per-ancient terminal C→T amplitude (= `terminal_ct_mixture_amp`). Since `A_b_true = amp / π_dmg` with `π_dmg ∈ (0,1]`, the true amplitude lies in `[amp, ∞)`: `amp` is a rigorous lower bound. |
+| `per_ancient_A_b_upper` | Always `null` — the upper bound is **unidentified reference-free**. A finite ceiling (e.g. `2×amp`) would silently assert a `π_dmg ≥ 0.5` prior, breaking study-independence (at `π_dmg ≈ 0.2`, true `A_b ≈ 5×amp`). No π_dmg assumption is made. |
+| `per_ancient_A_b_note` | States the rigorous fact: `upper bound unidentified reference-free (= amp/pi_dmg, pi_dmg unknown)` |
 | `d_metamatch` | GC-composition-weighted estimate comparable to metaDMG's D_max [[Michelsen et al. 2022](#references)] |
 | `source` | How `d_max_combined` was derived — see table below |
 | `lambda_5prime` | Exponential decay rate at the 5′ end; larger values mean shorter overhang length |
@@ -210,7 +218,9 @@ the cancelling C→A signal) [[Mitchell & Bridge 2006](#references)].
 | `gt_bg_fitted` | Fitted uniform background from the G→T model |
 | `gt_term_fitted` | Fitted terminal amplitude |
 | `gt_decay_fitted` | Fitted decay constant |
-| `s_gt` | G→T vs C→A strand asymmetry contrast; near zero for balanced DS oxidation, informative for SS |
+| `s_gt` | G→T vs C→A **strand-asymmetric oxidation contrast** (`s_gt_estimand=strand_asymmetric_oxidation_contrast_not_total_oxidation`), not total oxidation; near zero for balanced DS oxidation, informative for SS |
+| `s_gt_valid` | `true` only when interior composition is Chargaff-balanced (`chargaff_gc_balance ≤ 0.02`) **and** the C/D coverage gate (`d_computed`) passes. A gate flag — `s_gt`/`D` values are never nulled or altered |
+| `chargaff_gc_balance` | `|G_interior − C_interior| / (G_interior + C_interior)` over interior base composition. When large, an `s_gt` contrast may be composition-driven rather than oxidative |
 | `D` | Overall 8-oxoG asymmetry index |
 | `per_pos_5prime_gt[15]` | Raw G→T fraction at 5′ positions 0–14 |
 
@@ -348,10 +358,14 @@ H remains near zero.
 | `channel_f_z` | Binomial z-score, 5′ C→A terminal vs interior; negative = depletion |
 | `channel_f3_valid` | `true` when 3′ end has sufficient counts |
 | `channel_g_valid` | `true` when ≥ 200 total counts for G baseline |
-| `channel_g_z` | Binomial z-score, 5′ C→G terminal vs interior |
+| `channel_g_z` | Pooled binomial z-score, 5′ C→G terminal vs interior. **Legacy/descriptive** (`channel_g_z_inference=descriptive_not_calibrated_p_value`); the MH z below is the corrected statistic |
+| `channel_g_mh_z` | **Corrected** context-stratified Mantel-Haenszel z for G (2 strata: TCA→TGA, TAC→TAG), mirroring F's stratification. Removes terminal context-composition bias |
+| `channel_g_common_or` | MH common odds ratio for G |
 | `channel_g3_valid` | `true` when 3′ end has sufficient counts |
 | `channel_h_valid` | `true` when ≥ 200 total counts for H baseline |
-| `channel_h_z` | Binomial z-score, 5′ A→T terminal (positions p0_h5–4) vs interior |
+| `channel_h_z` | Pooled binomial z-score, 5′ A→T terminal (positions p0_h5–4) vs interior. **Legacy/descriptive**; the MH z below is the corrected statistic |
+| `channel_h_mh_z` | **Corrected** context-stratified MH z for H (3 strata: AAA→TAA, AAG→TAG, AGA→TGA) |
+| `channel_h_common_or` | MH common odds ratio for H |
 | `channel_h_z_p2plus` | Same as `channel_h_z` but terminal window restricted to positions 2–4; more robust because position 0 carries a lower background A→T rate that dilutes the signal when included |
 | `channel_h3_valid` | `true` when 3′ end has sufficient counts |
 | `fgh_adapter_prefixes_excluded` | Number of 5′ hexamer prefixes excluded from the F/G/H terminal counts (set by `recompute_fgh_excluding_adapter_prefixes`; 0 if no adapter stubs were detected) |
@@ -359,6 +373,16 @@ H remains near zero.
 libtaph stores the raw z-scores; it does not apply a detection threshold internally.
 Downstream consumers commonly use z > 3.0 as a heuristic. For Channel H, take
 `max(channel_h_z, channel_h_z_p2plus)` to avoid the position-0 dilution effect.
+
+**Pooled z is descriptive, not a calibrated p-value.** The pooled `channel_{f,g,h}_z`
+scale ~√N on correlated reads and carry `channel_{f,g,h}_z_inference =
+descriptive_not_calibrated_p_value`. The context-stratified Mantel-Haenszel z
+(`channel_{f,g,h}_mh_z`) is the corrected inferential statistic; F already used it, and
+G and H now extend the same per-context stratification (estimands and assumptions are
+sourced from the channel registry and emitted in the `damage_types` legend as `estimand`
+/ `assumptions`). The emitter's F/G/H **detection gate** requires the pooled z to agree in
+sign with the corrected MH z before firing — a library whose pooled and MH z disagree in
+sign (Simpson's paradox from terminal context composition) is no longer called detected.
 
 **Adapter prefix exclusion.** During read accumulation each terminal F/G/H codon count
 is bucketed by the read's first hexamer (4096 bins). After `detect_adapter_stubs`

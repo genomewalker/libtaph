@@ -401,6 +401,40 @@ void finalize_oxidation(SampleDamageProfile& profile, const FinalCtx& ctx) {
                  profile.channel_g_z, profile.channel_g_or, profile.cg_stop_rate_baseline, profile.cg_stop_rate_terminal,
                  profile.cg_stop_rate_interior, profile.cg_uniformity_ratio, profile.channel_g_valid));
 
+        // Correction 3 (Tier 2): context-stratified Mantel-Haenszel test for G, mirroring F's block.
+        // 2 strata = the C→G pre-contexts (ctx0: TCA→TGA, ctx1: TAC→TAG). Removes terminal
+        // context-composition bias. No deamination shadow (G is empirical; has_deam_shadow=false).
+        {
+            const double* pre_arr[2]  = { profile.convertible_tca_cg_5prime.data(), profile.convertible_tac_cg_5prime.data() };
+            const double* stop_arr[2] = { profile.convertible_tga_cg_5prime.data(), profile.convertible_tag_cg_5prime.data() };
+            double mh_R = 0.0, mh_S = 0.0, rbg_PR = 0.0, rbg_QS = 0.0, rbg_PQRS = 0.0;
+            for (int k = 0; k < 2; ++k) {
+                double a = 0.0, b_val = 0.0;
+                for (int p = p0_tc_5; p < 5; ++p) { a += stop_arr[k][p]; b_val += pre_arr[k][p]; }
+                double c = profile.cg_stop_interior_by_ctx[k];
+                double d = profile.cg_pre_interior_by_ctx[k];
+                double N = a + b_val + c + d;
+                if (N < 8.0) continue;
+                double R = a * d / N, S = b_val * c / N;
+                mh_R += R; mh_S += S;
+                double P = (a + d) / N, Q = (b_val + c) / N;
+                rbg_PR   += P * R;
+                rbg_QS   += Q * S;
+                rbg_PQRS += P * S + Q * R;
+            }
+            if (mh_R > 0.0 && mh_S > 0.0) {
+                double common_or = mh_R / mh_S, log_or = std::log(common_or);
+                double var_log_or = rbg_PR / (2.0 * mh_R * mh_R) + rbg_PQRS / (2.0 * mh_R * mh_S)
+                                  + rbg_QS / (2.0 * mh_S * mh_S);
+                if (var_log_or > 1e-15) {
+                    double mh_z = log_or / std::sqrt(var_log_or);
+                    const double cap = static_cast<double>(SampleDamageProfile::kZCap);
+                    profile.channel_g_mh_z = static_cast<float>(std::clamp(mh_z, -cap, cap));
+                }
+                profile.channel_g_common_or = static_cast<float>(common_or);
+            }
+        }
+
         double pre3 = 0, stop3 = 0, pre_t3 = 0, stop_t3 = 0, pre_m3 = 0, stop_m3 = 0;
         for (int p = 0; p < 15; ++p) {
             double pre  = profile.convertible_tca_cg_3prime[p] + profile.convertible_tac_cg_3prime[p];
@@ -446,6 +480,39 @@ void finalize_oxidation(SampleDamageProfile& profile, const FinalCtx& ctx) {
             std::isfinite(profile.channel_h_z) && std::isfinite(profile.channel_h_z_p2plus) &&
             ((profile.channel_h_z >= 0.0f) == (profile.channel_h_z_p2plus >= 0.0f));
         profile.count_tables.push_back(std::move(h_ct));
+
+        // Correction 3 (Tier 2): context-stratified Mantel-Haenszel test for H, mirroring F's block.
+        // 3 strata = the A→T pre-contexts (ctx0: AAA→TAA, ctx1: AAG→TAG, ctx2: AGA→TGA).
+        {
+            const double* pre_arr[3]  = { profile.convertible_aaa_h_5prime.data(), profile.convertible_aag_h_5prime.data(), profile.convertible_aga_h_5prime.data() };
+            const double* stop_arr[3] = { profile.convertible_taa_at_5prime.data(), profile.convertible_tag_at_5prime.data(), profile.convertible_tga_at_5prime.data() };
+            double mh_R = 0.0, mh_S = 0.0, rbg_PR = 0.0, rbg_QS = 0.0, rbg_PQRS = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                double a = 0.0, b_val = 0.0;
+                for (int p = p0_h5; p < 5; ++p) { a += stop_arr[k][p]; b_val += pre_arr[k][p]; }
+                double c = profile.at_stop_interior_by_ctx[k];
+                double d = profile.at_pre_interior_by_ctx[k];
+                double N = a + b_val + c + d;
+                if (N < 8.0) continue;
+                double R = a * d / N, S = b_val * c / N;
+                mh_R += R; mh_S += S;
+                double P = (a + d) / N, Q = (b_val + c) / N;
+                rbg_PR   += P * R;
+                rbg_QS   += Q * S;
+                rbg_PQRS += P * S + Q * R;
+            }
+            if (mh_R > 0.0 && mh_S > 0.0) {
+                double common_or = mh_R / mh_S, log_or = std::log(common_or);
+                double var_log_or = rbg_PR / (2.0 * mh_R * mh_R) + rbg_PQRS / (2.0 * mh_R * mh_S)
+                                  + rbg_QS / (2.0 * mh_S * mh_S);
+                if (var_log_or > 1e-15) {
+                    double mh_z = log_or / std::sqrt(var_log_or);
+                    const double cap = static_cast<double>(SampleDamageProfile::kZCap);
+                    profile.channel_h_mh_z = static_cast<float>(std::clamp(mh_z, -cap, cap));
+                }
+                profile.channel_h_common_or = static_cast<float>(common_or);
+            }
+        }
 
         double pre3 = 0, stop3 = 0, pre_t3 = 0, stop_t3 = 0, pre_m3 = 0, stop_m3 = 0;
         for (int p = 0; p < 15; ++p) {
@@ -841,7 +908,19 @@ void finalize_oxidation(SampleDamageProfile& profile, const FinalCtx& ctx) {
         }
     }
 
-
+    // === Correction 4: Chargaff gate for the s_gt strand-asymmetric oxidation contrast ===
+    // s_gt = best_B - ox_ca_baseline is a STRAND-ASYMMETRIC oxidation contrast, not total oxidation.
+    // It is interpretable only when interior base composition is Chargaff-balanced, so the contrast
+    // is not driven by a |G|≠|C| composition skew. Gate (not null): add a validity flag and the
+    // measured balance; do NOT alter s_gt itself. baseline_{g,c}_freq are interior (mid-read) fractions
+    // by this point; |G-C|/(G+C) is scale-invariant so it reads the same on counts or fractions.
+    {
+        const double gi = profile.baseline_g_freq;
+        const double ci = profile.baseline_c_freq;
+        const double gc = gi + ci;
+        profile.chargaff_gc_balance = (gc > 0.0) ? static_cast<float>(std::fabs(gi - ci) / gc) : 0.0f;
+        profile.s_gt_valid = (profile.chargaff_gc_balance <= 0.02f) && profile.d_computed;
+    }
 }
 
 } // namespace taph

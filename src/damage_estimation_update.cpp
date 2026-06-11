@@ -767,27 +767,27 @@ void FrameSelector::update_sample_profile(
                     else if (b1=='G'&&b2=='A') profile.ca_stop_interior_by_ctx[2]++;
                     else if (b1=='G'&&b2=='T') profile.ca_shadow_interior_by_ctx[2]++;
                 }
-                // Channel G interior
+                // Channel G interior (per-context for MH: ctx0=TCA→TGA, ctx1=TAC→TAG)
                 if (b0 == 'T' && b2 == 'A') {
-                    if      (b1 == 'C') profile.cg_pre_interior++;
-                    else if (b1 == 'G') profile.cg_stop_interior++;
+                    if      (b1 == 'C') { profile.cg_pre_interior++;  profile.cg_pre_interior_by_ctx[0]++; }
+                    else if (b1 == 'G') { profile.cg_stop_interior++; profile.cg_stop_interior_by_ctx[0]++; }
                 }
                 if (b0 == 'T' && b1 == 'A') {
-                    if      (b2 == 'C') profile.cg_pre_interior++;
-                    else if (b2 == 'G') profile.cg_stop_interior++;
+                    if      (b2 == 'C') { profile.cg_pre_interior++;  profile.cg_pre_interior_by_ctx[1]++; }
+                    else if (b2 == 'G') { profile.cg_stop_interior++; profile.cg_stop_interior_by_ctx[1]++; }
                 }
-                // Channel H interior
+                // Channel H interior (per-context: ctx0=AAA→TAA, ctx1=AAG→TAG, ctx2=AGA→TGA)
                 if (b1 == 'A' && b2 == 'A') {
-                    if      (b0 == 'A') profile.at_pre_interior++;
-                    else if (b0 == 'T') profile.at_stop_interior++;
+                    if      (b0 == 'A') { profile.at_pre_interior++;  profile.at_pre_interior_by_ctx[0]++; }
+                    else if (b0 == 'T') { profile.at_stop_interior++; profile.at_stop_interior_by_ctx[0]++; }
                 }
                 if (b1 == 'A' && b2 == 'G') {
-                    if      (b0 == 'A') profile.at_pre_interior++;
-                    else if (b0 == 'T') profile.at_stop_interior++;
+                    if      (b0 == 'A') { profile.at_pre_interior++;  profile.at_pre_interior_by_ctx[1]++; }
+                    else if (b0 == 'T') { profile.at_stop_interior++; profile.at_stop_interior_by_ctx[1]++; }
                 }
                 if (b1 == 'G' && b2 == 'A') {
-                    if      (b0 == 'A') profile.at_pre_interior++;
-                    else if (b0 == 'T') profile.at_stop_interior++;
+                    if      (b0 == 'A') { profile.at_pre_interior++;  profile.at_pre_interior_by_ctx[2]++; }
+                    else if (b0 == 'T') { profile.at_stop_interior++; profile.at_stop_interior_by_ctx[2]++; }
                 }
             }
         }
@@ -1397,6 +1397,14 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
             dst.cg_stop_interior += src.cg_stop_interior;
             dst.at_pre_interior  += src.at_pre_interior;
             dst.at_stop_interior += src.at_stop_interior;
+            for (int k = 0; k < 2; ++k) {  // Correction 3: G context strata
+                dst.cg_pre_interior_by_ctx[k]  += src.cg_pre_interior_by_ctx[k];
+                dst.cg_stop_interior_by_ctx[k] += src.cg_stop_interior_by_ctx[k];
+            }
+            for (int k = 0; k < 3; ++k) {  // Correction 3: H context strata
+                dst.at_pre_interior_by_ctx[k]  += src.at_pre_interior_by_ctx[k];
+                dst.at_stop_interior_by_ctx[k] += src.at_stop_interior_by_ctx[k];
+            }
         }
 
 
@@ -2097,6 +2105,8 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.cg_stop_rate_interior          = 0.0f;
     profile.cg_stop_rate_baseline          = 0.0f;
     profile.channel_g_z                    = std::numeric_limits<float>::quiet_NaN();  // C1: NaN = not computed
+    profile.channel_g_mh_z                 = std::numeric_limits<float>::quiet_NaN();  // Correction 3
+    profile.channel_g_common_or            = 0.0f;
     profile.cg_uniformity_ratio            = 0.0f;
     profile.cg_stop_rate_terminal_3prime   = 0.0f;
     profile.cg_stop_rate_interior_3prime   = 0.0f;
@@ -2121,6 +2131,8 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.at_stop_rate_baseline          = 0.0f;
     profile.channel_h_z                    = std::numeric_limits<float>::quiet_NaN();  // C1: NaN = not computed
     profile.channel_h_z_p2plus             = std::numeric_limits<float>::quiet_NaN();  // C1: NaN = not computed
+    profile.channel_h_mh_z                 = std::numeric_limits<float>::quiet_NaN();  // Correction 3
+    profile.channel_h_common_or            = 0.0f;
     profile.channel_h_z_consistent         = false;
     profile.at_uniformity_ratio            = 0.0f;
     profile.at_stop_rate_terminal_3prime   = 0.0f;
@@ -2142,6 +2154,10 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.cg_stop_interior = 0;
     profile.at_pre_interior  = 0;
     profile.at_stop_interior = 0;
+    profile.cg_pre_interior_by_ctx.fill(0.0);   // Correction 3
+    profile.cg_stop_interior_by_ctx.fill(0.0);
+    profile.at_pre_interior_by_ctx.fill(0.0);
+    profile.at_stop_interior_by_ctx.fill(0.0);
 
 
     profile.convertible_tca_interior = 0;

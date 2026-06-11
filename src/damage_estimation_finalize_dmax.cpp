@@ -577,7 +577,28 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
         }
     }
 
-
+    // === Math-panel relabel: Channel A's d_max estimand (Corrections 1 & 2) ===
+    // d_max = A/(1-b) divides out composition, so it consistently estimates the PRODUCT π_dmg·A_b
+    // (damaged-molecule fraction × per-ancient terminal C→T amplitude), NOT per-ancient A_b (which is
+    // unidentifiable reference-free). terminal_ct_mixture_amp carries d_max_combined under its true
+    // estimand label; numerically identical to d_max_combined (byte-for-byte, no recompute).
+    profile.terminal_ct_mixture_amp = profile.d_max_combined;
+    // Order-statistic selections (max_ss_asymmetry / min_asymmetry pick one end's d_max) are biased as a
+    // point estimate of the mixture amplitude; the per-end d_max_5prime/d_max_3prime are the honest objects.
+    profile.terminal_ct_mixture_amp_valid_as_point =
+        (profile.d_max_source != SampleDamageProfile::DmaxSource::MAX_SS_ASYMMETRY) &&
+        (profile.d_max_source != SampleDamageProfile::DmaxSource::MIN_ASYMMETRY);
+    // Correction 2 (audit-corrected): the only per-ancient amplitude object is a LOWER BOUND.
+    // A_b_true = amp / π_dmg, π_dmg ∈ (0,1] ⇒ A_b_true ∈ [amp, ∞); the upper bound is unidentified
+    // reference-free (a finite ceiling would assert a hidden π_dmg ≥ threshold prior). Never form amp/w_ancient.
+    profile.per_ancient_A_b_lower = profile.terminal_ct_mixture_amp;
+    // EM ancient-component weight gate (documents the attenuation; not divided into the amplitude).
+    if (profile.mixture_converged && profile.mixture_identifiable)
+        profile.w_ancient_gate = SampleDamageProfile::WAncientGate::IDENTIFIED;
+    else if (profile.mixture_converged)
+        profile.w_ancient_gate = SampleDamageProfile::WAncientGate::UNDETERMINED;
+    else
+        profile.w_ancient_gate = SampleDamageProfile::WAncientGate::UNAVAILABLE;
 }
 
 } // namespace taph

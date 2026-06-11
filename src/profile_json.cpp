@@ -203,6 +203,30 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"d_max_5prime\": " << (dmax_detected ? std::to_string(dp.d_max_5prime) : "null") << ",\n";
     j << "    \"d_max_3prime\": " << (dmax_detected ? std::to_string(dp.d_max_3prime) : "null") << ",\n";
     j << "    \"d_max_combined\": " << d_max_combined_out << ",\n";
+    // Math-panel relabel (Corrections 1 & 2): Channel A's d_max = A/(1-b) divides out composition, so it
+    // estimates the PRODUCT π_dmg·A_b, NOT per-ancient A_b (unidentifiable reference-free). The amp below
+    // is byte-identical to d_max_combined; the estimand metadata states what it truly measures. Per-ancient
+    // amplitude is reported ONLY as a LOWER BOUND (amp); the upper bound is unidentified — never amp/w_ancient.
+    // Track the EMITTED d_max_combined (CircLigase override applied) so the relabel is byte-identical
+    // to the legacy d_max_combined key; the per-ancient lower bound is the same value.
+    const float amp_out = d_max_combined_out;
+    j << "    \"terminal_ct_mixture_amp\": " << amp_out << ",\n";
+    j << "    \"terminal_ct_mixture_amp_valid_as_point\": " << (dp.terminal_ct_mixture_amp_valid_as_point ? "true" : "false") << ",\n";
+    j << "    \"terminal_ct_estimand\": {\n";
+    j << "      \"estimand\": \"pi_dmg*A_b_true\",\n";
+    j << "      \"interpretation\": \"attenuated_lower_bound_on_per_ancient_terminal_C_to_T_amplitude\",\n";
+    j << "      \"is_lower_bound_on\": \"A_b_true\",\n";
+    j << "      \"not_comparable_to\": \"mapped_metaDMG_Dmax\",\n";
+    j << "      \"assumptions\": [\"stable_terminal_vs_interior_CT_composition\",\"no_interior_deamination\",\"non_selecting_source_mixture\"]\n";
+    j << "    },\n";
+    j << "    \"w_ancient\": " << (dp.mixture_converged ? std::to_string(dp.mixture_pi_ancient) : "null") << ",\n";
+    j << "    \"w_ancient_gate_status\": \"" << dp.w_ancient_gate_str() << "\",\n";
+    // Audit-corrected: per-ancient A_b is a LOWER BOUND only. A_b_true = amp / π_dmg with π_dmg ∈ (0,1]
+    // ⇒ A_b_true ∈ [amp, ∞). A finite upper bound is unidentified reference-free (a ceiling would assert
+    // a hidden π_dmg ≥ threshold prior), so the upper bound is emitted as null.
+    j << "    \"per_ancient_A_b_lower\": " << amp_out << ",\n";
+    j << "    \"per_ancient_A_b_upper\": null,\n";
+    j << "    \"per_ancient_A_b_note\": \"upper bound unidentified reference-free (= amp/pi_dmg, pi_dmg unknown)\",\n";
     j << "    \"d_metamatch\": " << d_metamatch_out << ",\n";
     j << "    \"source\": \"" << source_str_out << "\",\n";
     j << "    \"lambda_5prime\": " << (dp.lambda_5prime_fitted ? std::to_string(dp.lambda_5prime) : "null") << ",\n";
@@ -469,6 +493,11 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"ox_theta_at_clamp\": " << (dp.ox_theta_at_clamp ? "true" : "false") << ",\n";
     j << "    \"gt_bg_interior_mean\": " << dp.g_bg_interior_mean << ",\n";
     j << "    \"s_gt\": " << dp.s_gt << ",\n";
+    // Correction 4: s_gt is a strand-asymmetric oxidation CONTRAST, valid only under interior Chargaff
+    // balance. The gate is additive — s_gt itself is unchanged; consumers read s_gt_valid before trusting it.
+    j << "    \"s_gt_valid\": " << (dp.s_gt_valid ? "true" : "false") << ",\n";
+    j << "    \"chargaff_gc_balance\": " << dp.chargaff_gc_balance << ",\n";
+    j << "    \"s_gt_estimand\": \"strand_asymmetric_oxidation_contrast_not_total_oxidation\",\n";
     // D/s_gt are applicable only to SS (Chargaff cancellation makes them ≈0 for DS).
     j << "    \"d_applicable\": " << (is_ss ? "true" : "false") << ",\n";
     j << "    \"per_pos_5prime_gt\": [";
@@ -509,6 +538,9 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"ca_stop_rate_terminal\": " << dp.ca_stop_rate_terminal << ",\n";
     j << "    \"ca_uniformity_ratio\": " << dp.ca_uniformity_ratio << ",\n";
     j << "    \"channel_f_z\": ";    emit_z(dp.channel_f_z, dp.channel_f_valid);    j << ",\n";
+    // Correction 3 (label half): the pooled channel_{f,g,h}_z are descriptive, NOT calibrated p-values
+    // (sqrt(N)-scaled on correlated reads). The MH-stratified mh_z is the corrected inferential statistic.
+    j << "    \"channel_f_z_inference\": \"descriptive_not_calibrated_p_value\",\n";
     j << "    \"channel_f_mh_z\": "; emit_z(dp.channel_f_mh_z, dp.channel_f_valid); j << ",\n";
     // Transparency: the pooled channel_f_z pools across context strata and keeps the deamination
     // shadow in its denominator, so it can sign-reverse vs the stratified MH z + odds ratio
@@ -530,6 +562,9 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"cg_stop_rate_terminal\": " << dp.cg_stop_rate_terminal << ",\n";
     j << "    \"cg_uniformity_ratio\": " << dp.cg_uniformity_ratio << ",\n";
     j << "    \"channel_g_z\": "; emit_z(dp.channel_g_z, dp.channel_g_valid); j << ",\n";
+    j << "    \"channel_g_z_inference\": \"descriptive_not_calibrated_p_value\",\n";  // Correction 3 (label)
+    j << "    \"channel_g_mh_z\": "; emit_z(dp.channel_g_mh_z, dp.channel_g_valid); j << ",\n";  // Correction 3: corrected context-stratified statistic
+    j << "    \"channel_g_common_or\": " << dp.channel_g_common_or << ",\n";  // Correction 3: MH common odds ratio
     j << "    \"channel_g_or\": " << nan_or(dp.channel_g_or) << ",\n";  // P4: 2x2 Haldane-Anscombe OR
     j << "    \"channel_g_applicable\": " << (!is_ss ? "true" : "false") << ",\n";
     j << "    \"cg_stop_rate_interior\": " << dp.cg_stop_rate_interior << ",\n";
@@ -543,6 +578,9 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"at_stop_rate_terminal\": " << dp.at_stop_rate_terminal << ",\n";
     j << "    \"at_uniformity_ratio\": " << dp.at_uniformity_ratio << ",\n";
     j << "    \"channel_h_z\": ";        emit_z(dp.channel_h_z, dp.channel_h_valid);        j << ",\n";
+    j << "    \"channel_h_z_inference\": \"descriptive_not_calibrated_p_value\",\n";  // Correction 3 (label)
+    j << "    \"channel_h_mh_z\": "; emit_z(dp.channel_h_mh_z, dp.channel_h_valid); j << ",\n";  // Correction 3: corrected context-stratified statistic
+    j << "    \"channel_h_common_or\": " << dp.channel_h_common_or << ",\n";  // Correction 3: MH common odds ratio
     j << "    \"channel_h_or\": " << nan_or(dp.channel_h_or) << ",\n";  // P4: 2x2 Haldane-Anscombe OR
     j << "    \"channel_h_z_p2plus\": "; emit_z(dp.channel_h_z_p2plus, dp.channel_h_valid); j << ",\n";
     j << "    \"at_stop_rate_interior\": " << dp.at_stop_rate_interior << ",\n";
@@ -1959,13 +1997,22 @@ void profile_to_json(const SampleDamageProfile& dp,
                                  && ((dp.channel_f_z >= 0.0f) == (dp.channel_f_mh_z >= 0.0f));
         bool ch_f_detected = dp.channel_f_valid && dp.channel_f_z > kOxChannelZDetect
                              && ch_f_z_consistent;
-        bool ch_g_detected = dp.channel_g_valid && dp.channel_g_z > kOxChannelZDetect;
+        // Correction 3: G/H detection now gates the pooled z on sign-agreement with the corrected
+        // context-stratified MH z (same pattern as F above). The pooled z is confounded by terminal
+        // context composition; the MH z removes it. When MH disagrees in sign, detection is withheld.
+        bool ch_g_mh_consistent = std::isfinite(dp.channel_g_z) && std::isfinite(dp.channel_g_mh_z)
+                                  && ((dp.channel_g_z >= 0.0f) == (dp.channel_g_mh_z >= 0.0f));
+        bool ch_g_detected = dp.channel_g_valid && dp.channel_g_z > kOxChannelZDetect
+                             && ch_g_mh_consistent;
         // C5: OR→AND. channel_h_z_p2plus (positions 2-4 only) exists to exclude the p0/p1
         // artifact; the OR gate let an artifact-driven positive channel_h_z fire detection while
         // p2plus was strongly negative (kapk, rocs). Require BOTH windows to agree. h_z_consistent
         // surfaces sign agreement so callers see the (now-required) consistency. [behavioral change]
+        bool ch_h_mh_consistent = std::isfinite(dp.channel_h_z) && std::isfinite(dp.channel_h_mh_z)
+                                  && ((dp.channel_h_z >= 0.0f) == (dp.channel_h_mh_z >= 0.0f));
         bool ch_h_detected = dp.channel_h_valid &&
-            dp.channel_h_z > kOxChannelZDetect && dp.channel_h_z_p2plus > kOxChannelZDetect;
+            dp.channel_h_z > kOxChannelZDetect && dp.channel_h_z_p2plus > kOxChannelZDetect
+            && ch_h_mh_consistent;
         bool ch_h_z_consistent =
             (dp.channel_h_z >= 0.0f) == (dp.channel_h_z_p2plus >= 0.0f);
         bool ch_d_detected = std::abs(dp.ox_gt_asymmetry) > 0.01f;
@@ -2088,6 +2135,13 @@ void profile_to_json(const SampleDamageProfile& dp,
             j << "      \"z_deamination_shadow_in_denominator\": " << (s.shadow_in_z ? "true" : "false") << ",\n";
             j << "      \"inference_class\": \""
               << (s.inference_class == InferenceClass::STOP_CHANNEL ? "stop_channel" : "rate_only") << "\",\n";
+            // Correction 5: estimand metadata sourced from the registry (single source of truth) rather
+            // than hardcoded here. applicable_in_ss / inference_class are also read from the spec, so the
+            // emitter never re-decides what the registry already declares.
+            j << "      \"estimand\": \"" << s.estimand << "\",\n";
+            j << "      \"assumptions\": \"" << s.assumptions << "\",\n";
+            j << "      \"applicable_in_ss\": " << (s.applicable_in_ss ? "true" : "false") << ",\n";
+            j << "      \"emits_rate_only\": " << (s.inference_class == InferenceClass::RATE_ONLY ? "true" : "false") << ",\n";
         };
 
         // Channel F
@@ -2116,6 +2170,9 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"terminal_rate\": "; jfloat(dp.cg_stop_rate_terminal); j << ",\n";
         j << "      \"uniformity_ratio\": "; jfloat(dp.cg_uniformity_ratio); j << ",\n";
         j << "      \"z_score\": "; emit_z(dp.channel_g_z, dp.channel_g_valid); j << ",\n";
+        j << "      \"z_inference\": \"descriptive_not_calibrated_p_value\",\n";  // Correction 3 (label)
+        j << "      \"mh_z\": "; emit_z(dp.channel_g_mh_z, dp.channel_g_valid); j << ",\n";  // Correction 3: corrected context-stratified statistic
+        j << "      \"common_or\": "; jfloat(dp.channel_g_common_or); j << ",\n";
         j << "      \"odds_ratio\": " << nan_or(dp.channel_g_or) << "\n";  // P4: 2x2 Haldane-Anscombe OR (primary effect size)
         j << "    },\n";
 
@@ -2128,6 +2185,9 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"terminal_rate\": "; jfloat(dp.at_stop_rate_terminal); j << ",\n";
         j << "      \"uniformity_ratio\": "; jfloat(dp.at_uniformity_ratio); j << ",\n";
         j << "      \"z_score\": "; emit_z(dp.channel_h_z, dp.channel_h_valid); j << ",\n";
+        j << "      \"z_inference\": \"descriptive_not_calibrated_p_value\",\n";  // Correction 3 (label)
+        j << "      \"mh_z\": "; emit_z(dp.channel_h_mh_z, dp.channel_h_valid); j << ",\n";  // Correction 3: corrected context-stratified statistic
+        j << "      \"common_or\": "; jfloat(dp.channel_h_common_or); j << ",\n";
         j << "      \"z_score_p2plus\": "; emit_z(dp.channel_h_z_p2plus, dp.channel_h_valid); j << ",\n";
         j << "      \"z_consistent\": " << jbool(ch_h_z_consistent) << ",\n";
         j << "      \"odds_ratio\": " << nan_or(dp.channel_h_or) << "\n";  // P4: 2x2 Haldane-Anscombe OR (primary effect size)
