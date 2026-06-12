@@ -1256,6 +1256,10 @@ struct SampleDamageProfile {
     // output alongside pi; correct-axis replacement for the per-position Briggs λ on the ref-free path.
     DamageEstimate tau;
 
+    // Reference-free scission rate γ (bp⁻¹) from the fine fragment-length histogram.
+    // Set by finalize_scission; models the right tail as exp(−γ·(L−L_mode)).
+    ScissionEstimate scission;
+
     // Mixture model results (K-component EM over GC-stratified bins)
     int mixture_K = 0;                 // Number of classes selected by BIC
     int mixture_n_components = 0;      // Number of classes selected by BIC

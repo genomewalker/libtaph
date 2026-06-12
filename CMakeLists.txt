@@ -19,6 +19,7 @@ add_library(taph
     src/bulk_damage_model.cpp
     src/read_ancient_llr.cpp
     src/finalize_tau.cpp
+    src/finalize_scission.cpp
     src/damage_c_api.cpp
     src/length_stratified_profile.cpp
     src/log_length_gmm.cpp

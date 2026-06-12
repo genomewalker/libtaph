@@ -45,4 +45,10 @@ std::optional<double> read_ancient_llr(const ReadDamageObs& obs, const SampleDam
 // the ref-free path; finalize_tau runs before finalize_pi and gates it via state==DETECTED.
 DamageEstimate finalize_tau(const SampleDamageProfile& profile, const TauConfig& cfg = TauConfig{});
 
+// Reference-free scission rate γ (bp⁻¹): left-truncated exponential MLE over the right tail of the
+// fine fragment-length histogram (peak bin onwards). γ tracks molecular degradation; larger γ → shorter
+// molecules. CI from Fisher information (Wald 95%). Returns ScissionEstimate::fitted==false when the
+// tail is too sparse (< 3 non-empty tail bins or < 50 tail reads) or has zero excess (S ≤ 0).
+ScissionEstimate finalize_scission(const SampleDamageProfile& profile);
+
 } // namespace taph

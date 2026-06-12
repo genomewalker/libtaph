@@ -1915,6 +1915,26 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "  },\n";
     }
 
+    // ── Scission rate γ ───────────────────────────────────────────────────────
+    {
+        auto jn = [&](double v, int prec = 6) {
+            if (std::isfinite(v) && v >= 0.0) j << std::setprecision(prec) << v;
+            else                               j << "null";
+        };
+        const auto& sc = dp.scission;
+        j << "  \"scission\": {\n";
+        j << "    \"fitted\": "     << (sc.fitted ? "true" : "false") << ",\n";
+        j << "    \"gamma\": ";      jn(sc.gamma);     j << ",\n";
+        j << "    \"ci_lo\": ";      jn(sc.lo);        j << ",\n";
+        j << "    \"ci_hi\": ";      jn(sc.hi);        j << ",\n";
+        j << "    \"mean_length\": "; jn(sc.mean_length, 3); j << ",\n";
+        j << "    \"modal_length\": "; jn(sc.modal_length, 3); j << ",\n";
+        j << "    \"n_tail\": "     << sc.n_tail    << ",\n";
+        j << "    \"n_total\": "    << sc.n_total   << ",\n";
+        j << "    \"note\": \"gamma bp^-1 = exp(-gamma*(L-L_mode)) right-tail MLE; larger gamma -> shorter, more degraded DNA\"\n";
+        j << "  },\n";
+    }
+
     // ── Fragmentation / read-length structure ────────────────────────────────
     // Reference-free fragmentation is observable as the read-length distribution
     // and, secondarily, as the coupling between terminal-damage excess and read

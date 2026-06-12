@@ -41,4 +41,19 @@ struct TauConfig {
     double delta_floor = 0.015;       // censor floor for genuine-zero bins
 };
 
+// Reference-free scission rate γ (bp⁻¹): exp(−γ·(L−L_mode)) fit to the right tail of the fragment
+// length distribution. L_mode is the mean of the modal fine bin; the right tail is modelled as a
+// left-truncated exponential. γ is the molecular nick rate: larger γ → shorter, more degraded DNA.
+// MLE: γ = n_tail / Σ n_i·(x̄_i − L_mode).  SE (Fisher): γ / √n_tail.  CI: Wald 95%.
+struct ScissionEstimate {
+    double gamma        = -1.0;  // nick rate (bp⁻¹); −1 ⇒ not fitted
+    double lo           = -1.0;  // 95% CI lower (Wald)
+    double hi           = -1.0;  // 95% CI upper (Wald)
+    double mean_length  = -1.0;  // read-weighted mean fragment length (bp), all len_bins
+    double modal_length = -1.0;  // mean length of the peak fine bin (bp)
+    int64_t n_tail      = 0;     // reads in right tail used for γ (peak bin + bins after)
+    int64_t n_total     = 0;     // total reads across all fine len_bins
+    bool fitted         = false; // false if tail too sparse or S ≤ 0
+};
+
 } // namespace taph

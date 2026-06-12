@@ -28,7 +28,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     finalize_context(profile, ctx);
     finalize_libtype(profile, ctx);
     finalize_bulk(profile);
-    profile.tau = finalize_tau(profile);
+    profile.tau      = finalize_tau(profile);
+    profile.scission = finalize_scission(profile);
     finalize_pi(profile);
     finalize_dmax(profile, ctx);
     finalize_preservation(profile);
