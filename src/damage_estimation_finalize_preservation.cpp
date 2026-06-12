@@ -26,12 +26,17 @@ void finalize_preservation(SampleDamageProfile& profile) {
 
         // f_coh: mixture coherence — ancient subpop identifiable with real damage
         {
-            float mix_signal = 0.0f;
-            float trust = (profile.mixture_identifiable && profile.mixture_converged) ? 1.0f
-                        : (profile.mixture_identifiable || profile.mixture_converged)  ? 0.5f
-                        : 0.1f;
-            mix_signal = trust * profile.mixture_pi_ancient
-                       * sig((profile.mixture_d_ancient - 0.05f) / 0.03f);
+            // Length-coupling coherence from the VALIDATED bulk law (d_max + w_length),
+            // not the reference-free-non-identifiable mixture (which floors at H0 and
+            // leaked ~0.87-authentic at a true null). A genuine ancient subpopulation
+            // carries terminal damage (d_auth) whose mass DECREASES with read length
+            // (w_length high); w_length is the load-bearing discriminator — nulls cluster
+            // at 0.5, positives push toward 1 (SOLUTION_pi_delta_dmax.md §6). d_max here is
+            // already w_length-gated by finalize_dmax, so at a null both factors → ~0.
+            float d_auth = sig((profile.d_max_combined - 0.05f) / 0.03f);
+            float w_coupling = std::clamp(
+                (static_cast<float>(profile.bulk_damage.w_length) - 0.5f) / 0.4f, 0.0f, 1.0f);
+            float coh_signal = d_auth * w_coupling;
             // ds: penalise end-asymmetry, but use d_max_combined as floor so that
             // samples where bulk estimator zeroes d3 (noise/rescue limitation) are not
             // wrongly collapsed to near-zero symmetry.
@@ -43,7 +48,7 @@ void finalize_preservation(SampleDamageProfile& profile) {
             float sym = (is_ss || ds_3prime_censored) ? 1.0f
                 : std::exp(-std::abs(std::log((d5_sym + EPS)
                                              / (d3_sym + EPS))) / 0.7f);
-            profile.preservation_f_coh = std::sqrt(std::max(mix_signal, EPS) * std::max(sym, EPS));
+            profile.preservation_f_coh = std::sqrt(std::max(coh_signal, EPS) * std::max(sym, EPS));
         }
 
         // f_cpg: CpG age-bias; log2(CpG_dmax/nonCpG_dmax) > 1 = methyl-C deamination enriched.
@@ -73,12 +78,13 @@ void finalize_preservation(SampleDamageProfile& profile) {
 
         // Reliability gates (continuous — no hard cliffs)
         float g_N   = sig((std::log10(static_cast<float>(profile.n_reads) + 1.0f) - 2.7f) / 0.35f);
-        // When pi_ancient > 0.90 and EM converged, the mixture is essentially pure-ancient:
-        // identifiability criterion doesn't apply (no modern class to separate from).
-        bool effectively_pure_ancient = profile.mixture_converged && profile.mixture_pi_ancient > 0.90f;
-        float g_fit = (effectively_pure_ancient ||
-                       (profile.mixture_identifiable && profile.mixture_converged)) ? 1.0f
-                    : (profile.mixture_identifiable || profile.mixture_converged)    ? 0.5f
+        // Fit reliability from the VALIDATED bulk GLM (converged + valid), not the
+        // reference-free-non-identifiable mixture. The mixture's pure-ancient shortcut
+        // (pi>0.90) is dropped — it is exactly the H0 over-confidence we are removing
+        // (SOLUTION_pi_delta_dmax.md §6.6). bulk not attempted (<1000 reads) → both false
+        // → g_fit=0.15, consistent with g_N already gating low-read libraries.
+        float g_fit = (profile.bulk_damage.converged && profile.bulk_damage.valid) ? 1.0f
+                    : (profile.bulk_damage.converged || profile.bulk_damage.valid)  ? 0.5f
                     : 0.15f;
         float g_ox  = 1.0f;
         if (profile.ox_is_artifact)
@@ -106,11 +112,16 @@ void finalize_preservation(SampleDamageProfile& profile) {
             profile.preservation_label = PL::EXCEPTIONAL;
     }
 
-    // ── Bulk damage law (Phase 1): threshold-free δ(L) ────────────────────────
-    // Aggregate the fine fixed length bins (filled per-read in update_sample_profile)
-    // into ~equal-read adaptive length bins, map terminal counts to damage/control
-    // channels (ss/ds-aware), and fit the count-level binomial GLM. Reads len_bins
-    // (raw counts, untouched by the normalization above) and the final library_type.
+    // Lifecycle: mark finalized so re-entry is rejected (see SampleDamageProfile::finalized).
+    profile.finalized = true;
+}
+
+// Bulk damage law (own phase): threshold-free δ(L). Runs BEFORE finalize_dmax so the
+// d_max fallback and preservation authenticity can read w_length (the length-coupling
+// discriminator). Aggregates the fine fixed length bins into ~equal-read adaptive bins,
+// maps terminal counts to damage/control channels (ss/ds-aware), and fits the
+// count-level binomial GLM. Reads raw len_bins + final library_type; writes bulk_damage.
+void finalize_bulk(SampleDamageProfile& profile) {
     {
         const auto& LB = profile.len_bins;
         uint64_t n_total = 0;
@@ -234,10 +245,6 @@ void finalize_preservation(SampleDamageProfile& profile) {
             profile.bulk_damage = R;
         }
     }
-
-    // Lifecycle: mark finalized so re-entry is rejected (see SampleDamageProfile::finalized).
-    profile.finalized = true;
-
 }
 
 } // namespace taph

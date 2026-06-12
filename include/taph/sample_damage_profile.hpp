@@ -5,6 +5,7 @@
 #include "joint_damage_model.hpp"
 #include "mixture_damage_model.hpp"
 #include "bulk_damage_model.hpp"
+#include "damage_estimate.hpp"
 #include "channel_count_table.hpp"
 #include <string>
 #include <vector>
@@ -1242,6 +1243,18 @@ struct SampleDamageProfile {
     BulkDamageResult bulk_damage;
     double bulk_headline_delta = 0.0;  // read-weighted δ̂ over identified length bins
     bool   bulk_attempted = false;     // fit ran (>= 1 valid length bin)
+
+    // Validated reference-free ancient fraction (SOLUTION_pi_delta_dmax.md §6.3): pi_l = clip(δ_0 /
+    // D_MAX_CONSERVED) for the shortest live bin, w_length-gated, with a profile-likelihood CI. First-class
+    // contract output (point+CI+3-state); set by finalize_pi. Shadow-mode step 1 — coexists with the
+    // legacy mixture path, no consumer wired. The per-bin gradient stays available via bulk_damage.bins.
+    DamageEstimate pi;
+
+    // Reference-free length-decay constant τ (bp) of δ(L)≈A·exp(−L/τ), set by finalize_tau before
+    // finalize_pi. point/lo/hi are τ̂ and its 95% χ²-profile interval; state gates the pi consumer
+    // (DETECTED ⇒ fast terminal decay; pervasive artifact ⇒ τ→∞ ⇒ NOT_DETECTED). Shadow-mode contract
+    // output alongside pi; correct-axis replacement for the per-position Briggs λ on the ref-free path.
+    DamageEstimate tau;
 
     // Mixture model results (K-component EM over GC-stratified bins)
     int mixture_K = 0;                 // Number of classes selected by BIC

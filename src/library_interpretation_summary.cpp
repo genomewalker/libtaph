@@ -104,40 +104,30 @@ PreservationSummary compute_preservation_summary(
     double a3 = sat(static_cast<double>(dp.d_max_3prime), 0.05);
     double w5 = is_ss ? 1.0 : 2.0, w3 = is_ss ? 1.0 : 0.5;
 
-    double authenticity_eff;
-    if (dp.mixture_converged) {
-        double pi = clamp01(static_cast<double>(dp.mixture_pi_ancient));
-        authenticity_eff = clamp01(0.20 * a5 + 0.80 * pi);
-    } else {
-        authenticity_eff = clamp01((w5*a5 + w3*a3) / (w5 + w3));
-    }
+    // Terminal-rate authenticity (mixture-free): the reference-free mixture pi floored
+    // at H0, so its 0.80·pi branch reported ~0.87-authentic on true nulls. d_max is
+    // already w_length-gated by finalize_dmax (SOLUTION_pi_delta_dmax.md §6).
+    double authenticity_eff = clamp01((w5*a5 + w3*a3) / (w5 + w3));
     r.authenticity_eff = authenticity_eff;
 
     // authenticity_evidence
-    double mix_term = 0.0;
-    if (dp.mixture_converged && dp.mixture_identifiable) {
-        mix_term = sat(static_cast<double>(dp.mixture_d_ancient), 0.05) *
-                   clamp01(static_cast<double>(dp.mixture_pi_ancient));
-    }
     double cpg_cov = static_cast<double>(dp.effcov_ct5_cpg_like_terminal) +
                      static_cast<double>(dp.effcov_ct5_noncpg_like_terminal);
     double wcpg = cpg_cov / (cpg_cov + 2000.0);
 
     double z5e = z_evidence(static_cast<double>(dp.terminal_z_5prime));
     double z3e = is_ss ? 0.0 : z_evidence(static_cast<double>(dp.terminal_z_3prime));
-    double mix_e = 0.0;
-    if (dp.mixture_converged && dp.mixture_identifiable) {
-        mix_e = mix_term;
-    } else if (dp.mixture_converged) {
-        double mix_mag = sat(static_cast<double>(dp.mixture_d_ancient), 0.05) *
-                         clamp01(static_cast<double>(dp.mixture_pi_ancient));
-        mix_e = 0.5 * mix_mag;
-    }
+    // bulk authenticity evidence: validated terminal magnitude × length-coupling
+    // (w_length), replacing the reference-free-non-identifiable mixture term (which
+    // floored at H0). w_length maps 0.5→0 (null cluster) … 0.9→1 (SOLUTION §6).
+    double w_coupling = std::clamp(
+        (static_cast<double>(dp.bulk_damage.w_length) - 0.5) / 0.4, 0.0, 1.0);
+    double bulk_e = sat(static_cast<double>(dp.d_max_combined), 0.05) * w_coupling;
     double cpg_e = wcpg * z_evidence(std::max(0.0, cpg_score_z), 5.0);
-    double wmix_e = dp.mixture_converged ? 1.0 : 0.0;
-    double auth_n_terms = 1.0 + (is_ss ? 0.0 : 1.0) + wmix_e + wcpg;
+    double wbulk_e = dp.bulk_attempted ? 1.0 : 0.0;
+    double auth_n_terms = 1.0 + (is_ss ? 0.0 : 1.0) + wbulk_e + wcpg;
     r.authenticity_evidence = (auth_n_terms > 1e-9)
-        ? clamp01((z5e + z3e + mix_e + cpg_e) / auth_n_terms)
+        ? clamp01((z5e + z3e + bulk_e + cpg_e) / auth_n_terms)
         : 0.0;
 
     // Oxidation-like signal: reference-free, length/GC-stratified composition

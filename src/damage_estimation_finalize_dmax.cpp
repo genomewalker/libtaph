@@ -323,15 +323,22 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
                 profile.d_max_combined = std::max(raw_d_max_5prime, raw_d_max_3prime);
                 profile.d_max_source = SampleDamageProfile::DmaxSource::MAX_SS_ASYMMETRY;
             } else {
-                // ds libraries: avoid Channel A's compositional false positives.
-                // If the GC-stratified mixture is identifiable and finds a real
-                // ancient subpopulation, prefer its estimate over zeroing.
-                if (profile.mixture_converged && profile.mixture_identifiable &&
-                    profile.mixture_d_ancient > 0.02f) {
+                // ds libraries: Channel A's terminal C→T carries compositional false
+                // positives UNLESS it is length-coupled. Gate on w_length (the validated
+                // length-coupling discriminator: genuine deamination falls with read length,
+                // a pervasive compositional artifact is flat). When length-coupled, report
+                // the validated 5' terminal rate; otherwise leave d_max undetermined (NONE)
+                // rather than fabricate one from the GC mixture — which floors at the null
+                // (E[d]>0 at H0) and is dominated by the terminal rate (r=0.76 vs 0.90).
+                // Threshold 0.6 (not 0.5): null libraries cluster at w_length≈0.5
+                // (SOLUTION_pi_delta_dmax.md), and this is the low-confidence regime
+                // (not damage_validated, joint p_damage≤0.5) where 'undetermined' is the
+                // safe bias over a possibly-compositional terminal rate.
+                if (profile.bulk_damage.w_length > 0.6f && raw_d_max_5prime > 0.01f) {
                     profile.d_max_5prime = raw_d_max_5prime;
                     profile.d_max_3prime = raw_d_max_3prime;
-                    profile.d_max_combined = profile.mixture_d_population;
-                    profile.d_max_source = SampleDamageProfile::DmaxSource::AVERAGE;
+                    profile.d_max_combined = raw_d_max_5prime;
+                    profile.d_max_source = SampleDamageProfile::DmaxSource::FIVE_PRIME_ONLY;
                 } else {
                     profile.d_max_5prime = 0.0f;
                     profile.d_max_3prime = 0.0f;

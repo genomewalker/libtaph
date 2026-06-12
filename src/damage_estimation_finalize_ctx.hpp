@@ -15,6 +15,8 @@ void finalize_decay       (SampleDamageProfile&, FinalCtx&);
 void finalize_oxidation   (SampleDamageProfile&, const FinalCtx&);
 void finalize_context     (SampleDamageProfile&, FinalCtx&);
 void finalize_libtype     (SampleDamageProfile&, const FinalCtx&);
+void finalize_bulk        (SampleDamageProfile&);
+void finalize_pi          (SampleDamageProfile&);  // validated reference-free pi (read_ancient_llr.cpp)
 void finalize_dmax        (SampleDamageProfile&, const FinalCtx&);
 void finalize_preservation(SampleDamageProfile&);
 } // namespace taph

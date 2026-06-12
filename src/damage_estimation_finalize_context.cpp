@@ -432,6 +432,14 @@ void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
         const float fb5   = (bg5 >= 0.0f) ? bg5 : -1.0f;
         const float fb3   = (bg3 >= 0.0f) ? bg3 : -1.0f;
 
+        // DELETED-REF-FREE-PATH (kept): estimate_briggs_params fits the per-POSITION λ (wrong axis for the
+        // bulk/length law — finalize_tau now owns the correct READ-LENGTH decay τ on the ref-free path).
+        // It is NOT deleted because profile.lambda_5prime/3prime it writes here are SHARED with legacy
+        // consumers (damage_c_api, library_interpretation_summary, llr_table, finalize_dmax) AND with the
+        // ref-free per-read LLR decay (read_ancient_llr.cpp). The ref-free GATE no longer depends on this
+        // (finalize_pi gates on tau.state), but the per-read decay constant still does; nulling λ here
+        // would silently change every legacy path. Removing it requires migrating read_ancient_llr to a
+        // τ-derived per-read decay first — out of scope for the additive τ step.
         estimate_briggs_params(profile.damage_rate_5prime, profile.max_damage_5prime,
                                start5, fb5,
                                profile.delta_s_5prime, profile.delta_d_5prime,

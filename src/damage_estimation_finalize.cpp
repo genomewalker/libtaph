@@ -15,6 +15,7 @@
 #include <vector>
 #include "damage_estimation_finalize_ctx.hpp"
 #include "taph/frame_selector_decl.hpp"
+#include "taph/read_ancient_llr.hpp"  // finalize_tau
 
 namespace taph {
 
@@ -26,6 +27,9 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     finalize_oxidation(profile, ctx);
     finalize_context(profile, ctx);
     finalize_libtype(profile, ctx);
+    finalize_bulk(profile);
+    profile.tau = finalize_tau(profile);
+    finalize_pi(profile);
     finalize_dmax(profile, ctx);
     finalize_preservation(profile);
 }

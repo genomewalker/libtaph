@@ -258,6 +258,13 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    },\n";
     const bool mix_gc_identified = dp.mixture_identifiable && dp.mixture_converged;
     j << "    \"mixture_gc\": {\n";
+    // DEPRECATED diagnostic (SOLUTION_pi_delta_dmax.md §6.6): the reference-free GC mixture
+    // is non-identifiable (β=π·A) and FLOORS at H0 (E[d_ancient]>0 at a true null). It no
+    // longer feeds any libtaph verdict — authenticity/preservation now use the validated
+    // d_max+w_length bulk law. Retained only to regenerate the r=0.76-vs-0.90 audit that
+    // justified choosing δ over the mixture. DO NOT consume d_ancient/pi_ancient downstream.
+    j << "      \"deprecated\": true,\n";
+    j << "      \"note\": \"non-identifiable reference-free; floors at H0; superseded by bulk_damage pi (w_length-gated)\",\n";
     j << "      \"status\": \"" << (mix_gc_identified ? "identified" : "undetermined") << "\",\n";
     if (mix_gc_identified) {
         j << "      \"d_ancient\": " << dp.mixture_d_ancient << ",\n";
@@ -1878,6 +1885,32 @@ void profile_to_json(const SampleDamageProfile& dp,
         }
         if (!bd.bins.empty()) j << "\n    ";
         j << "]\n";
+        j << "  },\n";
+    }
+
+    // ── Tau discriminator (provisional shadow field) ─────────────────────────
+    // Length-decay constant τ (bp): fits δ_l(L)=A·exp(−L/τ) via 1-D chi²-profile over
+    // CI-significant bins. Replaces the broken w_length gate. PROVISIONAL — 35/80 bp
+    // thresholds calibrated on n=3 labeled libraries; T5 (cohort+covariate) is outstanding.
+    // read_ancient_llr returns nullopt in ref-free mode (Briggs λ unfitted); per-read
+    // LLR scoring is disabled until a τ-derived per-read kernel exists.
+    {
+        auto jn = [&](double v, int prec = 4) {
+            if (std::isfinite(v) && v >= 0.0) j << std::setprecision(prec) << v;
+            else                               j << "null";
+        };
+        const auto& tau = dp.tau;
+        const char* tau_state_str =
+            (tau.state == DamageConfidence::DETECTED)     ? "DETECTED" :
+            (tau.state == DamageConfidence::NOT_DETECTED) ? "NOT_DETECTED" :
+                                                            "UNDETERMINED";
+        j << "  \"tau_discriminator\": {\n";
+        j << "    \"provisional\": true,\n";
+        j << "    \"point\": "; jn(tau.point); j << ",\n";
+        j << "    \"ci_lo\": ";  jn(tau.lo);   j << ",\n";
+        j << "    \"ci_hi\": ";  jn(tau.hi);   j << ",\n";
+        j << "    \"state\": \"" << tau_state_str << "\",\n";
+        j << "    \"note\": \"tau_hi>=400 means profile is flat (tau unidentified); tau_hi in [35,80] means slow-decay artifact-risk\"\n";
         j << "  },\n";
     }
 
