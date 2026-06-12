@@ -1911,7 +1911,12 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"ci_lo\": ";  jn(tau.lo);   j << ",\n";
         j << "    \"ci_hi\": ";  jn(tau.hi);   j << ",\n";
         j << "    \"state\": \"" << tau_state_str << "\",\n";
-        j << "    \"note\": \"tau_hi>=400 means profile is flat (tau unidentified); tau_hi in [35,80] means slow-decay artifact-risk\"\n";
+        j << "    \"f0\": ";               jn(tau.f0);                j << ",\n";
+        j << "    \"amplitude\": ";        jn(tau.amplitude);         j << ",\n";
+        j << "    \"overhang_fraction\": "; jn(tau.overhang_fraction); j << ",\n";
+        j << "    \"overhang_ci_lo\": ";   jn(tau.overhang_lo);       j << ",\n";
+        j << "    \"overhang_ci_hi\": ";   jn(tau.overhang_hi);       j << ",\n";
+        j << "    \"note\": \"tau = overhang e-fold (bp); f0 = pervasive floor; overhang_fraction = A/(A+f0) boundary-robust gate\"\n";
         j << "  },\n";
     }
 

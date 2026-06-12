@@ -21,24 +21,35 @@ constexpr double W_LENGTH_GATE = 0.6;
 enum class DamageConfidence { DETECTED, NOT_DETECTED, UNDETERMINED };
 
 // Gated ancient-fraction estimate: point + 95% interval + state. point/lo/hi == -1 ⇒ not set.
+// For profile.tau, point/lo/hi carry τ̂ and its 95% χ²-profile CI; the floor-model decomposition
+// {f0, amplitude, overhang_fraction} is populated by finalize_tau alongside τ (default −1 if not fitted).
 struct DamageEstimate {
     double point = -1.0;
     double lo    = -1.0;
     double hi    = -1.0;
     DamageConfidence state = DamageConfidence::UNDETERMINED;
+
+    // Floor-model extension: δ(L) = f0 + amplitude·exp(−L/τ). Both non-negative. Populated by
+    // finalize_tau; −1 when only 1 live bin available or no data. overhang_fraction = A/(A+f0) is
+    // the boundary-robust gate statistic (does not blow up when long-read bins touch δ=0).
+    double f0                = -1.0;  // pervasive length-independent C→T floor
+    double amplitude         = -1.0;  // overhang component amplitude A
+    double overhang_fraction = -1.0;  // A/(A+f0); 1.0 = pure overhang, 0.0 = pure pervasive
+    double overhang_lo       = -1.0;  // 95% CI lower (delta method; −1 when projected to boundary)
+    double overhang_hi       = -1.0;  // 95% CI upper
 };
 
-// Reference-free length-decay constant τ (bp): the e-folding length of the per-bin terminal-deamination
-// amplitude δ(L) ≈ A·exp(−L/τ). Genuine terminal damage decays fast (small τ); a pervasive per-base
-// artifact gives δ flat-or-rising in L (τ→∞). finalize_tau profiles χ²(τ) over a 1-D grid via closed-form
-// WLS on the live (identified, positive, non-boundary) length bins, with genuine-zero bins censored at a
-// floor. The hi edge of the 95% CI {τ : χ²(τ)−χ²min ≤ 3.84} drives the 3-state gate.
+// Reference-free length-decay constant τ (bp): the e-folding length of the overhang component of
+// δ(L) = f0 + A·exp(−L/τ). finalize_tau profiles χ²(τ) over a 1-D grid via closed-form 2-param WLS
+// on live bins (f0 and A jointly optimised at each τ, constrained ≥ 0). The hi edge of the 95% CI
+// {τ : χ²(τ)−χ²min ≤ 3.84} drives the 3-state gate; overhang_fraction is the boundary-robust supplement.
 struct TauConfig {
-    double tau_max_detected = 35.0;   // hi < this → DETECTED
+    double tau_max_detected     = 35.0;   // tau_hi < this → DETECTED
     double tau_max_undetermined = 80.0;
-    double a_min = 0.04;              // amplitude Σδ floor
-    int min_live_bins = 3;            // bins with CI excluding 0
-    double delta_floor = 0.015;       // censor floor for genuine-zero bins
+    double a_min                = 0.04;   // amplitude Σδ floor (checked against A+f0)
+    int    min_live_bins        = 3;      // bins with CI excluding 0
+    double delta_floor          = 0.015;  // censor floor for genuine-zero bins
+    double overhang_fraction_min = 0.10;  // minimum overhang_fraction for finalize_pi gate
 };
 
 // Reference-free scission rate γ (bp⁻¹): exp(−γ·(L−L_mode)) fit to the right tail of the fragment

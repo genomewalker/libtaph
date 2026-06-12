@@ -1,21 +1,21 @@
-// Reference-free length-decay constant τ of the per-bin terminal-deamination amplitude δ(L)≈A·exp(−L/τ).
+// Reference-free length-decay constant τ and floor-model decomposition for δ(L) = f0 + A·exp(−L/τ).
 //
-// The per-position Briggs λ (estimate_briggs_params) fits decay along READ POSITION p — the wrong axis for
-// the bulk/length-stratified law, where the discriminating signal is how the per-bin amplitude δ_l falls
-// with READ LENGTH L. Genuine terminal deamination occupies a fixed terminal zone, so δ(L) decays fast
-// (small τ); a pervasive per-base/whole-molecule artifact keeps δ flat-or-rising in L (τ→∞). finalize_tau
-// profiles χ²(τ) over a 1-D grid via closed-form WLS on the live bins, censoring genuine-zero bins at a
-// floor, and reads τ̂ + its 95% χ²-profile interval. NO external deps (pure std), NO Eigen.
+// Model: terminal C→T excess has two additive components:
+//   - Overhang (ss-overhang deamination): end-concentrated, length-dependent: A·exp(−L/τ). Small τ → fast
+//     decay with read length → genuine terminal deamination mechanism.
+//   - Pervasive floor (bulk hydrolysis/oxidation): length-independent baseline f0 ≥ 0. f0>0 indicates
+//     in-duplex deamination accumulated over burial time.
 //
-// Live bin    : profile CI at Δℓ=−0.5 excludes zero, i.e. loglik(δ=0) < peak_loglik − 0.5.
-//               Uses the profile-peak δ (not b.delta) to avoid point-estimate artefacts.
-// Censored bin: boundary-peaked (peak at grid 0) ∧ loglik[1] < −1.0 (genuine zero).
-// Uninformative: CI straddles zero but not a genuine zero → dropped silently.
-// NOTE: the `identified` flag is intentionally NOT used here — it is an estimator-health boolean,
-//   not an observation model, and silently changes τ by excluding flat-tail bins that should
-//   instead be treated as genuinely uninformative via the CI criterion.
-// Per-live weight w_l = 1/se², se = half-width of the δ profile-likelihood interval at Δℓ = −0.5
-//   (se=0 → grid-resolution floor 0.015).
+// At each τ in [10, 400] the optimal {f0, A} is found via closed-form 2-param WLS (non-negativity
+// constrained). χ²(τ) = Σ w_l·(δ_l − f0 − A·exp(−mid_l/τ))² + censor terms. Profile CI on τ is the
+// set {τ : χ²(τ) − χ²_min ≤ 3.84} (1-DOF; f0 and A are profiled out).
+//
+// Outputs in DamageEstimate.tau: τ̂ + 95% CI, state, AND {f0, amplitude, overhang_fraction} with
+// delta-method CI for overhang_fraction = A/(A+f0).
+//
+// Live bin    : profile CI at Δℓ=−0.5 excludes zero (pl.front() < pl[peak] − 0.5).
+// Censored bin: boundary-peaked ∧ loglik[1] < −1.0 (genuine zero).
+// Uninformative: CI straddles zero but not a genuine zero → dropped.
 
 #include <algorithm>
 #include <cmath>
@@ -29,8 +29,6 @@ namespace taph {
 
 namespace {
 
-// Half-width of the δ profile-likelihood interval at Δℓ = −0.5, around the curve's peak. Linear
-// interpolation of the two crossings; rails to the grid edge where the curve does not cross.
 double profile_se(const BulkDamagePerBin& b, std::size_t peak) {
     const auto& g = b.profile_delta;
     const auto& l = b.profile_loglik;
@@ -55,22 +53,55 @@ double profile_se(const BulkDamagePerBin& b, std::size_t peak) {
     return 0.5 * (hi - lo);
 }
 
-struct LiveBin {
-    double mid;     // (length_lo + length_hi)/2
-    double delta;
-    double w;       // 1/se²
-};
+struct LiveBin { double mid, delta, w; };
+
+// 2-param non-negative-constrained WLS: δ = f0 + A·x, x = exp(-mid/tau).
+// Returns {f0, A} — both guaranteed ≥ 0.
+struct FloorFit { double f0, A; };
+
+FloorFit wls2(const std::vector<LiveBin>& live, double tau) {
+    double sw = 0.0, swx = 0.0, swxx = 0.0, swy = 0.0, swxy = 0.0;
+    for (const auto& b : live) {
+        const double x = std::exp(-b.mid / tau);
+        sw   += b.w;
+        swx  += b.w * x;
+        swxx += b.w * x * x;
+        swy  += b.w * b.delta;
+        swxy += b.w * x * b.delta;
+    }
+    const double det = sw * swxx - swx * swx;
+    double f0, A;
+    if (det > 0.0) {
+        f0 = (swxx * swy  - swx  * swxy) / det;
+        A  = (sw   * swxy - swx  * swy ) / det;
+    } else {
+        // Collinear regressors (1 live bin or τ→∞): fall back to 1-param
+        f0 = 0.0;
+        A  = swxx > 0.0 ? swxy / swxx : 0.0;
+    }
+    // Non-negative projection (constrained WLS on boundary of ℝ²₊)
+    if (f0 < 0.0 && A >= 0.0) {
+        f0 = 0.0;
+        A  = swxx > 0.0 ? swxy / swxx : 0.0;
+    } else if (f0 >= 0.0 && A < 0.0) {
+        A  = 0.0;
+        f0 = sw > 0.0 ? swy / sw : 0.0;
+    } else if (f0 < 0.0 && A < 0.0) {
+        f0 = 0.0; A = 0.0;
+    }
+    return {f0, A};
+}
 
 }  // namespace
 
 DamageEstimate finalize_tau(const SampleDamageProfile& profile, const TauConfig& cfg) {
-    DamageEstimate out;  // default UNDETERMINED, point/lo/hi = −1
+    DamageEstimate out;
     if (!profile.bulk_attempted) return out;
 
     const BulkDamageResult& R = profile.bulk_damage;
 
     std::vector<LiveBin> live;
-    std::vector<double>  censored;   // mid lengths of genuine-zero bins
+    std::vector<double>  censored;
     for (const auto& b : R.bins) {
         const auto& pl = b.profile_loglik;
         const auto& pd = b.profile_delta;
@@ -83,47 +114,36 @@ DamageEstimate finalize_tau(const SampleDamageProfile& profile, const TauConfig&
         const double mid = 0.5 * (static_cast<double>(b.length_lo) + static_cast<double>(b.length_hi));
 
         if (pl.front() < pl[peak] - 0.5) {
-            // CI at Δℓ=−0.5 excludes zero → live bin. Use profile-peak δ, not b.delta.
             double se = profile_se(b, peak);
             if (se <= 0.0) se = 0.015;
             live.push_back({mid, pd[peak], 1.0 / (se * se)});
         } else if (peak == 0 && pl[1] < -1.0) {
-            // Boundary-peaked with steep loglik drop → genuine zero, censor.
             censored.push_back(mid);
         }
-        // else: CI straddles zero, not a genuine zero → uninformative, drop.
     }
 
-    // No live bin carries a positive, non-boundary δ → no terminal-decay signal to fit. This is the
-    // amplitude-fail verdict (0 live bins < min_live_bins, Σδ=0 < a_min), so NOT_DETECTED, not the default
-    // UNDETERMINED. (FLB10m: position-0-only artifact, every δ_l rails to 0.)
     if (live.empty()) {
         out.state = DamageConfidence::NOT_DETECTED;
         return out;
     }
 
-    const double df = cfg.delta_floor;
+    const double df       = cfg.delta_floor;
     const double w_censor = 1.0 / (df * df);
 
     double best_tau = 0.0, best_chi2 = 0.0;
     bool   have_best = false;
-    std::vector<std::pair<double, double>> curve;  // (τ, χ²)
+    std::vector<std::pair<double, double>> curve;
+
     for (double tau = 10.0; tau <= 400.0 + 1e-9; tau += 1.0) {
-        double sxd = 0.0, sxx = 0.0;
-        for (const auto& b : live) {
-            const double x = std::exp(-b.mid / tau);
-            sxd += b.w * x * b.delta;
-            sxx += b.w * x * x;
-        }
-        const double A = sxx > 0.0 ? sxd / sxx : 0.0;
+        const auto [f0, A] = wls2(live, tau);
 
         double chi2 = 0.0;
         for (const auto& b : live) {
-            const double r = b.delta - A * std::exp(-b.mid / tau);
+            const double r = b.delta - f0 - A * std::exp(-b.mid / tau);
             chi2 += b.w * r * r;
         }
         for (double mid : censored) {
-            const double pred = A * std::exp(-mid / tau);
+            const double pred = f0 + A * std::exp(-mid / tau);
             if (pred > df) {
                 const double r = pred - df;
                 chi2 += w_censor * r * r;
@@ -141,9 +161,10 @@ DamageEstimate finalize_tau(const SampleDamageProfile& profile, const TauConfig&
         }
     }
 
-    double amp = 0.0;
-    for (const auto& b : live) amp += b.delta;
-    const bool amplitude_ok = amp > cfg.a_min &&
+    // Amplitude check uses total δ capacity (A+f0 at the best-τ solution)
+    const auto [f0_hat, A_hat] = wls2(live, best_tau);
+    const double total_amp = A_hat + f0_hat;
+    const bool amplitude_ok = total_amp > cfg.a_min &&
                               static_cast<int>(live.size()) >= cfg.min_live_bins;
 
     out.point = best_tau;
@@ -158,7 +179,50 @@ DamageEstimate finalize_tau(const SampleDamageProfile& profile, const TauConfig&
     } else {
         out.state = DamageConfidence::NOT_DETECTED;
     }
+
+    // Floor decomposition at best_tau
+    out.f0        = f0_hat;
+    out.amplitude = A_hat;
+
+    if (total_amp > 0.0) {
+        out.overhang_fraction = A_hat / total_amp;
+
+        // Delta-method CI on overhang_fraction when both components are positive (unconstrained interior).
+        // Cov(f0,A) = [[S_wxx, -S_wx], [-S_wx, S_w]] / det  (exact WLS covariance, weights = 1/se²).
+        // Var(r) = [f0²·S_w + 2·A·f0·S_wx + A²·S_wxx] / (det·(A+f0)⁴).
+        if (f0_hat > 0.0 && A_hat > 0.0) {
+            double sw = 0.0, swx = 0.0, swxx = 0.0;
+            for (const auto& b : live) {
+                const double x = std::exp(-b.mid / best_tau);
+                sw   += b.w;
+                swx  += b.w * x;
+                swxx += b.w * x * x;
+            }
+            const double det4  = sw * swxx - swx * swx;
+            const double tot2  = total_amp * total_amp;
+            const double var_r = (f0_hat * f0_hat * sw
+                                + 2.0 * A_hat * f0_hat * swx
+                                + A_hat * A_hat * swxx)
+                               / (det4 * tot2 * tot2);
+            if (var_r >= 0.0) {
+                const double se_r = std::sqrt(var_r);
+                out.overhang_lo = std::max(0.0, out.overhang_fraction - 1.96 * se_r);
+                out.overhang_hi = std::min(1.0, out.overhang_fraction + 1.96 * se_r);
+            }
+        }
+        // When projected to boundary: f0=0 → overhang_fraction=1 (pure overhang, no CI needed for gate);
+        //                             A=0  → overhang_fraction=0 (pure floor, gate will correctly fail).
+    }
+
+    // Secondary gate upgrade: promote UNDETERMINED → DETECTED when overhang is dominant (τ was pushed
+    // past 35 by the 1-param model's f0 bias; now that f0 is separated, high overhang_fraction is the
+    // reliable signal even when τ is moderate).
+    if (out.state == DamageConfidence::UNDETERMINED &&
+        out.overhang_fraction >= cfg.overhang_fraction_min) {
+        out.state = DamageConfidence::DETECTED;
+    }
+
     return out;
 }
 
-}  // namespace taph
+} // namespace taph
