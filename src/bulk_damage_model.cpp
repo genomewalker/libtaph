@@ -398,6 +398,10 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s) {
         auto& B = R.bins[l];
         B.median_len = l < static_cast<int>(s.median_len.size()) ? s.median_len[l] : 0.0;
         B.delta = P.delta[l];
+        {
+            const uint64_t ni = s.n_interior[l][0], ki = s.k_interior[l][0];
+            B.interior_baseline = ni > 0 ? static_cast<double>(ki) / static_cast<double>(ni) : 0.0;
+        }
         bool is_live = std::find(live.begin(), live.end(), l) != live.end();
         if (!is_live) continue;
 

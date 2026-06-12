@@ -1848,6 +1848,7 @@ void profile_to_json(const SampleDamageProfile& dp,
               << ", \"median_len\": "; jn(bb.median_len, 4);
             j << ", \"n_reads\": "    << bb.n_reads
               << ", \"delta\": ";     jn(bb.delta);
+            j << ", \"interior_baseline\": "; jn(bb.interior_baseline, 6);
             j << ", \"delta_auth\": "; jn(bb.delta * bd.w_length);
             j << ", \"identified\": " << (bb.identified ? "true" : "false")
               << ", \"borrowed\": "   << (bb.borrowed ? "true" : "false");

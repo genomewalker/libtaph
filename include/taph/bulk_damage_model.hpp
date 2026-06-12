@@ -106,6 +106,7 @@ struct BulkDamagePerBin {
     int64_t n_reads = 0;
 
     double delta = 0.0;            // δ̂_l (isotonic non-increasing MLE; δ_{Lmax}=0 anchor)
+    double interior_baseline = 0.0; // g_l: raw interior C→T rate (k_int/n_int); δ_l = terminal_rate − g_l
     bool   identified = false;     // δ̂_l estimated independently (singleton PAVA block)
     bool   borrowed = false;       // PAVA pooled with at least one neighbour (block_size > 1)
 
