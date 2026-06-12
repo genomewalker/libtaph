@@ -51,4 +51,13 @@ DamageEstimate finalize_tau(const SampleDamageProfile& profile, const TauConfig&
 // tail is too sparse (< 3 non-empty tail bins or < 50 tail reads) or has zero excess (S ≤ 0).
 ScissionEstimate finalize_scission(const SampleDamageProfile& profile);
 
+// Asymmetric leakage control ε from interior Chargaff contrast T/(T+G)−A/(A+C).
+// ε ≈ 0 for pooled-DS symmetric damage (oxidation); large |ε_term| identifies C→T contamination.
+EpsilonEstimate finalize_epsilon(const SampleDamageProfile& profile);
+
+// Reference-free GC→AT depletion pressure σ₀ = T/(T+G)+A/(A+C)−1 from pooled interior counts.
+// σ₀ carries both oxidation signal and composition baseline (GC-rich → σ₀<0; AT-rich → σ₀>0).
+// Always emit alongside gc_interior for downstream residualization. length_slope is a confound QC.
+OxidationEstimate finalize_sigma(const SampleDamageProfile& profile);
+
 } // namespace taph

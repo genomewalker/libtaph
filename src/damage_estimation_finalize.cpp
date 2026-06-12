@@ -30,6 +30,39 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     finalize_bulk(profile);
     profile.tau      = finalize_tau(profile);
     profile.scission = finalize_scission(profile);
+    profile.epsilon  = finalize_epsilon(profile);
+    profile.oxidation = finalize_sigma(profile);
+
+    // Layer-1 burial fingerprint: Θ = ln(γ/f0), φ_share = σ₀/(σ₀+f0)
+    {
+        const auto& sc  = profile.scission;
+        const auto& tau = profile.tau;
+        const auto& ox  = profile.oxidation;
+        BurialFingerprint bf;
+        if (sc.fitted && sc.gamma > 0.0 && tau.f0 > 0.0) {
+            bf.theta = std::log(sc.gamma / tau.f0);
+            if (sc.hi > sc.lo) {
+                const double se_gamma = 0.5 * (sc.hi - sc.lo) / 1.96;
+                const double se_f0    = 0.05 * tau.f0;
+                const double se_theta = std::sqrt((se_gamma / sc.gamma) * (se_gamma / sc.gamma)
+                                                + (se_f0 / tau.f0)     * (se_f0 / tau.f0));
+                bf.theta_lo = bf.theta - 1.96 * se_theta;
+                bf.theta_hi = bf.theta + 1.96 * se_theta;
+            }
+            bf.fitted = true;
+        }
+        bf.overhang_fraction = tau.overhang_fraction;
+        bf.tau_hat           = tau.point;
+        // phi_share = σ₀/(σ₀+f0): upper bound on oxidation fraction (σ₀ includes composition).
+        // Requires f0 > 0.005: when f0≈0 (pure-overhang library) the ratio is uninformative
+        // (σ₀ then reflects only composition baseline, not a damage balance).
+        if (ox.fitted && ox.sigma0 > 0.0 && tau.f0 > 0.005) {
+            const double denom = ox.sigma0 + tau.f0;
+            bf.phi_share = denom > 0.0 ? ox.sigma0 / denom : -1.0;
+        }
+        profile.burial = bf;
+    }
+
     finalize_pi(profile);
     finalize_dmax(profile, ctx);
     finalize_preservation(profile);

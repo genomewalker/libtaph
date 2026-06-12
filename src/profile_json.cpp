@@ -1940,6 +1940,67 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "  },\n";
     }
 
+    // ── Asymmetric leakage control ε (null check for symmetric oxidation) ───────
+    {
+        auto jn = [&](double v, int prec = 6) {
+            if (std::isfinite(v)) j << std::setprecision(prec) << v;
+            else                  j << "null";
+        };
+        const auto& ep = dp.epsilon;
+        j << "  \"oxidation_epsilon\": {\n";
+        j << "    \"fitted\": "        << (ep.fitted ? "true" : "false") << ",\n";
+        j << "    \"epsilon\": ";       jn(ep.epsilon_floor);  j << ",\n";
+        j << "    \"ci_lo\": ";         jn(ep.epsilon_lo);     j << ",\n";
+        j << "    \"ci_hi\": ";         jn(ep.epsilon_hi);     j << ",\n";
+        j << "    \"epsilon_term\": ";  jn(ep.epsilon_term);   j << ",\n";
+        j << "    \"n_bins\": "        << ep.n_bins            << ",\n";
+        j << "    \"note\": \"ASYMMETRIC leakage control: epsilon=T/(T+G)-A/(A+C) cancels symmetric oxidation by construction; epsilon~0 expected for 8-oxoG; |epsilon_term|>>0 flags C->T contamination\"\n";
+        j << "  },\n";
+    }
+
+    // ── GC→AT depletion pressure σ (symmetric oxidation channel) ─────────────
+    {
+        auto jn = [&](double v, int prec = 6) {
+            if (std::isfinite(v)) j << std::setprecision(prec) << v;
+            else                  j << "null";
+        };
+        auto jnu = [&](uint64_t v) { j << v; };
+        const auto& ox = dp.oxidation;
+        j << "  \"oxidation\": {\n";
+        j << "    \"fitted\": "           << (ox.fitted ? "true" : "false") << ",\n";
+        j << "    \"sigma0\": ";           jn(ox.sigma0);          j << ",\n";
+        j << "    \"sigma0_se\": ";        jn(ox.sigma0_se);       j << ",\n";
+        j << "    \"gc_interior\": ";      jn(ox.gc_interior);     j << ",\n";
+        j << "    \"sigma_term\": ";       jn(ox.sigma_term);      j << ",\n";
+        j << "    \"sigma_long\": ";       jn(ox.sigma_long);      j << ",\n";
+        j << "    \"delta_sigma\": ";      jn(ox.delta_sigma);     j << ",\n";
+        j << "    \"length_slope\": ";     jn(ox.length_slope);    j << ",\n";
+        j << "    \"length_slope_se\": ";  jn(ox.length_slope_se); j << ",\n";
+        j << "    \"n_bins\": "           << ox.n_bins             << ",\n";
+        j << "    \"n_counts\": ";         jnu(ox.n_counts);       j << ",\n";
+        j << "    \"note\": \"SYMMETRIC: sigma0=T/(T+G)+A/(A+C)-1 carries oxidation+composition; residualize against gc_interior across samples for oxidation component; length_slope is confound QC (expect~0)\"\n";
+        j << "  },\n";
+    }
+
+    // ── Layer-1 burial fingerprint ────────────────────────────────────────────
+    {
+        auto jn = [&](double v, int prec = 6) {
+            if (std::isfinite(v)) j << std::setprecision(prec) << v;
+            else                  j << "null";
+        };
+        const auto& bf = dp.burial;
+        j << "  \"burial_fingerprint\": {\n";
+        j << "    \"fitted\": "             << (bf.fitted ? "true" : "false") << ",\n";
+        j << "    \"theta\": ";              jn(bf.theta);              j << ",\n";
+        j << "    \"theta_ci_lo\": ";        jn(bf.theta_lo);           j << ",\n";
+        j << "    \"theta_ci_hi\": ";        jn(bf.theta_hi);           j << ",\n";
+        j << "    \"overhang_fraction\": ";  jn(bf.overhang_fraction);  j << ",\n";
+        j << "    \"tau_hat\": ";            jn(bf.tau_hat, 3);         j << ",\n";
+        j << "    \"phi_share\": ";          jn(bf.phi_share);          j << ",\n";
+        j << "    \"note\": \"theta=ln(gamma/f0) pH proxy (time-free); phi_share=sigma0/(sigma0+f0) upper bound on oxidation fraction\"\n";
+        j << "  },\n";
+    }
+
     // ── Fragmentation / read-length structure ────────────────────────────────
     // Reference-free fragmentation is observable as the read-length distribution
     // and, secondarily, as the coupling between terminal-damage excess and read

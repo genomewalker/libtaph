@@ -1260,6 +1260,18 @@ struct SampleDamageProfile {
     // Set by finalize_scission; models the right tail as exp(−γ·(L−L_mode)).
     ScissionEstimate scission;
 
+    // Asymmetric leakage control ε from interior Chargaff difference. Set by finalize_epsilon.
+    // ε ≈ 0 for symmetric oxidation; large |ε| at terminals flags C→T contamination.
+    EpsilonEstimate epsilon;
+
+    // Reference-free GC→AT depletion pressure σ₀. Set by finalize_sigma.
+    // Composition-confounded; always interpret alongside gc_interior across samples.
+    OxidationEstimate oxidation;
+
+    // Layer-1 burial fingerprint (Θ, overhang_fraction, φ_share). Set after
+    // finalize_scission, finalize_tau, and finalize_sigma complete.
+    BurialFingerprint burial;
+
     // Mixture model results (K-component EM over GC-stratified bins)
     int mixture_K = 0;                 // Number of classes selected by BIC
     int mixture_n_components = 0;      // Number of classes selected by BIC

@@ -20,6 +20,8 @@ add_library(taph
     src/read_ancient_llr.cpp
     src/finalize_tau.cpp
     src/finalize_scission.cpp
+    src/finalize_epsilon.cpp
+    src/finalize_sigma.cpp
     src/damage_c_api.cpp
     src/length_stratified_profile.cpp
     src/log_length_gmm.cpp

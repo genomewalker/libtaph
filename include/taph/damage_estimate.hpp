@@ -67,4 +67,56 @@ struct ScissionEstimate {
     bool fitted         = false; // false if tail too sparse or S ≤ 0
 };
 
+// Asymmetric leakage control: ε = T/(T+G) − A/(A+C) (the DIFFERENCE, which cancels in a pooled
+// DS library for symmetric oxidation). ε ≈ 0 is the expected value for 8-oxoG; a large |ε| at
+// terminal positions flags C→T contamination or strand-asymmetric processes. Used as a
+// null/leakage QC alongside OxidationEstimate, NOT as an oxidation estimator.
+struct EpsilonEstimate {
+    double epsilon_floor  = -1.0;  // pooled interior ε = T/(T+G)−A/(A+C); −1 ⇒ n/a
+    double epsilon_lo     = -1.0;  // 95% CI lower
+    double epsilon_hi     = -1.0;  // 95% CI upper
+    double epsilon_term   = -1.0;  // ε at pos 0–2 pooled; large negative = C→T contamination
+    double phi_share      = -1.0;  // legacy; superseded by OxidationEstimate + BurialFingerprint
+    int    n_bins         = 0;
+    bool   fitted         = false;
+};
+
+// Reference-free GC→AT depletion pressure from interior counts. σ = T/(T+G)+A/(A+C)−1 (the SUM;
+// opposed to the cancelled difference ε). σ > 0 for both oxidation AND high AT content; it is
+// therefore composition-confounded in absolute terms.
+// REQUIRED companion: gc_interior. Consumers MUST residualize σ₀ against gc_interior across
+// samples to obtain the oxidation component. σ₀ alone is only interpretable as a relative,
+// cross-sample measure (higher burial / more damage → higher σ₀ holding community GC constant).
+// length_slope is a confound diagnostic (within-sample slope ≈ 0 expected; large slope = length-
+// stratified composition bias or deamination-length coupling — flag, do not gate on it).
+struct OxidationEstimate {
+    double sigma0          = -1.0;  // pooled interior σ₀ = T/(T+G)+A/(A+C)−1; composition-confounded
+    double sigma0_se       = -1.0;  // SE from binomial delta method on pooled counts
+    double gc_interior     = -1.0;  // (G+C)/(A+T+G+C) pooled interior; MUST accompany sigma0
+    double sigma_term      = -1.0;  // σ at pos 0–2 pooled; σ_term ≫ σ₀ = terminal C→T contamination
+    double sigma_long      = -1.0;  // σ of longest contributing bin; approximates intrinsic composition
+    double delta_sigma     = -1.0;  // sigma0 − sigma_long: partial composition correction; >0 = damage excess
+    double length_slope    = -1.0;  // WLS dσ_l/d(bin_mid) [per bp]; confound QC only
+    double length_slope_se = -1.0;
+    int    n_bins          = 0;     // bins with min(T+G,A+C)_interior ≥ 200
+    uint64_t n_counts      = 0;     // total interior bases across contributing bins
+    bool   fitted          = false;
+};
+
+// Layer-1 burial fingerprint: dimensionless ratios over existing observables that cancel burial age.
+// Θ = ln(γ/f0): backbone-scission vs hydrolytic-deamination rate ratio — mostly a pH proxy.
+// overhang_fraction = A/(A+f0): copied from tau.
+// phi_share = σ₀/(σ₀+f0): upper bound on oxidation fraction (includes composition baseline; use
+// only as a relative measure across samples with similar gc_interior).
+// All −1 when constituent estimates are not fitted. Layer-2 (T,pH decode) deferred.
+struct BurialFingerprint {
+    double theta             = -1.0;  // ln(γ/f0); −1 when γ≤0 or f0≤0
+    double theta_lo          = -1.0;  // delta-method CI lower
+    double theta_hi          = -1.0;
+    double overhang_fraction = -1.0;  // A/(A+f0) from tau
+    double tau_hat           = -1.0;  // τ̂ (bp) from tau
+    double phi_share         = -1.0;  // σ₀/(σ₀+f0); upper bound; −1 when σ₀≤0 or f0<0
+    bool   fitted            = false;
+};
+
 } // namespace taph
