@@ -21,7 +21,8 @@ add_library(taph
     src/finalize_tau.cpp
     src/finalize_scission.cpp
     src/finalize_epsilon.cpp
-    src/finalize_sigma.cpp
+    src/finalize_gc_depletion.cpp
+    src/finalize_oxidation_comovement.cpp
     src/damage_c_api.cpp
     src/length_stratified_profile.cpp
     src/log_length_gmm.cpp

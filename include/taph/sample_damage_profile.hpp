@@ -1264,13 +1264,18 @@ struct SampleDamageProfile {
     // ε ≈ 0 for symmetric oxidation; large |ε| at terminals flags C→T contamination.
     EpsilonEstimate epsilon;
 
-    // Reference-free GC→AT depletion pressure σ₀. Set by finalize_sigma.
-    // Composition-confounded; always interpret alongside gc_interior across samples.
-    OxidationEstimate oxidation;
+    // GC→AT depletion channel σ₀ (composition-confounded). Set by finalize_gc_depletion.
+    // NOT an oxidation estimator: σ₀ = composition + deamination + oxidation, inseparable.
+    GcDepletionEstimate gc_depletion;
 
     // Layer-1 burial fingerprint (Θ, overhang_fraction, φ_share). Set after
-    // finalize_scission, finalize_tau, and finalize_sigma complete.
+    // finalize_scission, finalize_tau, and finalize_gc_depletion complete.
     BurialFingerprint burial;
+
+    // Primary reference-free oxidation readout: deamination-coupled G→T regression.
+    // Set by finalize_oxidation_comovement (wraps compute_oxo_two_marker).
+    // beta1_z≈12 = strong oxidation; markers_consistent = both deam markers co-vary with G→T.
+    OxoTwoMarkerResult oxidation_comovement;
 
     // Mixture model results (K-component EM over GC-stratified bins)
     int mixture_K = 0;                 // Number of classes selected by BIC

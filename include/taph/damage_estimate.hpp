@@ -70,26 +70,24 @@ struct ScissionEstimate {
 // Asymmetric leakage control: ε = T/(T+G) − A/(A+C) (the DIFFERENCE, which cancels in a pooled
 // DS library for symmetric oxidation). ε ≈ 0 is the expected value for 8-oxoG; a large |ε| at
 // terminal positions flags C→T contamination or strand-asymmetric processes. Used as a
-// null/leakage QC alongside OxidationEstimate, NOT as an oxidation estimator.
+// null/leakage QC alongside GcDepletionEstimate, NOT an oxidation estimator.
 struct EpsilonEstimate {
     double epsilon_floor  = -1.0;  // pooled interior ε = T/(T+G)−A/(A+C); −1 ⇒ n/a
     double epsilon_lo     = -1.0;  // 95% CI lower
     double epsilon_hi     = -1.0;  // 95% CI upper
     double epsilon_term   = -1.0;  // ε at pos 0–2 pooled; large negative = C→T contamination
-    double phi_share      = -1.0;  // legacy; superseded by OxidationEstimate + BurialFingerprint
+    double phi_share      = -1.0;  // legacy; superseded by OxoTwoMarkerResult + BurialFingerprint
     int    n_bins         = 0;
     bool   fitted         = false;
 };
 
-// Reference-free GC→AT depletion pressure from interior counts. σ = T/(T+G)+A/(A+C)−1 (the SUM;
-// opposed to the cancelled difference ε). σ > 0 for both oxidation AND high AT content; it is
-// therefore composition-confounded in absolute terms.
-// REQUIRED companion: gc_interior. Consumers MUST residualize σ₀ against gc_interior across
-// samples to obtain the oxidation component. σ₀ alone is only interpretable as a relative,
-// cross-sample measure (higher burial / more damage → higher σ₀ holding community GC constant).
-// length_slope is a confound diagnostic (within-sample slope ≈ 0 expected; large slope = length-
-// stratified composition bias or deamination-length coupling — flag, do not gate on it).
-struct OxidationEstimate {
+// Reference-free GC→AT depletion channel from interior counts: σ = T/(T+G)+A/(A+C)−1.
+// NOT an oxidation estimator: σ > 0 for oxidation AND AT-rich composition AND pervasive
+// deamination (all three push the same direction). Algebraically inseparable from composition
+// at the level of marginal single-base counts. Use as a GC-depletion QC channel only;
+// the actual oxidation estimator is OxoTwoMarkerResult (the deamination-coupled G→T regression).
+// REQUIRED companion: gc_interior for cross-sample GC-normalisation of σ₀.
+struct GcDepletionEstimate {
     double sigma0          = -1.0;  // pooled interior σ₀ = T/(T+G)+A/(A+C)−1; composition-confounded
     double sigma0_se       = -1.0;  // SE from binomial delta method on pooled counts
     double gc_interior     = -1.0;  // (G+C)/(A+T+G+C) pooled interior; MUST accompany sigma0
@@ -101,6 +99,27 @@ struct OxidationEstimate {
     int    n_bins          = 0;     // bins with min(T+G,A+C)_interior ≥ 200
     uint64_t n_counts      = 0;     // total interior bases across contributing bins
     bool   fitted          = false;
+};
+
+// Deamination-coupled G→T regression over the 256-cell (s1×s2×GC×length) interior panel.
+// beta1: s1-coupled D slope (C→T 5' marker); beta2: s2-coupled (G→A 3' marker, DS).
+// markers_consistent: |beta1|≈|beta2| — both deamination markers couple equally to the interior
+// G→T excess, confirming burial-accumulated oxidation rather than a strand-asymmetric artefact.
+// This is the PRIMARY reference-free per-sample oxidation readout. Computed by
+// finalize_oxidation_comovement (wraps compute_oxo_two_marker from library_interpretation.hpp).
+struct OxoTwoMarkerResult {
+    double beta1             = 0.0;  // s1-coupled D slope (C→T 5' marker)
+    double beta2             = 0.0;  // s2-coupled D slope (G→A 3' marker)
+    double beta1_se          = 0.0;
+    double beta2_se          = 0.0;
+    double beta1_z           = 0.0;  // beta1 / beta1_se
+    double beta2_z           = 0.0;  // beta2 / beta2_se
+    double alpha             = 0.0;  // intercept (global D floor = prep artifact)
+    double sigma2            = 0.0;  // residual variance
+    bool   markers_consistent = false;  // |beta1-beta2| < 2*sqrt(se1²+se2²)
+    double delta_beta        = 0.0;  // beta1 - beta2 (≈0 when consistent)
+    int    n_cells_used      = 0;
+    bool   valid             = false;
 };
 
 // Layer-1 burial fingerprint: dimensionless ratios over existing observables that cancel burial age.

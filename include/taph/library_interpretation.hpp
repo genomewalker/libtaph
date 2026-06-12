@@ -364,21 +364,7 @@ OxoGEstimate compute_oxog_estimate(const SampleDamageProfile& dp, bool is_ss);
 // If beta1 ≈ beta2 > 0, burial-accumulated G→T excess is plausible.
 // If only beta1 fires, suspect deamination/sequencing artefact.
 // For SS libraries beta2 measures 3' G-richness (not G→A), so use only beta1.
-struct OxoTwoMarkerResult {
-    double beta1          = 0.0;  // s1-coupled D slope (C→T 5' marker)
-    double beta2          = 0.0;  // s2-coupled D slope (G→A 3' marker)
-    double beta1_se       = 0.0;
-    double beta2_se       = 0.0;
-    double beta1_z        = 0.0;  // beta1 / beta1_se
-    double beta2_z        = 0.0;  // beta2 / beta2_se
-    double alpha          = 0.0;  // intercept (global D floor = prep artifact)
-    double sigma2         = 0.0;  // residual variance
-    bool   markers_consistent = false;  // |beta1-beta2| < 2*sqrt(se1²+se2²)
-    double delta_beta     = 0.0;  // beta1 - beta2 (0 if perfectly consistent)
-    int    n_cells_used   = 0;
-    bool   valid          = false; // false if fit failed (too few cells)
-};
-
+// OxoTwoMarkerResult is defined in damage_estimate.hpp (included via sample_damage_profile.hpp).
 OxoTwoMarkerResult compute_oxo_two_marker(const SampleDamageProfile& dp, bool is_ss);
 
 } // namespace taph

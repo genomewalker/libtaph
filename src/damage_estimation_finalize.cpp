@@ -28,16 +28,17 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     finalize_context(profile, ctx);
     finalize_libtype(profile, ctx);
     finalize_bulk(profile);
-    profile.tau      = finalize_tau(profile);
-    profile.scission = finalize_scission(profile);
-    profile.epsilon  = finalize_epsilon(profile);
-    profile.oxidation = finalize_sigma(profile);
+    profile.tau                   = finalize_tau(profile);
+    profile.scission              = finalize_scission(profile);
+    profile.epsilon               = finalize_epsilon(profile);
+    profile.gc_depletion          = finalize_gc_depletion(profile);
+    profile.oxidation_comovement  = finalize_oxidation_comovement(profile);
 
     // Layer-1 burial fingerprint: Θ = ln(γ/f0), φ_share = σ₀/(σ₀+f0)
     {
         const auto& sc  = profile.scission;
         const auto& tau = profile.tau;
-        const auto& ox  = profile.oxidation;
+        const auto& ox  = profile.gc_depletion;
         BurialFingerprint bf;
         if (sc.fitted && sc.gamma > 0.0 && tau.f0 > 0.0) {
             bf.theta = std::log(sc.gamma / tau.f0);
@@ -53,9 +54,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         }
         bf.overhang_fraction = tau.overhang_fraction;
         bf.tau_hat           = tau.point;
-        // phi_share = σ₀/(σ₀+f0): upper bound on oxidation fraction (σ₀ includes composition).
-        // Requires f0 > 0.005: when f0≈0 (pure-overhang library) the ratio is uninformative
-        // (σ₀ then reflects only composition baseline, not a damage balance).
+        // phi_share = σ₀/(σ₀+f0): relative GC-depletion proxy (composition-confounded upper bound).
+        // Requires f0 > 0.005: when f0≈0 the ratio is uninformative. NOT an absolute oxidation fraction.
         if (ox.fitted && ox.sigma0 > 0.0 && tau.f0 > 0.005) {
             const double denom = ox.sigma0 + tau.f0;
             bf.phi_share = denom > 0.0 ? ox.sigma0 / denom : -1.0;

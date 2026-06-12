@@ -1,22 +1,14 @@
-// Reference-free GC→AT depletion pressure σ₀ = T/(T+G) + A/(A+C) − 1.
+// Reference-free GC→AT depletion channel σ₀ = T/(T+G) + A/(A+C) − 1.
 //
-// σ is the SYMMETRIC channel of the base-count quadruplet: it captures both 8-oxoG (G→T, C→A
-// equally) and interior C→T deamination (f0 floor), along with intrinsic GC composition. The
-// ASYMMETRIC channel ε = T/(T+G) − A/(A+C) cancels symmetric oxidation by construction and is
-// computed separately in finalize_epsilon as a leakage control.
+// NOT an oxidation estimator. σ₀ = intrinsic_composition + pervasive_deamination(f0) + oxidation:
+// all three push T/(T+G)+A/(A+C) in the same direction. Uniform 8-oxoG is algebraically identical
+// to the community being more AT-rich — indistinguishable from marginal base counts alone.
+// Use as a GC-depletion QC channel only; oxidation is in OxoTwoMarkerResult (finalize_oxidation_comovement).
 //
-// σ₀ is pooled from interior counts across all length bins (MLE: sum numerators/denominators,
-// not mean-of-ratios). It is composition-confounded: damage-free GC-rich libraries yield σ₀ < 0,
-// AT-rich yield σ₀ > 0. ALWAYS emit alongside gc_interior and residualize across samples before
-// interpreting as an oxidation proxy.
-//
-// length_slope: WLS of per-bin σ_l vs bin midpoint. Within a sample all fragments share burial
-// time → per-base oxidation rate is length-independent → slope ≈ 0 under null. Nonzero slope
-// indicates length-stratified composition or deamination-length coupling (confound flag, not
-// oxidation axis).
-//
-// sigma_term: σ at pooled positions 0–2. σ_term ≫ σ₀ = terminal C→T contamination driving σ up
-// at the ends (same confound that makes ε_term strongly negative).
+// σ₀ is pooled from interior counts across all length bins (MLE: sum numerators/denominators).
+// length_slope: WLS of σ_l vs bin midpoint; expect ≈0 (all fragments share burial time);
+// nonzero slope = length-stratified composition artifact or deamination-length coupling.
+// sigma_term: σ at pos 0–2; σ_term ≫ σ₀ = terminal C→T contamination.
 
 #include <algorithm>
 #include <cmath>
@@ -33,8 +25,8 @@ constexpr uint64_t MIN_TERM     = 50;
 constexpr int      MIN_BINS_SLOPE = 4;
 }
 
-OxidationEstimate finalize_sigma(const SampleDamageProfile& profile) {
-    OxidationEstimate out;
+GcDepletionEstimate finalize_gc_depletion(const SampleDamageProfile& profile) {
+    GcDepletionEstimate out;
 
     // Pooled interior counts across all contributing bins
     uint64_t pT = 0, pG = 0, pA = 0, pC = 0;

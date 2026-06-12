@@ -93,7 +93,7 @@ void profile_to_json(const SampleDamageProfile& dp,
     auto ds      = compute_depur_score(dp, is_ss);
     auto otr     = compute_oxog_trinuc(dp);
     auto oxe     = compute_oxog_estimate(dp, is_ss);
-    auto otm     = compute_oxo_two_marker(dp, is_ss);
+    const auto& otm = dp.oxidation_comovement;
     auto pres    = compute_preservation_summary(dp, is_ss,
                        in.adapter_clipped, in.flag_hex_artifact,
                        cpg.z, oxog_is.z, otr.cosine, hs.shift_p);
@@ -1958,14 +1958,14 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "  },\n";
     }
 
-    // ── GC→AT depletion pressure σ (symmetric oxidation channel) ─────────────
+    // ── GC→AT depletion channel σ (composition-confounded, NOT an oxidation estimator) ─────────
     {
         auto jn = [&](double v, int prec = 6) {
             if (std::isfinite(v)) j << std::setprecision(prec) << v;
             else                  j << "null";
         };
         auto jnu = [&](uint64_t v) { j << v; };
-        const auto& ox = dp.oxidation;
+        const auto& ox = dp.gc_depletion;
         j << "  \"oxidation\": {\n";
         j << "    \"fitted\": "           << (ox.fitted ? "true" : "false") << ",\n";
         j << "    \"sigma0\": ";           jn(ox.sigma0);          j << ",\n";
@@ -1978,7 +1978,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"length_slope_se\": ";  jn(ox.length_slope_se); j << ",\n";
         j << "    \"n_bins\": "           << ox.n_bins             << ",\n";
         j << "    \"n_counts\": ";         jnu(ox.n_counts);       j << ",\n";
-        j << "    \"note\": \"SYMMETRIC: sigma0=T/(T+G)+A/(A+C)-1 carries oxidation+composition; residualize against gc_interior across samples for oxidation component; length_slope is confound QC (expect~0)\"\n";
+        j << "    \"note\": \"GC-depletion channel: sigma0=T/(T+G)+A/(A+C)-1 is composition+deamination+oxidation combined — NOT an oxidation estimator. Oxidation readout is oxo_two_marker. Residualize against gc_interior for cross-sample GC-normalisation.\"\n";
         j << "  },\n";
     }
 

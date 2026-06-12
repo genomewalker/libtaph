@@ -55,9 +55,14 @@ ScissionEstimate finalize_scission(const SampleDamageProfile& profile);
 // ε ≈ 0 for pooled-DS symmetric damage (oxidation); large |ε_term| identifies C→T contamination.
 EpsilonEstimate finalize_epsilon(const SampleDamageProfile& profile);
 
-// Reference-free GC→AT depletion pressure σ₀ = T/(T+G)+A/(A+C)−1 from pooled interior counts.
-// σ₀ carries both oxidation signal and composition baseline (GC-rich → σ₀<0; AT-rich → σ₀>0).
-// Always emit alongside gc_interior for downstream residualization. length_slope is a confound QC.
-OxidationEstimate finalize_sigma(const SampleDamageProfile& profile);
+// Reference-free GC→AT depletion channel σ₀ = T/(T+G)+A/(A+C)−1 from pooled interior counts.
+// NOT an oxidation estimator — σ₀ = composition + deamination + oxidation, algebraically fused.
+// Emit alongside gc_interior for cross-sample GC-normalisation; length_slope is a confound QC.
+GcDepletionEstimate finalize_gc_depletion(const SampleDamageProfile& profile);
+
+// Primary reference-free oxidation readout: deamination-coupled G→T regression over the
+// 256-cell (s1×s2×GC×length) panel. Wraps compute_oxo_two_marker; is_ss inferred from
+// profile.library_type. Requires oxo_two_marker.cells to be populated by the fqdup damage pass.
+OxoTwoMarkerResult finalize_oxidation_comovement(const SampleDamageProfile& profile);
 
 } // namespace taph
