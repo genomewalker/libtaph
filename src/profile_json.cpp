@@ -299,7 +299,37 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"cpg_score_z\": " << std::setprecision(6) << nan_or(clamp_z(cpg.z)) << ",\n";  // P4: capped to +/-kZCap (uniform with the channel z's; detection saturates well inside)
     j << "      \"cpg_score_p\": " << nan_or(cpg.p) << ",\n";
     j << "      \"methylation_excess\": "  << nan_or(dp.cpg_methylation_excess) << ",\n";
-    j << "      \"methylation_index\": "   << nan_or(dp.cpg_methylation_index)  << "\n";
+    j << "      \"methylation_index\": "   << nan_or(dp.cpg_methylation_index)  << ",\n";
+    // Interior-based methylation index: uses tri_5prime_interior_by_deam so overhang
+    // C→T (steeply terminal) does not contaminate the signal. Stratification axis is
+    // deam_bin (sum all bins here) — NOT used for stratification to avoid circularity.
+    // CpG context: mid=C(1),next=G(2) → trinuc=prev*16+6; TpG: mid=T(3),next=G(2) → prev*16+14.
+    {
+        double cpg_c = 0, cpg_t = 0, ncpg_c = 0, ncpg_t = 0;
+        for (int b = 0; b < SampleDamageProfile::N_OX_DEAM_STRATA; ++b)
+            for (int prev = 0; prev < 4; ++prev) {
+                cpg_c  += dp.tri_5prime_interior_by_deam[b][prev*16 + 6];
+                cpg_t  += dp.tri_5prime_interior_by_deam[b][prev*16 + 14];
+                ncpg_c += dp.tri_5prime_interior_by_deam[b][prev*16 + 4]
+                        + dp.tri_5prime_interior_by_deam[b][prev*16 + 5]
+                        + dp.tri_5prime_interior_by_deam[b][prev*16 + 7];
+                ncpg_t += dp.tri_5prime_interior_by_deam[b][prev*16 + 12]
+                        + dp.tri_5prime_interior_by_deam[b][prev*16 + 13]
+                        + dp.tri_5prime_interior_by_deam[b][prev*16 + 15];
+            }
+        const double cpg_f  = (cpg_c + cpg_t)   > 0 ? cpg_t  / (cpg_c  + cpg_t)  : -1.0;
+        const double ncpg_f = (ncpg_c + ncpg_t) > 0 ? ncpg_t / (ncpg_c + ncpg_t) : -1.0;
+        const bool   sat    = cpg_f > 0.8 && ncpg_f > 0.8;
+        const double idx    = (cpg_f > 0 && ncpg_f > 0)
+            ? std::log2(cpg_f / ncpg_f) : std::numeric_limits<double>::quiet_NaN();
+        auto jf = [&](double v) {
+            if (std::isfinite(v)) j << std::setprecision(6) << v; else j << "null";
+        };
+        j << "      \"cpg_interior_fraction\": ";      jf(cpg_f);   j << ",\n";
+        j << "      \"non_cpg_interior_fraction\": ";  jf(ncpg_f);  j << ",\n";
+        j << "      \"methylation_index_interior\": "; jf(idx);     j << ",\n";
+        j << "      \"methylation_saturated\": " << (sat ? "true" : "false") << "\n";
+    }
     j << "    },\n";
     j << "    \"context_deamination\": {\n";
     j << "      \"dmax_AC\": " << nan_or(dp.dmax_ct5_by_upstream[SP::CTX_AC]) << ",\n";
@@ -933,19 +963,24 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "  },\n";
     }
 
-    // ── End-motif nucleotide enrichment (terminal vs interior composition) ──────
-    // Marginalizes tri_{5,3}prime_pos to single-base frequencies per position.
-    // log2(terminal_freq/interior_freq): purine-end bias from depurination
-    // scission is distinguishable from blunt-end nuclease fragmentation.
+    // ── Terminal dinucleotide composition index (5'/3' ends vs interior) ──────
+    // log2(terminal_freq/interior_freq) per base per terminal position.
+    // Primarily reflects C→T (5') and G→A (3') deamination-driven composition
+    // change. The depurination −1 position is OUTSIDE the sequenced read and is
+    // NOT recoverable reference-free — this is NOT a depurination index.
+    // rc_symmetry_discordance: in DS libraries genuine end chemistry produces
+    // RC-symmetric 5'/3' enrichments (enr_5'[b] ≈ enr_3'[comp(b)]). High
+    // discordance (>0.15 log2) flags adapter/trimming artifacts.
     {
         static constexpr const char* BASES[4] = {"A","C","G","T"};
+        static constexpr int COMP[4] = {3,2,1,0};  // A↔T, C↔G
         constexpr int INT_START = 5, INT_END = 10;
+        double enr_pos1[2][4] = {};  // [0=5prime, 1=3prime][base]
 
-        auto emit_end_motif = [&](const char* end_key,
+        auto emit_end_motif = [&](int end_idx, const char* end_key,
                                    const std::array<std::array<uint64_t,
                                                     SampleDamageProfile::N_TRINUC>,
-                                                    SampleDamageProfile::N_POS_TRI>& arr,
-                                   bool trailing) {
+                                                    SampleDamageProfile::N_POS_TRI>& arr) {
             double int_counts[4] = {}, int_total = 0.0;
             for (int p = INT_START; p < INT_END && p < SampleDamageProfile::N_POS_TRI; ++p)
                 for (int t = 0; t < SampleDamageProfile::N_TRINUC; ++t) {
@@ -971,17 +1006,22 @@ void profile_to_json(const SampleDamageProfile& dp,
                     const double tf = tt > 0 ? tc[b] / tt : 0.25;
                     const double log2enr = (int_freq[b] > 0 && tf > 0)
                         ? std::log2(tf / int_freq[b]) : 0.0;
+                    if (p == 1) enr_pos1[end_idx][b] = log2enr;
                     j << "\"" << BASES[b] << "\":" << std::setprecision(4) << log2enr;
                     if (b < 3) j << ",";
                 }
                 j << "}";
             }
-            j << "}" << (trailing ? "," : "") << "\n";
+            j << "},\n";
         };
 
         j << "  \"end_motif_enrichment\": {\n";
-        emit_end_motif("5prime", dp.tri_5prime_pos, true);
-        emit_end_motif("3prime", dp.tri_3prime_pos, false);
+        emit_end_motif(0, "5prime", dp.tri_5prime_pos);
+        emit_end_motif(1, "3prime", dp.tri_3prime_pos);
+        double rc_disc = 0.0;
+        for (int b = 0; b < 4; ++b)
+            rc_disc += std::abs(enr_pos1[0][b] - enr_pos1[1][COMP[b]]);
+        j << "    \"rc_symmetry_discordance_pos1\": " << std::setprecision(4) << rc_disc / 4.0 << "\n";
         j << "  },\n";
     }
 
