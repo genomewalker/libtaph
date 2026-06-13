@@ -328,7 +328,57 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"cpg_interior_fraction\": ";      jf(cpg_f);   j << ",\n";
         j << "      \"non_cpg_interior_fraction\": ";  jf(ncpg_f);  j << ",\n";
         j << "      \"methylation_index_interior\": "; jf(idx);     j << ",\n";
-        j << "      \"methylation_saturated\": " << (sat ? "true" : "false") << "\n";
+        j << "      \"methylation_saturated\": " << (sat ? "true" : "false") << ",\n";
+        // Next-conditioned log-odds: logit[mid=T|next=G] − logit[mid=T|next≠G]
+        // at interior positions p=5..14. Positive = CpG-specific C→T excess.
+        // Uses tri_5prime_pos (no deam-bin stratification → no circularity).
+        // 3' RC analog: logit[mid=A|prev=C] − logit[mid=A|prev≠C] = G→A in GpC context.
+        // DS library: lo5≈lo3. High rc_interior_discordance → library-type artifact.
+        {
+            double ct_cpg_c=0, ct_cpg_t=0, ct_ncpg_c=0, ct_ncpg_t=0;
+            for (int p = 5; p < SampleDamageProfile::N_POS_TRI; ++p)
+                for (int pv = 0; pv < 4; ++pv) {
+                    ct_cpg_c  += dp.tri_5prime_pos[p][pv*16 + 6];
+                    ct_cpg_t  += dp.tri_5prime_pos[p][pv*16 + 14];
+                    ct_ncpg_c += dp.tri_5prime_pos[p][pv*16 + 4]
+                               + dp.tri_5prime_pos[p][pv*16 + 5]
+                               + dp.tri_5prime_pos[p][pv*16 + 7];
+                    ct_ncpg_t += dp.tri_5prime_pos[p][pv*16 + 12]
+                               + dp.tri_5prime_pos[p][pv*16 + 13]
+                               + dp.tri_5prime_pos[p][pv*16 + 15];
+                }
+            double ga_cpg_g=0, ga_cpg_a=0, ga_ncpg_g=0, ga_ncpg_a=0;
+            for (int p = 5; p < SampleDamageProfile::N_POS_TRI; ++p)
+                for (int nx = 0; nx < 4; ++nx) {
+                    ga_cpg_g  += dp.tri_3prime_pos[p][1*16 + 2*4 + nx];  // prev=C,mid=G
+                    ga_cpg_a  += dp.tri_3prime_pos[p][1*16 + 0*4 + nx];  // prev=C,mid=A
+                    ga_ncpg_g += dp.tri_3prime_pos[p][0*16 + 2*4 + nx]
+                               + dp.tri_3prime_pos[p][2*16 + 2*4 + nx]
+                               + dp.tri_3prime_pos[p][3*16 + 2*4 + nx];
+                    ga_ncpg_a += dp.tri_3prime_pos[p][0*16 + 0*4 + nx]
+                               + dp.tri_3prime_pos[p][2*16 + 0*4 + nx]
+                               + dp.tri_3prime_pos[p][3*16 + 0*4 + nx];
+                }
+            constexpr double alp = 0.5;
+            const bool ok5 = (ct_cpg_c + ct_cpg_t + ct_ncpg_c + ct_ncpg_t) > 1000;
+            const bool ok3 = (ga_cpg_g + ga_cpg_a + ga_ncpg_g + ga_ncpg_a) > 1000;
+            const double lo5 = ok5
+                ? std::log((ct_cpg_t + alp) / (ct_cpg_c + alp))
+                - std::log((ct_ncpg_t + alp) / (ct_ncpg_c + alp))
+                : std::numeric_limits<double>::quiet_NaN();
+            const double lo3 = ok3
+                ? std::log((ga_cpg_a + alp) / (ga_cpg_g + alp))
+                - std::log((ga_ncpg_a + alp) / (ga_ncpg_g + alp))
+                : std::numeric_limits<double>::quiet_NaN();
+            const double rc_disc = (std::isfinite(lo5) && std::isfinite(lo3))
+                ? std::abs(lo5 - lo3) : std::numeric_limits<double>::quiet_NaN();
+            auto jn = [&](double v) {
+                if (std::isfinite(v)) j << std::setprecision(6) << v; else j << "null";
+            };
+            j << "      \"methylation_next_cond_logodds\": "; jn(lo5); j << ",\n";
+            j << "      \"rc_interior_ga_logodds\": ";         jn(lo3); j << ",\n";
+            j << "      \"rc_interior_discordance\": ";        jn(rc_disc); j << "\n";
+        }
     }
     j << "    },\n";
     j << "    \"context_deamination\": {\n";
@@ -1038,6 +1088,83 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"mean_deam_score\": "  << std::setprecision(6) << mean  << ",\n";
         j << "    \"variance\": "         << var                            << ",\n";
         j << "    \"cv2\": "              << cv2                            << "\n";
+        j << "  },\n";
+    }
+
+    // ── Depurination deconvolution (cut-site purine preference) ────────────────
+    // NNLS deconvolution of terminal dinucleotide vs interior background.
+    // P_obs(b0,b1) ∝ Σ_x w(x)*P_gen3(x,b0,b1). Recovers cut-site base preference w.
+    // depurination_index=(w_A+w_G)/(w_C+w_T); >1 = purine-preferential nicks (aDNA).
+    // Caveat: metagenome composition is the dominant confound; treat as exploratory.
+    {
+        j << "  \"depurination_deconvolution\": {\n";
+        double bg[4][4][4]={};
+        double bg_total=0.0;
+        for (int p = 5; p <= 13 && p < SampleDamageProfile::N_POS_TRI; ++p)
+            for (int t = 0; t < SampleDamageProfile::N_TRINUC; ++t) {
+                const int x   = (t>>4)&3, b0i = (t>>2)&3, b1i = t&3;
+                bg[x][b0i][b1i] += static_cast<double>(dp.tri_5prime_pos[p][t]);
+                bg_total         += static_cast<double>(dp.tri_5prime_pos[p][t]);
+            }
+        double obs[4][4]={};
+        double obs_total=0.0;
+        for (int t = 0; t < SampleDamageProfile::N_TRINUC; ++t) {
+            const int b0i = (t>>4)&3, b1i = (t>>2)&3;
+            obs[b0i][b1i] += static_cast<double>(dp.tri_5prime_pos[1][t]);
+            obs_total      += static_cast<double>(dp.tri_5prime_pos[1][t]);
+        }
+        const double delta0 = std::isfinite(dp.t_freq_5prime[0]) ? dp.t_freq_5prime[0] : 0.0;
+        if (delta0 > 0.0 && delta0 < 0.9) {
+            for (int b1i = 0; b1i < 4; ++b1i) {
+                const double shift = obs[3][b1i] * delta0;
+                obs[1][b1i] += shift;
+                obs[3][b1i] -= shift;
+            }
+        }
+        if (bg_total > 1000.0 && obs_total > 100.0) {
+            for (int x=0;x<4;x++) for (int b0i=0;b0i<4;b0i++) for (int b1i=0;b1i<4;b1i++)
+                bg[x][b0i][b1i] /= bg_total;
+            for (int b0i=0;b0i<4;b0i++) for (int b1i=0;b1i<4;b1i++)
+                obs[b0i][b1i] /= obs_total;
+            double A[16][4]={}, bv[16]={};
+            for (int b0i=0;b0i<4;b0i++) for (int b1i=0;b1i<4;b1i++) {
+                const int i = b0i*4+b1i;
+                bv[i] = obs[b0i][b1i];
+                for (int x=0;x<4;x++) A[i][x] = bg[x][b0i][b1i];
+            }
+            double w[4]={0.25,0.25,0.25,0.25};
+            double AtA[4][4]={}, Atb[4]={};
+            for (int i=0;i<16;i++) for (int x=0;x<4;x++) {
+                Atb[x] += A[i][x]*bv[i];
+                for (int y=0;y<4;y++) AtA[x][y] += A[i][x]*A[i][y];
+            }
+            double L=0.0;
+            for (int x=0;x<4;x++) L = std::max(L, AtA[x][x]);
+            const double lr = L > 1e-12 ? 0.5/L : 0.01;
+            for (int iter=0;iter<500;iter++) {
+                double grad[4]={};
+                for (int x=0;x<4;x++) {
+                    for (int y=0;y<4;y++) grad[x] += AtA[x][y]*w[y];
+                    grad[x] -= Atb[x];
+                }
+                for (int x=0;x<4;x++) w[x] = std::max(0.0, w[x]-lr*grad[x]);
+            }
+            double wsum = w[0]+w[1]+w[2]+w[3];
+            if (wsum > 1e-12) for (int x=0;x<4;x++) w[x] /= wsum;
+            const double dep_idx = (w[1]+w[3]) > 1e-9
+                ? (w[0]+w[2]) / (w[1]+w[3])
+                : std::numeric_limits<double>::quiet_NaN();
+            j << "    \"w_A\": " << std::setprecision(6) << w[0] << ",\n";
+            j << "    \"w_C\": " << w[1] << ",\n";
+            j << "    \"w_G\": " << w[2] << ",\n";
+            j << "    \"w_T\": " << w[3] << ",\n";
+            j << "    \"depurination_index\": ";
+            if (std::isfinite(dep_idx)) j << dep_idx; else j << "null";
+            j << "\n";
+        } else {
+            j << "    \"w_A\": null,\n    \"w_C\": null,\n    \"w_G\": null,\n    \"w_T\": null,\n";
+            j << "    \"depurination_index\": null\n";
+        }
         j << "  },\n";
     }
 
