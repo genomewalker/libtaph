@@ -297,7 +297,9 @@ void profile_to_json(const SampleDamageProfile& dp,
     // C1: when log2_cpg_ratio is NaN (degenerate noncpg fit) compute_cpg_score returns its
     // zero-init {z=0,p=1} default — emit null so "not computed" is not read as z=0/p=1.
     j << "      \"cpg_score_z\": " << std::setprecision(6) << nan_or(clamp_z(cpg.z)) << ",\n";  // P4: capped to +/-kZCap (uniform with the channel z's; detection saturates well inside)
-    j << "      \"cpg_score_p\": " << nan_or(cpg.p) << "\n";
+    j << "      \"cpg_score_p\": " << nan_or(cpg.p) << ",\n";
+    j << "      \"methylation_excess\": "  << nan_or(dp.cpg_methylation_excess) << ",\n";
+    j << "      \"methylation_index\": "   << nan_or(dp.cpg_methylation_index)  << "\n";
     j << "    },\n";
     j << "    \"context_deamination\": {\n";
     j << "      \"dmax_AC\": " << nan_or(dp.dmax_ct5_by_upstream[SP::CTX_AC]) << ",\n";
@@ -928,6 +930,74 @@ void profile_to_json(const SampleDamageProfile& dp,
             j << "]";
             if (end[0] == '5') j << ",\n"; else j << "\n";
         }
+        j << "  },\n";
+    }
+
+    // ── End-motif nucleotide enrichment (terminal vs interior composition) ──────
+    // Marginalizes tri_{5,3}prime_pos to single-base frequencies per position.
+    // log2(terminal_freq/interior_freq): purine-end bias from depurination
+    // scission is distinguishable from blunt-end nuclease fragmentation.
+    {
+        static constexpr const char* BASES[4] = {"A","C","G","T"};
+        constexpr int INT_START = 5, INT_END = 10;
+
+        auto emit_end_motif = [&](const char* end_key,
+                                   const std::array<std::array<uint64_t,
+                                                    SampleDamageProfile::N_TRINUC>,
+                                                    SampleDamageProfile::N_POS_TRI>& arr,
+                                   bool trailing) {
+            double int_counts[4] = {}, int_total = 0.0;
+            for (int p = INT_START; p < INT_END && p < SampleDamageProfile::N_POS_TRI; ++p)
+                for (int t = 0; t < SampleDamageProfile::N_TRINUC; ++t) {
+                    const int mid = (t >> 2) & 3;
+                    int_counts[mid] += static_cast<double>(arr[p][t]);
+                    int_total       += static_cast<double>(arr[p][t]);
+                }
+            double int_freq[4] = {};
+            for (int b = 0; b < 4; ++b)
+                int_freq[b] = int_total > 0 ? int_counts[b] / int_total : 0.25;
+
+            j << "    \"" << end_key << "\": {";
+            for (int p = 1; p <= 4 && p < SampleDamageProfile::N_POS_TRI; ++p) {
+                double tc[4] = {}, tt = 0.0;
+                for (int t = 0; t < SampleDamageProfile::N_TRINUC; ++t) {
+                    const int mid = (t >> 2) & 3;
+                    tc[mid] += static_cast<double>(arr[p][t]);
+                    tt      += static_cast<double>(arr[p][t]);
+                }
+                if (p > 1) j << ",";
+                j << "\"pos" << p << "\":{";
+                for (int b = 0; b < 4; ++b) {
+                    const double tf = tt > 0 ? tc[b] / tt : 0.25;
+                    const double log2enr = (int_freq[b] > 0 && tf > 0)
+                        ? std::log2(tf / int_freq[b]) : 0.0;
+                    j << "\"" << BASES[b] << "\":" << std::setprecision(4) << log2enr;
+                    if (b < 3) j << ",";
+                }
+                j << "}";
+            }
+            j << "}" << (trailing ? "," : "") << "\n";
+        };
+
+        j << "  \"end_motif_enrichment\": {\n";
+        emit_end_motif("5prime", dp.tri_5prime_pos, true);
+        emit_end_motif("3prime", dp.tri_3prime_pos, false);
+        j << "  },\n";
+    }
+
+    // ── Per-read deamination overdispersion ──────────────────────────────────
+    // CV² of per-read deam_score: high overdispersion flags mixed sources/ages.
+    {
+        const uint64_t n = dp.per_read_deam_n;
+        const double nd = static_cast<double>(n);
+        const double mean = n > 0 ? dp.per_read_deam_sum / nd : 0.0;
+        const double var  = n > 1 ? (dp.per_read_deam_sumsq / nd - mean * mean) : 0.0;
+        const double cv2  = mean > 1e-9 ? var / (mean * mean) : 0.0;
+        j << "  \"per_read_overdispersion\": {\n";
+        j << "    \"n_damaged_reads\": "  << n                             << ",\n";
+        j << "    \"mean_deam_score\": "  << std::setprecision(6) << mean  << ",\n";
+        j << "    \"variance\": "         << var                            << ",\n";
+        j << "    \"cv2\": "              << cv2                            << "\n";
         j << "  },\n";
     }
 
@@ -2001,7 +2071,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"overhang_fraction\": ";  jn(bf.overhang_fraction);  j << ",\n";
         j << "    \"tau_hat\": ";            jn(bf.tau_hat, 3);         j << ",\n";
         j << "    \"phi_share\": ";          jn(bf.phi_share);          j << ",\n";
-        j << "    \"note\": \"theta=ln(gamma/f0) pH proxy (time-free); phi_share=sigma0/(sigma0+f0) upper bound on oxidation fraction\"\n";
+        j << "    \"note\": \"theta=ln(gamma/f0) hydrolytic fragmentation pressure index: scission/deamination rate ratio. Sensitive to pH but also temperature, water activity, and deamination saturation. NOT a pH meter. phi_share=sigma0/(sigma0+f0) upper bound on oxidation fraction\"\n";
         j << "  },\n";
     }
 

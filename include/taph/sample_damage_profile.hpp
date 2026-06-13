@@ -102,6 +102,8 @@ struct SampleDamageProfile {
     size_t cpg_t_count = 0;            // T's where C expected in CpG
     size_t non_cpg_c_count = 0;
     size_t non_cpg_t_count = 0;
+    float cpg_methylation_excess = std::numeric_limits<float>::quiet_NaN();  // cpg_ct_fraction - non_cpg_ct_fraction
+    float cpg_methylation_index  = std::numeric_limits<float>::quiet_NaN();  // log2(cpg_ct_fraction/non_cpg_ct_fraction); paleo-methylation index
 
     // 5' context-split C/T accumulators (CpG-like vs non-CpG-like)
     // double to avoid float precision loss at >16M observations per position
@@ -201,6 +203,9 @@ struct SampleDamageProfile {
     std::array<std::array<uint64_t, N_TRINUC>, N_OX_DEAM_STRATA> tri_3prime_terminal_by_deam = {};
     std::array<std::array<uint64_t, N_TRINUC>, N_OX_DEAM_STRATA> tri_3prime_interior_by_deam = {};
     std::array<uint64_t, N_OX_DEAM_STRATA> deam_stratum_reads = {};  // read count per deam_bin
+    double per_read_deam_sum   = 0.0;   // Σ deam_score (reads with score>0)
+    double per_read_deam_sumsq = 0.0;   // Σ deam_score²
+    uint64_t per_read_deam_n   = 0;     // n reads with deam_score>0
 
     // Empirical GG-breakpoint contrast (reference-free, composition-internal).
     // This is an observable terminal-context double difference, not a direct lesion call:

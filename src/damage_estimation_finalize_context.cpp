@@ -277,6 +277,12 @@ void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
         profile.non_cpg_ct_fraction = static_cast<float>(profile.non_cpg_t_count) / non_cpg_total;
     }
 
+    if (std::isfinite(profile.cpg_ct_fraction) && std::isfinite(profile.non_cpg_ct_fraction) &&
+        profile.non_cpg_ct_fraction > 1e-6f && profile.cpg_ct_fraction > 1e-6f) {
+        profile.cpg_methylation_excess = profile.cpg_ct_fraction - profile.non_cpg_ct_fraction;
+        profile.cpg_methylation_index  = std::log2(profile.cpg_ct_fraction / profile.non_cpg_ct_fraction);
+    }
+
     profile.max_damage_5prime = profile.damage_rate_5prime[0];
     profile.max_damage_3prime = profile.damage_rate_3prime[0];
 

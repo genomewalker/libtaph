@@ -160,6 +160,11 @@ void FrameSelector::update_sample_profile(
             else if (deam_score > 0.00) deam_bin = 1;
             read_deam_bin = deam_bin;                       // hoist for stratified trinuc spectrum
             ++profile.deam_stratum_reads[deam_bin];
+            if (deam_score > 0.0) {
+                profile.per_read_deam_sum   += deam_score;
+                profile.per_read_deam_sumsq += deam_score * deam_score;
+                ++profile.per_read_deam_n;
+            }
 
             const double gc_frac = (mid_g + mid_c) / mid_total;
             const int gc_bin = std::clamp(
@@ -1471,6 +1476,9 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         merge_cell(dst.oxo_two_marker.cells[i],    src.oxo_two_marker.cells[i]);
         merge_cell(dst.oxo_two_marker_ss.cells[i], src.oxo_two_marker_ss.cells[i]);
     }
+    dst.per_read_deam_sum   += src.per_read_deam_sum;
+    dst.per_read_deam_sumsq += src.per_read_deam_sumsq;
+    dst.per_read_deam_n     += src.per_read_deam_n;
 
     for (int i = 0; i < SampleDamageProfile::N_OX_BINS; ++i) {
         auto& d = dst.oxidation_like_bins[i];
@@ -2204,8 +2212,11 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.c_count_ox_5prime.fill(0.0);
     profile.a_from_c_5prime.fill(0.0);
     profile.oxidation_like_bins = {};
-    profile.oxo_two_marker    = {};
-    profile.oxo_two_marker_ss = {};
+    profile.oxo_two_marker       = {};
+    profile.oxo_two_marker_ss    = {};
+    profile.per_read_deam_sum    = 0.0;
+    profile.per_read_deam_sumsq  = 0.0;
+    profile.per_read_deam_n      = 0;
     profile.oxidation_like_signal = 0.0f;
     profile.oxidation_like_signal_se = 0.0f;
     profile.oxidation_like_control = 0.0f;

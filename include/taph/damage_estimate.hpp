@@ -130,7 +130,8 @@ struct OxoTwoMarkerResult {
 };
 
 // Layer-1 burial fingerprint: dimensionless ratios over existing observables that cancel burial age.
-// Θ = ln(γ/f0): backbone-scission vs hydrolytic-deamination rate ratio — mostly a pH proxy.
+// Θ = ln(γ/f0): backbone-scission vs hydrolytic-deamination rate ratio (hydrolytic fragmentation pressure index).
+// Confounds pH, temperature, water activity, and deamination saturation — NOT a specific pH meter.
 // overhang_fraction = A/(A+f0): copied from tau.
 // phi_share = σ₀/(σ₀+f0): upper bound on oxidation fraction (includes composition baseline; use
 // only as a relative measure across samples with similar gc_interior).
