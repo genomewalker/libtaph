@@ -1113,7 +1113,7 @@ void profile_to_json(const SampleDamageProfile& dp,
             obs[b0i][b1i] += static_cast<double>(dp.tri_5prime_pos[1][t]);
             obs_total      += static_cast<double>(dp.tri_5prime_pos[1][t]);
         }
-        const double delta0 = std::isfinite(dp.t_freq_5prime[0]) ? dp.t_freq_5prime[0] : 0.0;
+        const double delta0 = std::isfinite(dp.damage_rate_5prime[0]) ? dp.damage_rate_5prime[0] : 0.0;
         if (delta0 > 0.0 && delta0 < 0.9) {
             for (int b1i = 0; b1i < 4; ++b1i) {
                 const double shift = obs[3][b1i] * delta0;
