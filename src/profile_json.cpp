@@ -1168,6 +1168,109 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "  },\n";
     }
 
+    // ── Deamination-stratified channels (modern / bulk / ancient) ────────────────
+    // Dose-response validation for methylation and depurination indices.
+    // modern=deam_bin0, bulk=all_bins, ancient=bins3-4. Authentic signals:
+    //   depurination_index(ancient) > depurination_index(modern)
+    //   methylation_next_cond_logodds: same direction across fractions.
+    // Uses tri_5prime_interior_by_deam + tri_5prime_terminal_by_deam (no new accumulators).
+    // No deamination correction applied here (per-bin delta unavailable).
+    {
+        constexpr int NS = SampleDamageProfile::N_OX_DEAM_STRATA;  // 5
+        static constexpr struct { const char* name; int lo; int hi; } FRACS[3] = {
+            {"modern",  0,    0   },
+            {"bulk",    0,    NS-1},
+            {"ancient", NS-2, NS-1},
+        };
+
+        // Projected-gradient NNLS for 4 unknowns — identical kernel to above.
+        auto run_nnls = [](const double bg2[4][4][4], double bg2t,
+                           const double obs2[4][4],  double obs2t,
+                           double w_out[4]) -> double {
+            if (bg2t < 100.0 || obs2t < 100.0) return std::numeric_limits<double>::quiet_NaN();
+            double A[16][4]={}, bv[16]={};
+            for (int b0=0;b0<4;b0++) for (int b1=0;b1<4;b1++) {
+                const int i=b0*4+b1;
+                bv[i] = obs2[b0][b1]/obs2t;
+                for (int x=0;x<4;x++) A[i][x] = bg2[x][b0][b1]/bg2t;
+            }
+            double w[4]={0.25,0.25,0.25,0.25};
+            double AtA[4][4]={}, Atb[4]={};
+            for (int i=0;i<16;i++) for (int x=0;x<4;x++) {
+                Atb[x]+=A[i][x]*bv[i];
+                for (int y=0;y<4;y++) AtA[x][y]+=A[i][x]*A[i][y];
+            }
+            double L=0.0; for (int x=0;x<4;x++) L+=AtA[x][x];
+            const double lr = L>1e-12 ? 0.5/L : 0.01;
+            for (int iter=0;iter<2000;iter++) {
+                double grad[4]={};
+                for (int x=0;x<4;x++) {
+                    for (int y=0;y<4;y++) grad[x]+=AtA[x][y]*w[y];
+                    grad[x]-=Atb[x];
+                }
+                for (int x=0;x<4;x++) w[x]=std::max(0.0,w[x]-lr*grad[x]);
+            }
+            double ws=w[0]+w[1]+w[2]+w[3];
+            if (ws>1e-12) for (int x=0;x<4;x++) { w[x]/=ws; w_out[x]=w[x]; }
+            return (w[1]+w[3])>1e-9 ? (w[0]+w[2])/(w[1]+w[3])
+                                     : std::numeric_limits<double>::quiet_NaN();
+        };
+
+        j << "  \"deam_stratified_channels\": {\n";
+        for (int fi = 0; fi < 3; ++fi) {
+            const int blo = FRACS[fi].lo, bhi = FRACS[fi].hi;
+
+            // Reads in this fraction
+            uint64_t n_frac = 0;
+            for (int b=blo;b<=bhi;b++) n_frac += dp.deam_stratum_reads[b];
+
+            // Methylation next-conditioned log-odds from interior bins
+            double cc=0,ct=0,nc=0,nt=0;
+            for (int b=blo;b<=bhi;b++) for (int pv=0;pv<4;pv++) {
+                cc += dp.tri_5prime_interior_by_deam[b][pv*16+6];
+                ct += dp.tri_5prime_interior_by_deam[b][pv*16+14];
+                nc += dp.tri_5prime_interior_by_deam[b][pv*16+4]
+                    + dp.tri_5prime_interior_by_deam[b][pv*16+5]
+                    + dp.tri_5prime_interior_by_deam[b][pv*16+7];
+                nt += dp.tri_5prime_interior_by_deam[b][pv*16+12]
+                    + dp.tri_5prime_interior_by_deam[b][pv*16+13]
+                    + dp.tri_5prime_interior_by_deam[b][pv*16+15];
+            }
+            constexpr double alp = 0.5;
+            const bool ok = (cc+ct+nc+nt) > 1000;
+            const double mlo = ok
+                ? std::log((ct+alp)/(cc+alp)) - std::log((nt+alp)/(nc+alp))
+                : std::numeric_limits<double>::quiet_NaN();
+
+            // Depurination NNLS: obs from tri_5prime_terminal_by_deam, bg from interior
+            double bg2[4][4][4]={}, obs2[4][4]={};
+            double bg2t=0, obs2t=0;
+            for (int b=blo;b<=bhi;b++)
+                for (int t=0;t<SampleDamageProfile::N_TRINUC;t++) {
+                    const int x=(t>>4)&3, b0=(t>>2)&3, b1=t&3;
+                    bg2[x][b0][b1] += static_cast<double>(dp.tri_5prime_interior_by_deam[b][t]);
+                    bg2t            += static_cast<double>(dp.tri_5prime_interior_by_deam[b][t]);
+                    obs2[b0][b1]   += static_cast<double>(dp.tri_5prime_terminal_by_deam[b][t]);
+                    obs2t          += static_cast<double>(dp.tri_5prime_terminal_by_deam[b][t]);
+                }
+            // obs2 now = Σ_{next} tri_terminal[b0*16+b1*4+next] for each (b0,b1)
+            // Divide obs2t by 4 to get marginal count (each (b0,b1) counted 4× over next)
+            // Actually obs2t is already sum over all 64 cells = correct total for normalization.
+            double w2[4]={};
+            const double dep2 = run_nnls(bg2, bg2t, obs2, obs2t, w2);
+
+            auto jn2 = [&](double v) {
+                if (std::isfinite(v)) j << std::setprecision(6) << v; else j << "null";
+            };
+            j << "    \"" << FRACS[fi].name << "\": {\n";
+            j << "      \"n_reads\": " << n_frac << ",\n";
+            j << "      \"methylation_next_cond_logodds\": "; jn2(mlo); j << ",\n";
+            j << "      \"depurination_index\": "; jn2(dep2); j << "\n";
+            j << "    }" << (fi < 2 ? "," : "") << "\n";
+        }
+        j << "  },\n";
+    }
+
     // ── Per-position substitution rates (all 12 types) ────────────────────────
     // rate(X→Y, pos) = alt/(ref+alt) collapsed over flanking context.
     // Allows detection of damage types beyond C→T/G→A: AP-site A-rule (G→T
