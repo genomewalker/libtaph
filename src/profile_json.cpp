@@ -1139,9 +1139,9 @@ void profile_to_json(const SampleDamageProfile& dp,
                 for (int y=0;y<4;y++) AtA[x][y] += A[i][x]*A[i][y];
             }
             double L=0.0;
-            for (int x=0;x<4;x++) L = std::max(L, AtA[x][x]);
+            for (int x=0;x<4;x++) L += AtA[x][x];  // trace = Σλ ≥ λ_max → lr safe
             const double lr = L > 1e-12 ? 0.5/L : 0.01;
-            for (int iter=0;iter<500;iter++) {
+            for (int iter=0;iter<2000;iter++) {
                 double grad[4]={};
                 for (int x=0;x<4;x++) {
                     for (int y=0;y<4;y++) grad[x] += AtA[x][y]*w[y];
