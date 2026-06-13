@@ -744,7 +744,11 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"alpha\": " << otm.alpha << ",\n";
     j << "    \"sigma2\": " << otm.sigma2 << ",\n";   // residual variance — makes the SEs auditable
     j << "    \"delta_beta\": " << otm.delta_beta << ",\n";
-    j << "    \"markers_consistent\": " << (otm.markers_consistent ? "true" : "false") << "\n";
+    j << "    \"markers_consistent\": " << (otm.markers_consistent ? "true" : "false") << ",\n";
+    j << "    \"consistency_basis\": \""
+      << (otm.consistency_basis == OxoConsistencyBasis::SS_END_SYMMETRY
+              ? "ss_end_symmetry" : "ds_strand_symmetry")
+      << "\"\n";
     j << "  },\n";
 
     // ── Oxidation-like: ancient-vs-modern oxidation, internal deam-stratified split ──

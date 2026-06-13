@@ -198,31 +198,46 @@ void FrameSelector::update_sample_profile(
                 }
             }
 
-            // Two-marker bins: s1 = T count at 5' pos 1-3 (C→T proxy),
-            //                  s2 = A count at 3' pos 1-3 (G→A proxy, DS marker).
-            // Both are reference-free: we observe the base directly.
+            // Two-marker oxidation bins.
+            // s1 = C→T 5' proxy: T count at 5' pos 1-3 (reference-free, base observed directly).
+            // s2_ga = G→A 3' proxy (DS): A count at 3' pos 1-3 (minus-strand C→T seen as G→A).
+            // s2_ct = C→T 3' proxy (SS): T count at 3' pos 1-3 (same-strand deamination).
+            // Library type is not yet resolved here; accumulate both panels unconditionally.
+            // compute_oxo_two_marker selects the correct panel at regression time via is_ss.
             {
                 int s1 = 0;
                 for (int p = 1; p <= 3 && static_cast<size_t>(p) < len; ++p) {
                     if (decoded[p] == 'T') ++s1;
                 }
-                int s2 = 0;
+                int s2_ga = 0, s2_ct = 0;
                 for (int p = 1; p <= 3 && static_cast<size_t>(p) < len; ++p) {
-                    if (decoded[len - 1 - p] == 'A') ++s2;
+                    if (decoded[len - 1 - p] == 'A') ++s2_ga;
+                    if (decoded[len - 1 - p] == 'T') ++s2_ct;
                 }
-                s1 = std::min(s1, 3);
-                s2 = std::min(s2, 3);
-                int gc_b = (mid_total > 0)
+                s1    = std::min(s1,    3);
+                s2_ga = std::min(s2_ga, 3);
+                s2_ct = std::min(s2_ct, 3);
+                int gc_b  = (mid_total > 0)
                     ? std::min(3, static_cast<int>((mid_g + mid_c) * 4.0 / mid_total))
                     : 1;
                 int len_b = (len < 45) ? 0 : (len < 70) ? 1 : (len < 110) ? 2 : 3;
-                auto& cell = profile.oxo_two_marker.cells[
-                    SampleDamageProfile::OxoTwoMarkerBins::idx(s1, s2, gc_b, len_b)];
-                ++cell.n_reads;
-                cell.sum_nGT += static_cast<uint32_t>(mid_t + mid_g);
-                cell.sum_T   += static_cast<uint32_t>(mid_t);
-                cell.sum_nAC += static_cast<uint32_t>(mid_a + mid_c);
-                cell.sum_A   += static_cast<uint32_t>(mid_a);
+                const uint32_t ngt = static_cast<uint32_t>(mid_t + mid_g);
+                const uint32_t t   = static_cast<uint32_t>(mid_t);
+                const uint32_t nac = static_cast<uint32_t>(mid_a + mid_c);
+                const uint32_t a   = static_cast<uint32_t>(mid_a);
+                using Bins = SampleDamageProfile::OxoTwoMarkerBins;
+                {
+                    auto& cell = profile.oxo_two_marker.cells[Bins::idx(s1, s2_ga, gc_b, len_b)];
+                    ++cell.n_reads;
+                    cell.sum_nGT += ngt; cell.sum_T += t;
+                    cell.sum_nAC += nac; cell.sum_A += a;
+                }
+                {
+                    auto& cell = profile.oxo_two_marker_ss.cells[Bins::idx(s1, s2_ct, gc_b, len_b)];
+                    ++cell.n_reads;
+                    cell.sum_nGT += ngt; cell.sum_T += t;
+                    cell.sum_nAC += nac; cell.sum_A += a;
+                }
             }
         }
     }
@@ -1448,13 +1463,13 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
 
 
     for (int i = 0; i < SampleDamageProfile::OxoTwoMarkerBins::TOTAL; ++i) {
-        auto& dc = dst.oxo_two_marker.cells[i];
-        const auto& sc = src.oxo_two_marker.cells[i];
-        dc.n_reads += sc.n_reads;
-        dc.sum_nGT += sc.sum_nGT;
-        dc.sum_T   += sc.sum_T;
-        dc.sum_nAC += sc.sum_nAC;
-        dc.sum_A   += sc.sum_A;
+        auto merge_cell = [](auto& dc, const auto& sc) {
+            dc.n_reads += sc.n_reads;
+            dc.sum_nGT += sc.sum_nGT; dc.sum_T += sc.sum_T;
+            dc.sum_nAC += sc.sum_nAC; dc.sum_A += sc.sum_A;
+        };
+        merge_cell(dst.oxo_two_marker.cells[i],    src.oxo_two_marker.cells[i]);
+        merge_cell(dst.oxo_two_marker_ss.cells[i], src.oxo_two_marker_ss.cells[i]);
     }
 
     for (int i = 0; i < SampleDamageProfile::N_OX_BINS; ++i) {
@@ -2189,7 +2204,8 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.c_count_ox_5prime.fill(0.0);
     profile.a_from_c_5prime.fill(0.0);
     profile.oxidation_like_bins = {};
-    profile.oxo_two_marker = {};
+    profile.oxo_two_marker    = {};
+    profile.oxo_two_marker_ss = {};
     profile.oxidation_like_signal = 0.0f;
     profile.oxidation_like_signal_se = 0.0f;
     profile.oxidation_like_control = 0.0f;

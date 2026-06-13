@@ -498,6 +498,9 @@ static bool solve5x5(double A[5][5], double b[5], double x[5]) {
 OxoTwoMarkerResult compute_oxo_two_marker(const SampleDamageProfile& dp, bool is_ss) {
     using Bins = SampleDamageProfile::OxoTwoMarkerBins;
     OxoTwoMarkerResult r;
+    r.consistency_basis = is_ss ? OxoConsistencyBasis::SS_END_SYMMETRY
+                                : OxoConsistencyBasis::DS_STRAND_SYMMETRY;
+    const auto& panel = is_ss ? dp.oxo_two_marker_ss : dp.oxo_two_marker;
 
     // Bin midpoints for predictors
     // s1/s2: bins 0-3 → normalised rate 0/3, 1/3, 2/3, 3/3
@@ -516,7 +519,7 @@ OxoTwoMarkerResult compute_oxo_two_marker(const SampleDamageProfile& dp, bool is
     for (int s2 = 0; s2 < Bins::N_S; ++s2) {
     for (int gc = 0; gc < Bins::N_GC; ++gc) {
     for (int l  = 0; l  < Bins::N_L;  ++l) {
-        const auto& c = dp.oxo_two_marker.cells[Bins::idx(s1, s2, gc, l)];
+        const auto& c = panel.cells[Bins::idx(s1, s2, gc, l)];
         if (c.sum_nGT < 200 || c.sum_nAC < 200) continue;
 
         const double D = static_cast<double>(c.sum_T)   / c.sum_nGT
@@ -550,7 +553,7 @@ OxoTwoMarkerResult compute_oxo_two_marker(const SampleDamageProfile& dp, bool is
     for (int s2 = 0; s2 < Bins::N_S; ++s2) {
     for (int gc = 0; gc < Bins::N_GC; ++gc) {
     for (int l  = 0; l  < Bins::N_L;  ++l) {
-        const auto& c = dp.oxo_two_marker.cells[Bins::idx(s1, s2, gc, l)];
+        const auto& c = panel.cells[Bins::idx(s1, s2, gc, l)];
         if (c.sum_nGT < 200 || c.sum_nAC < 200) continue;
         const double D = static_cast<double>(c.sum_T) / c.sum_nGT
                        - static_cast<double>(c.sum_A) / c.sum_nAC;
@@ -576,18 +579,26 @@ OxoTwoMarkerResult compute_oxo_two_marker(const SampleDamageProfile& dp, bool is
     }
 
     r.delta_beta = r.beta1 - r.beta2;
-    double se_delta = std::sqrt(r.beta1_se * r.beta1_se + r.beta2_se * r.beta2_se);
-    // BEHAVIORAL CHANGE (C5): compare marker MAGNITUDES, not the signed
-    // difference. The response D = T/(T+G) - A/(A+C) couples to s2 with opposite
-    // sign from s1, so beta2 is structurally negative and beta1-beta2 ≈ 2|beta1|
-    // is always large — the signed test fired false on every library, giving no
-    // discrimination. ||beta1| - |beta2|| < 2*se_delta correctly tests whether
-    // the two ssDNA-overhang markers agree in strength.
-    r.markers_consistent =
-        (se_delta > 0 &&
-         std::abs(std::abs(r.beta1) - std::abs(r.beta2)) < 2.0 * se_delta);
+    // Library-appropriate consistency test:
+    //   DS: magnitude equality ||beta1|-|beta2|| < 2*se_delta.
+    //       beta2 is structurally negative (G→A couples with opposite sign), so the
+    //       test compares absolute strengths. Catches strand-asymmetric artefacts.
+    //   SS: both markers independently significant at z > 3.0 AND same sign (both > 0).
+    //       5' C→T and 3' C→T have systematically different magnitudes (~0.72 ratio)
+    //       so magnitude equality is the wrong criterion; independent significance of
+    //       both deamination channels is the physically meaningful check.
+    if (!is_ss) {
+        double se_delta = std::sqrt(r.beta1_se * r.beta1_se + r.beta2_se * r.beta2_se);
+        r.markers_consistent =
+            (se_delta > 0 &&
+             std::abs(std::abs(r.beta1) - std::abs(r.beta2)) < 2.0 * se_delta);
+    } else {
+        constexpr double kSSZThreshold = 3.0;
+        r.markers_consistent = (r.beta1_z > kSSZThreshold &&
+                                 r.beta2_z > kSSZThreshold &&
+                                 r.beta1 > 0.0 && r.beta2 > 0.0);
+    }
     r.valid = true;
-    (void)is_ss;  // SS nulls beta2/beta2_se/beta2_z at the JSON layer (3' G-richness, not G→A)
     return r;
 }
 

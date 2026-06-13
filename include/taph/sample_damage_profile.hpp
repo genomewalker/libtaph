@@ -1077,7 +1077,8 @@ struct SampleDamageProfile {
             return s1 * (N_S * N_GC * N_L) + s2 * (N_GC * N_L) + gc * N_L + l;
         }
     };
-    OxoTwoMarkerBins oxo_two_marker;
+    OxoTwoMarkerBins oxo_two_marker;     // s2 = 3' G→A (A count); DS path
+    OxoTwoMarkerBins oxo_two_marker_ss;  // s2 = 3' C→T (T count); SS path
 
     // GT exponential-background fit: GT(p) = A*exp(-mu*p) + B
     // B = uniform background (8-oxoG estimate); A = terminal excess (artifact)

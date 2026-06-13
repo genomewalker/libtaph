@@ -102,21 +102,28 @@ struct GcDepletionEstimate {
 };
 
 // Deamination-coupled G→T regression over the 256-cell (s1×s2×GC×length) interior panel.
-// beta1: s1-coupled D slope (C→T 5' marker); beta2: s2-coupled (G→A 3' marker, DS).
-// markers_consistent: |beta1|≈|beta2| — both deamination markers couple equally to the interior
-// G→T excess, confirming burial-accumulated oxidation rather than a strand-asymmetric artefact.
+// beta1: s1-coupled D slope (C→T 5' marker); beta2: s2-coupled end marker.
+//   DS: s2 = G→A 3' marker (minus-strand deamination seen as G→A on the read).
+//   SS: s2 = C→T 3' marker (same-strand deamination; no minus strand present).
+// markers_consistent: end-symmetry of deamination→D coupling (library-appropriate test).
+// consistency_basis records which marker pairing was used for interpretation.
 // This is the PRIMARY reference-free per-sample oxidation readout. Computed by
 // finalize_oxidation_comovement (wraps compute_oxo_two_marker from library_interpretation.hpp).
+enum class OxoConsistencyBasis {
+    DS_STRAND_SYMMETRY,  // beta1≈beta2 via 5'C→T vs 3'G→A; valid for DS libraries
+    SS_END_SYMMETRY,     // beta1≈beta2 via 5'C→T vs 3'C→T; valid for SS libraries
+};
 struct OxoTwoMarkerResult {
     double beta1             = 0.0;  // s1-coupled D slope (C→T 5' marker)
-    double beta2             = 0.0;  // s2-coupled D slope (G→A 3' marker)
+    double beta2             = 0.0;  // s2-coupled D slope (library-type-appropriate 3' marker)
     double beta1_se          = 0.0;
     double beta2_se          = 0.0;
     double beta1_z           = 0.0;  // beta1 / beta1_se
     double beta2_z           = 0.0;  // beta2 / beta2_se
     double alpha             = 0.0;  // intercept (global D floor = prep artifact)
     double sigma2            = 0.0;  // residual variance
-    bool   markers_consistent = false;  // |beta1-beta2| < 2*sqrt(se1²+se2²)
+    bool   markers_consistent = false;
+    OxoConsistencyBasis consistency_basis = OxoConsistencyBasis::DS_STRAND_SYMMETRY;
     double delta_beta        = 0.0;  // beta1 - beta2 (≈0 when consistent)
     int    n_cells_used      = 0;
     bool   valid             = false;
