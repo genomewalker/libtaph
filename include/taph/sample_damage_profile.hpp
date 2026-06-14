@@ -208,12 +208,19 @@ struct SampleDamageProfile {
     uint64_t per_read_deam_n   = 0;     // n reads with deam_score>0
     // Cross-cumulant sufficient stats for hyperdiluted-damage estimation.
     // ct5_exc = max(0, T/(T+C) at 5' pos0-4 - interior), ga3_exc analogous at 3'.
-    // κ₂(CT5,GA3) = Σ ct5_exc·ga3_exc / n  →  f·Δ_CT5·Δ_GA3  (f-linear, f cancels in ratio)
-    // κ₃ numerator adds CpG flag (pos0 in xCG context): larger Δ_CpG amplifies signal.
+    // ct3_exc = max(0, T/(T+C) at 3' pos1-4 - interior) — strand-discordant CT excess.
+    // κ₂(CT5,GA3) = Σ ct5_exc·ga3_exc / n  →  f·Δ_CT5·Δ_GA3  (f-linear; f cancels in E1 ratio)
+    // κ₂_TpG = κ₂ accumulated only over reads starting TpG (decoded[0]='T', decoded[1]='G').
+    //   Ratio κ₂_TpG/n_TpG vs κ₂/n tests whether CpG deamination drives the signal.
+    // κ₂(CT5,CT3) = Σ ct5_exc·ct3_exc / n — strand-discordant artifact floor.
+    //   Genuine ds-aDNA damage does NOT correlate CT5 with CT3; artifacts often do.
+    //   Corrected κ₂ = κ₂(CT5,GA3) − κ₂(CT5,CT3).
     double per_read_ct5_sum    = 0.0;   // Σ ct5_exc
     double per_read_ga3_sum    = 0.0;   // Σ ga3_exc
-    double per_read_ct5ga3     = 0.0;   // Σ ct5_exc × ga3_exc          (κ₂ numerator)
-    double per_read_ct5ga3_cpg = 0.0;   // Σ ct5_exc × ga3_exc × cpg5  (κ₃ numerator)
+    double per_read_ct5ga3     = 0.0;   // Σ ct5_exc × ga3_exc          (κ₂ numerator, all reads)
+    double per_read_ct5ga3_cpg = 0.0;   // Σ ct5_exc × ga3_exc for TpG reads only (stratified κ₂_TpG)
+    double per_read_n_tpg      = 0.0;   // count of TpG-context reads   (normaliser for κ₂_TpG)
+    double per_read_ct5ct3     = 0.0;   // Σ ct5_exc × ct3_exc          (strand-discordant floor)
     double per_read_score_len  = 0.0;   // Σ deam_score / L             (Cov(score,1/L) numerator)
 
     // Empirical GG-breakpoint contrast (reference-free, composition-internal).

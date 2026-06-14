@@ -1091,9 +1091,12 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"cv2\": "              << cv2                            << ",\n";
         j << "    \"ct5_mean\": "         << dp.per_read_ct5_sum  / n_all  << ",\n";
         j << "    \"ga3_mean\": "         << dp.per_read_ga3_sum  / n_all  << ",\n";
-        j << "    \"k2_ct5_ga3\": "       << dp.per_read_ct5ga3   / n_all  << ",\n";
-        j << "    \"k3_ct5_ga3_cpg\": "   << dp.per_read_ct5ga3_cpg / n_all << ",\n";
-        j << "    \"score_len_cov\": "    << dp.per_read_score_len / n_all  << "\n";
+        j << "    \"k2_ct5_ga3\": "       << dp.per_read_ct5ga3      / n_all << ",\n";
+        j << "    \"k2_ct5_ct3\": "       << dp.per_read_ct5ct3      / n_all << ",\n";
+        j << "    \"k2_ct5_ga3_corr\": "  << (dp.per_read_ct5ga3 - dp.per_read_ct5ct3) / n_all << ",\n";
+        j << "    \"k2_tpg\": "           << dp.per_read_ct5ga3_cpg  / n_all << ",\n";
+        j << "    \"n_tpg_reads\": "      << dp.per_read_n_tpg               << ",\n";
+        j << "    \"score_len_cov\": "    << dp.per_read_score_len   / n_all << "\n";
         j << "  },\n";
     }
 

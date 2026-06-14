@@ -118,11 +118,14 @@ void FrameSelector::update_sample_profile(
 
         // 3' position 0 is skipped: SS prep can create a ligation artifact at
         // the final base. Positions 1..4 carry the useful G->A deamination axis.
-        double term_a3 = 0.0, term_ag3 = 0.0;
+        // T/C counts at 3' are also accumulated for the strand-discordant CT3 excess.
+        double term_a3 = 0.0, term_ag3 = 0.0, term_t3 = 0.0, term_tc3 = 0.0;
         for (size_t off = 1; off < std::min<size_t>(5, len); ++off) {
             const char b = decoded[len - 1 - off];
             if (b == 'A') { term_a3 += 1.0; term_ag3 += 1.0; }
             else if (b == 'G') { term_ag3 += 1.0; }
+            else if (b == 'T') { term_t3 += 1.0; term_tc3 += 1.0; }
+            else if (b == 'C') { term_tc3 += 1.0; }
         }
 
         double mid_t = 0.0, mid_c = 0.0, mid_a = 0.0, mid_g = 0.0;
@@ -169,13 +172,22 @@ void FrameSelector::update_sample_profile(
                 ++profile.per_read_deam_n;
             }
             // Cross-cumulant sufficient stats (all reads, not just score>0).
-            // cpg5: pos0 in xCG context (decoded[1]=='G' with pos0 T or C).
-            const bool cpg5 = (len >= 2) && (decoded[1] == 'G') &&
-                              (decoded[0] == 'T' || decoded[0] == 'C');
+            // ct3_exc: 3' C→T excess vs interior — strand-discordant control.
+            //   Genuine ds-aDNA damage links CT5↔GA3 but not CT5↔CT3; artifacts may link both.
+            double ct3_exc = 0.0;
+            if (term_tc3 > 0.0 && mid_tc > 0.0)
+                ct3_exc = std::max(0.0, (term_t3 + 0.5) / (term_tc3 + 1.0)
+                                      - (mid_t  + 0.5) / (mid_tc  + 1.0));
+            // tpg5: strictly TpG at pos0-1 (decoded[0]='T', decoded[1]='G').
+            //   Stratified accumulation — κ₂_TpG / n_TpG vs κ₂ / n tests CpG deamination enrichment.
+            //   Using only T (not C) avoids mixing original CpG (undamaged) with deaminated CpG.
+            const bool tpg5 = (len >= 2) && (decoded[0] == 'T') && (decoded[1] == 'G');
             profile.per_read_ct5_sum    += ct5_exc;
             profile.per_read_ga3_sum    += ga3_exc;
             profile.per_read_ct5ga3     += ct5_exc * ga3_exc;
-            profile.per_read_ct5ga3_cpg += ct5_exc * ga3_exc * (cpg5 ? 1.0 : 0.0);
+            profile.per_read_ct5ga3_cpg += tpg5 ? (ct5_exc * ga3_exc) : 0.0;
+            profile.per_read_n_tpg      += tpg5 ? 1.0 : 0.0;
+            profile.per_read_ct5ct3     += ct5_exc * ct3_exc;
             if (len > 0)
                 profile.per_read_score_len += deam_score / static_cast<double>(len);
 
@@ -1496,6 +1508,8 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
     dst.per_read_ga3_sum       += src.per_read_ga3_sum;
     dst.per_read_ct5ga3        += src.per_read_ct5ga3;
     dst.per_read_ct5ga3_cpg    += src.per_read_ct5ga3_cpg;
+    dst.per_read_n_tpg         += src.per_read_n_tpg;
+    dst.per_read_ct5ct3        += src.per_read_ct5ct3;
     dst.per_read_score_len     += src.per_read_score_len;
 
     for (int i = 0; i < SampleDamageProfile::N_OX_BINS; ++i) {
@@ -2239,6 +2253,8 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.per_read_ga3_sum     = 0.0;
     profile.per_read_ct5ga3      = 0.0;
     profile.per_read_ct5ga3_cpg  = 0.0;
+    profile.per_read_n_tpg       = 0.0;
+    profile.per_read_ct5ct3      = 0.0;
     profile.per_read_score_len   = 0.0;
     profile.oxidation_like_signal = 0.0f;
     profile.oxidation_like_signal_se = 0.0f;
