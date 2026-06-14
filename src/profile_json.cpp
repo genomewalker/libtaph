@@ -1083,11 +1083,17 @@ void profile_to_json(const SampleDamageProfile& dp,
         const double mean = n > 0 ? dp.per_read_deam_sum / nd : 0.0;
         const double var  = n > 1 ? (dp.per_read_deam_sumsq / nd - mean * mean) : 0.0;
         const double cv2  = mean > 1e-9 ? var / (mean * mean) : 0.0;
+        const double n_all = static_cast<double>(dp.n_reads > 0 ? dp.n_reads : 1);
         j << "  \"per_read_overdispersion\": {\n";
         j << "    \"n_damaged_reads\": "  << n                             << ",\n";
         j << "    \"mean_deam_score\": "  << std::setprecision(6) << mean  << ",\n";
         j << "    \"variance\": "         << var                            << ",\n";
-        j << "    \"cv2\": "              << cv2                            << "\n";
+        j << "    \"cv2\": "              << cv2                            << ",\n";
+        j << "    \"ct5_mean\": "         << dp.per_read_ct5_sum  / n_all  << ",\n";
+        j << "    \"ga3_mean\": "         << dp.per_read_ga3_sum  / n_all  << ",\n";
+        j << "    \"k2_ct5_ga3\": "       << dp.per_read_ct5ga3   / n_all  << ",\n";
+        j << "    \"k3_ct5_ga3_cpg\": "   << dp.per_read_ct5ga3_cpg / n_all << ",\n";
+        j << "    \"score_len_cov\": "    << dp.per_read_score_len / n_all  << "\n";
         j << "  },\n";
     }
 
@@ -1719,6 +1725,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"adapter_offset_3prime\": " << dp.fit_offset_3prime << ",\n";
         j << "    \"position0_artifact_5prime\": " << (dp.position_0_artifact_5prime ? "true" : "false") << ",\n";
         j << "    \"position0_artifact_3prime\": " << (dp.position_0_artifact_3prime ? "true" : "false") << ",\n";
+        j << "    \"junction_mask_n_5prime\": " << dp.junction_mask_n_5prime << ",\n";
         j << "    \"hexamer_entropy_5prime\": " << std::setprecision(4) << hs.entropy_terminal << ",\n";
         j << "    \"hexamer_entropy_interior\": " << hs.entropy_interior << ",\n";
         j << "    \"hexamer_terminal_interior_jsd\": " << hs.jsd << ",\n";

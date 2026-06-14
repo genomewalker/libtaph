@@ -320,11 +320,11 @@ static std::pair<ChannelDecayFit, int> fit_decay_best_offset(
         const std::array<double, 15>& freq,
         const std::array<double, 15>& coverage,
         float baseline, float lambda,
-        int end_pos = 10, int min_valid = 3) {
+        int end_pos = 10, int min_valid = 3, int min_sp = 1) {
     static constexpr float lambda_extra[] = {2.0f, 5.0f, 10.0f};
     ChannelDecayFit best;
-    int best_offset = 1;
-    for (int sp = 1; sp <= 3; ++sp) {
+    int best_offset = min_sp;
+    for (int sp = min_sp; sp <= std::max(min_sp, 3); ++sp) {
         // Try caller's lambda
         ChannelDecayFit f = fit_decay_fixed_lambda(freq, coverage, baseline, lambda, sp, end_pos, min_valid);
         if (f.valid && (!best.valid || f.delta_bic > best.delta_bic)) { best = f; best_offset = sp; }
@@ -335,8 +335,8 @@ static std::pair<ChannelDecayFit, int> fit_decay_best_offset(
         }
     }
     if (!best.valid) {
-        best = fit_decay_fixed_lambda(freq, coverage, baseline, lambda, 1, end_pos, min_valid);
-        best_offset = 1;
+        best = fit_decay_fixed_lambda(freq, coverage, baseline, lambda, min_sp, end_pos, min_valid);
+        best_offset = min_sp;
     }
     return {best, best_offset};
 }
@@ -346,11 +346,12 @@ static std::pair<ChannelDecayFit, int> fit_decay_best_offset(
 static std::pair<ChannelDecayFit, int> fit_decay_joint_best_offset(
         const std::array<double, 15>& freq1, const std::array<double, 15>& cov1, float baseline1,
         const std::array<double, 15>& freq2, const std::array<double, 15>& cov2, float baseline2,
-        float lambda, int end_pos = 10, int min_valid = 3, bool restrict_high_lambda = false) {
+        float lambda, int end_pos = 10, int min_valid = 3, bool restrict_high_lambda = false,
+        int min_sp = 1) {
     static constexpr float lambda_extra[] = {2.0f, 5.0f, 10.0f};
     ChannelDecayFit best;
-    int best_offset = 1;
-    for (int sp = 1; sp <= 3; ++sp) {
+    int best_offset = min_sp;
+    for (int sp = min_sp; sp <= std::max(min_sp, 3); ++sp) {
         ChannelDecayFit f = fit_decay_fixed_lambda_joint(
             freq1, cov1, baseline1, freq2, cov2, baseline2, lambda, sp, end_pos, min_valid);
         if (f.valid && (!best.valid || f.delta_bic > best.delta_bic)) { best = f; best_offset = sp; }
@@ -364,8 +365,8 @@ static std::pair<ChannelDecayFit, int> fit_decay_joint_best_offset(
     }
     if (!best.valid) {
         best = fit_decay_fixed_lambda_joint(
-            freq1, cov1, baseline1, freq2, cov2, baseline2, lambda, 1, end_pos, min_valid);
-        best_offset = 1;
+            freq1, cov1, baseline1, freq2, cov2, baseline2, lambda, min_sp, end_pos, min_valid);
+        best_offset = min_sp;
     }
     return {best, best_offset};
 }

@@ -139,16 +139,19 @@ void FrameSelector::update_sample_profile(
         const double mid_total = mid_t + mid_c + mid_a + mid_g;
         if (mid_total > 0.0) {
             double score_num = 0.0, score_den = 0.0;
+            double ct5_exc = 0.0, ga3_exc = 0.0;
             if (term_tc5 > 0.0 && mid_tc > 0.0) {
                 const double term = (term_t5 + 0.5) / (term_tc5 + 1.0);
                 const double base = (mid_t + 0.5) / (mid_tc + 1.0);
-                score_num += std::max(0.0, term - base) * term_tc5;
+                ct5_exc    = std::max(0.0, term - base);
+                score_num += ct5_exc * term_tc5;
                 score_den += term_tc5;
             }
             if (term_ag3 > 0.0 && mid_ag > 0.0) {
                 const double term = (term_a3 + 0.5) / (term_ag3 + 1.0);
                 const double base = (mid_a + 0.5) / (mid_ag + 1.0);
-                score_num += std::max(0.0, term - base) * term_ag3;
+                ga3_exc    = std::max(0.0, term - base);
+                score_num += ga3_exc * term_ag3;
                 score_den += term_ag3;
             }
 
@@ -165,6 +168,16 @@ void FrameSelector::update_sample_profile(
                 profile.per_read_deam_sumsq += deam_score * deam_score;
                 ++profile.per_read_deam_n;
             }
+            // Cross-cumulant sufficient stats (all reads, not just score>0).
+            // cpg5: pos0 in xCG context (decoded[1]=='G' with pos0 T or C).
+            const bool cpg5 = (len >= 2) && (decoded[1] == 'G') &&
+                              (decoded[0] == 'T' || decoded[0] == 'C');
+            profile.per_read_ct5_sum    += ct5_exc;
+            profile.per_read_ga3_sum    += ga3_exc;
+            profile.per_read_ct5ga3     += ct5_exc * ga3_exc;
+            profile.per_read_ct5ga3_cpg += ct5_exc * ga3_exc * (cpg5 ? 1.0 : 0.0);
+            if (len > 0)
+                profile.per_read_score_len += deam_score / static_cast<double>(len);
 
             const double gc_frac = (mid_g + mid_c) / mid_total;
             const int gc_bin = std::clamp(
@@ -1476,9 +1489,14 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         merge_cell(dst.oxo_two_marker.cells[i],    src.oxo_two_marker.cells[i]);
         merge_cell(dst.oxo_two_marker_ss.cells[i], src.oxo_two_marker_ss.cells[i]);
     }
-    dst.per_read_deam_sum   += src.per_read_deam_sum;
-    dst.per_read_deam_sumsq += src.per_read_deam_sumsq;
-    dst.per_read_deam_n     += src.per_read_deam_n;
+    dst.per_read_deam_sum      += src.per_read_deam_sum;
+    dst.per_read_deam_sumsq    += src.per_read_deam_sumsq;
+    dst.per_read_deam_n        += src.per_read_deam_n;
+    dst.per_read_ct5_sum       += src.per_read_ct5_sum;
+    dst.per_read_ga3_sum       += src.per_read_ga3_sum;
+    dst.per_read_ct5ga3        += src.per_read_ct5ga3;
+    dst.per_read_ct5ga3_cpg    += src.per_read_ct5ga3_cpg;
+    dst.per_read_score_len     += src.per_read_score_len;
 
     for (int i = 0; i < SampleDamageProfile::N_OX_BINS; ++i) {
         auto& d = dst.oxidation_like_bins[i];
@@ -2217,6 +2235,11 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.per_read_deam_sum    = 0.0;
     profile.per_read_deam_sumsq  = 0.0;
     profile.per_read_deam_n      = 0;
+    profile.per_read_ct5_sum     = 0.0;
+    profile.per_read_ga3_sum     = 0.0;
+    profile.per_read_ct5ga3      = 0.0;
+    profile.per_read_ct5ga3_cpg  = 0.0;
+    profile.per_read_score_len   = 0.0;
     profile.oxidation_like_signal = 0.0f;
     profile.oxidation_like_signal_se = 0.0f;
     profile.oxidation_like_control = 0.0f;

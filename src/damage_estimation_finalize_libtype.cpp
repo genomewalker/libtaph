@@ -61,6 +61,46 @@ void finalize_libtype(SampleDamageProfile& profile, const FinalCtx& ctx) {
         // to avoid perturbing the BIC scores used in library-type classification.
         const bool artifact_5 = profile.position_0_artifact_5prime || profile.inverted_pattern_5prime;
         const bool artifact_3 = profile.position_0_artifact_3prime || profile.inverted_pattern_3prime;
+
+        // GA-residual junction mask: when the 5' terminal is inverted, compute per-position
+        // (CT_shift - GA_shift) residual. The GA channel cannot carry 5' deamination, so a
+        // negative CT residual after GA subtraction indicates genuine T depletion at the junction
+        // (cut-site GC enrichment / adapter remnant), not deamination signal. Mask the leading
+        // prefix of positions where CT is still depressed OR the residual is still negative,
+        // then use the mask boundary as the minimum start for all BIC offset searches.
+        // Both bic_null and bic_alt in fit_decay_fixed_lambda are computed over the same
+        // [min_sp, end_pos] window, so the common-support constraint is automatically satisfied.
+        int ga_mask_5 = 0;
+        if (profile.inverted_pattern_5prime) {
+            // t_freq_5prime is already a fraction (converted in-place by finalize_init).
+            // a_freq_5prime / g_freq_5prime are still raw counts — use as numerator/denominator.
+            float ct_bg_m = 0.0f, ga_bg_m = 0.0f; int n_int_m = 0;
+            for (int p = 5; p < 15; ++p) {
+                double tc = profile.tc_total_5prime[p];
+                double ag = profile.a_freq_5prime[p] + profile.g_freq_5prime[p];
+                if (tc > 0 && ag > 0) {
+                    ct_bg_m += static_cast<float>(profile.t_freq_5prime[p]);  // already T/(T+C)
+                    ga_bg_m += static_cast<float>(profile.a_freq_5prime[p] / ag);
+                    ++n_int_m;
+                }
+            }
+            if (n_int_m > 0) { ct_bg_m /= n_int_m; ga_bg_m /= n_int_m; }
+            for (int p = 0; p < 5; ++p) {
+                double tc = profile.tc_total_5prime[p];
+                double ag = profile.a_freq_5prime[p] + profile.g_freq_5prime[p];
+                if (tc < 100.0 || ag < 100.0) { ga_mask_5 = p + 1; continue; }
+                float ct_p  = static_cast<float>(profile.t_freq_5prime[p]);  // already T/(T+C)
+                float ga_p  = static_cast<float>(profile.a_freq_5prime[p] / ag);
+                float residual = (ct_p - ct_bg_m) - (ga_p - ga_bg_m);
+                if ((ct_p - ct_bg_m) < -0.02f || residual < -0.01f)
+                    ga_mask_5 = p + 1;
+                else
+                    break;
+            }
+            profile.junction_mask_n_5prime = ga_mask_5;
+        }
+        const int min_sp_5 = std::max(1, ga_mask_5);
+
         ChannelDecayFit ct5;  int ct5_offset = 1;
         ChannelDecayFit ga3;  int ga3_offset = 1;
         ChannelDecayFit ct3;  int ct3_offset = 1;
@@ -68,7 +108,7 @@ void finalize_libtype(SampleDamageProfile& profile, const FinalCtx& ctx) {
         if (artifact_5) {
             std::tie(ct5, ct5_offset) = fit_decay_best_offset(
                 profile.t_freq_5prime, profile.tc_total_5prime,
-                static_cast<float>(ctx.baseline_tc), lambda_lib, 10);
+                static_cast<float>(ctx.baseline_tc), lambda_lib, 10, 3, min_sp_5);
         } else {
             ct5 = fit_decay_fixed_lambda(profile.t_freq_5prime, profile.tc_total_5prime,
                 static_cast<float>(ctx.baseline_tc), lambda_lib, 1, 10);
@@ -104,7 +144,7 @@ void finalize_libtype(SampleDamageProfile& profile, const FinalCtx& ctx) {
             std::tie(ds_symm, ds_symm_offset) = fit_decay_joint_best_offset(
                 profile.t_freq_5prime, profile.tc_total_5prime, static_cast<float>(ctx.baseline_tc),
                 profile.a_freq_3prime, profile.ag_total_3prime, static_cast<float>(ctx.baseline_ag),
-                lambda_lib, 10, 3, restrict_joint_lambda);
+                lambda_lib, 10, 3, restrict_joint_lambda, min_sp_5);
         } else {
             ds_symm = fit_decay_fixed_lambda_joint(
                 profile.t_freq_5prime, profile.tc_total_5prime, static_cast<float>(ctx.baseline_tc),
@@ -281,7 +321,10 @@ void finalize_libtype(SampleDamageProfile& profile, const FinalCtx& ctx) {
                 SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
             bool ds_spike_won = false;  // tracks whether M_DS_spike is the current winning model
 
-            if (bic_M_DS_symm < best) {
+            // Bilateral gate: M_DS_symm requires both CT5 and GA3 channels to carry
+            // positive BIC evidence. A one-sided CT5-only pattern is better captured by
+            // M_DS_symm_art (which explicitly models the missing 3' smooth decay).
+            if (bic_M_DS_symm < best && ct5.delta_bic > 0.0 && ga3.delta_bic > 0.0) {
                 best = bic_M_DS_symm;
                 bic_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
             }
@@ -708,7 +751,7 @@ void finalize_libtype(SampleDamageProfile& profile, const FinalCtx& ctx) {
                 for (int p = 1; p <= 4; ++p) {
                     double ntc = profile.tc_total_5prime[p];
                     if (ntc < 100.0) continue;
-                    float exc = static_cast<float>(profile.t_freq_5prime[p] / ntc)
+                    float exc = static_cast<float>(profile.t_freq_5prime[p])  // already T/(T+C) fraction
                               - static_cast<float>(ctx.baseline_tc);
                     if (exc > ct5_exc) { ct5_exc = exc; n_ct5 = static_cast<float>(ntc); }
                 }

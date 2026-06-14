@@ -206,6 +206,15 @@ struct SampleDamageProfile {
     double per_read_deam_sum   = 0.0;   // Σ deam_score (reads with score>0)
     double per_read_deam_sumsq = 0.0;   // Σ deam_score²
     uint64_t per_read_deam_n   = 0;     // n reads with deam_score>0
+    // Cross-cumulant sufficient stats for hyperdiluted-damage estimation.
+    // ct5_exc = max(0, T/(T+C) at 5' pos0-4 - interior), ga3_exc analogous at 3'.
+    // κ₂(CT5,GA3) = Σ ct5_exc·ga3_exc / n  →  f·Δ_CT5·Δ_GA3  (f-linear, f cancels in ratio)
+    // κ₃ numerator adds CpG flag (pos0 in xCG context): larger Δ_CpG amplifies signal.
+    double per_read_ct5_sum    = 0.0;   // Σ ct5_exc
+    double per_read_ga3_sum    = 0.0;   // Σ ga3_exc
+    double per_read_ct5ga3     = 0.0;   // Σ ct5_exc × ga3_exc          (κ₂ numerator)
+    double per_read_ct5ga3_cpg = 0.0;   // Σ ct5_exc × ga3_exc × cpg5  (κ₃ numerator)
+    double per_read_score_len  = 0.0;   // Σ deam_score / L             (Cov(score,1/L) numerator)
 
     // Empirical GG-breakpoint contrast (reference-free, composition-internal).
     // This is an observable terminal-context double difference, not a direct lesion call:
@@ -322,6 +331,7 @@ struct SampleDamageProfile {
     bool terminal_inversion = false;     // true if terminals show significant depletion
     bool position_0_artifact_5prime = false;  // pos0 depleted but pos1 enriched (adapter bias)
     bool position_0_artifact_3prime = false;  // pos0 depleted but pos1 enriched (adapter bias)
+    int  junction_mask_n_5prime = 0;          // GA-residual junction mask: n leading positions excluded from BIC fits
 
     // Negative control statistics (should NOT show enrichment if damage is real)
     // 5' control: A/(A+G) at 5' end - real C→T damage shouldn't affect this
