@@ -1,84 +1,106 @@
 #include "damage_estimation_finalize_helpers.hpp"
 #include "damage_estimation_finalize_ctx.hpp"
-#include "taph/hexamer_tables.hpp"
-#include <array>
+#include <cmath>
 namespace taph {
 
-// CTCTTC (SmaI/SapI linker stub): C=1,T=3,C=1,T=3,T=3,C=1 → code 1917
-// GAAGAG (reverse complement of CTCTTC): G=2,A=0,A=0,G=2,A=0,G=2 → code 2082
-// Per-position T indicator and TC indicator for each adapter base (length 6):
-//   CTCTTC: pos0=C, pos1=T, pos2=C, pos3=T, pos4=T, pos5=C
-static constexpr uint32_t kAdapterCode5 = 1917u;   // encode_hexamer("CTCTTC")
-static constexpr uint32_t kAdapterCode3 = 2082u;   // encode_hexamer("GAAGAG")
-static constexpr int kAdapterT5[6]  = {0,1,0,1,1,0}; // is T? for CTCTTC pos 0-5
-// All CTCTTC bases are T or C, so adapter_tc5[j]=1 for all j
-// GAAGAG: G,A,A,G,A,G → A/(A+G) indicator = {0,1,1,0,1,0}
-// GAAGAG read from 3' end: pos0=G[5],pos1=A[4],pos2=G[3],pos3=A[2],pos4=A[1],pos5=G[0]
-static constexpr int kAdapterA3[6]  = {0,1,0,1,1,0}; // is A? for GAAGAG pos 0-5 (from 3' end)
-// All GAAGAG bases are A or G, so adapter_ag3[j]=1 for all j
-
-// Apply 3-component adapter deconvolution.
-// Corrects t_freq (ratio) and tc_total (count) in-place using exact hexamer stub counts,
-// then resets junction_mask_n_5prime if the inversion disappears post-correction.
-// Returns true when correction was applied and changed the profile.
+// Hexamer-stratified terminal normalisation.
+// For positions j=0..5, the observed T/(T+C) IS the 5' hexamer-composition-weighted
+// T-fraction — adapter protocol biases (SapI, ligation) are fully encoded in the
+// hexamer distribution.  The interior hexamer distribution carries no such bias.
+// This replaces each t_freq_5prime[j] (j=0..5) with the INTERIOR-hexamer-derived
+// expected T/(T+C) at position j, eliminating the adapter bias.  tc_total is
+// rescaled to the interior-weighted TC count (scaled to the 5' read total so that
+// downstream fits see the correct effective denominator).
+// Returns true when the correction meaningfully shifted the profile.
 static bool apply_adapter_deconvolution(SampleDamageProfile& profile) {
-    if (profile.n_hexamers_5prime < 1000) return false;
+    if (profile.n_hexamers_5prime < 10000) return false;
+    if (profile.n_hexamers_interior < 10000) return false;
 
-    const double n5 = profile.hexamer_count_5prime[kAdapterCode5];
-    const double n3 = profile.hexamer_count_3prime[kAdapterCode3];
+    const double n5  = static_cast<double>(profile.n_hexamers_5prime);
+    const double ni  = static_cast<double>(profile.n_hexamers_interior);
+    const double scale = n5 / ni;  // scale interior counts to 5' read total
+    static constexpr char kBases[4] = {'A','C','G','T'};
 
-    profile.adapter_deconv_n_stub5 = n5;
-    profile.adapter_deconv_n_stub3 = n3;
-    profile.adapter_deconv_p_a = static_cast<float>(n5 / profile.n_hexamers_5prime);
+    // Compute interior-hexamer-based expected T and TC at each terminal position j=0..5.
+    // Decode each interior hexamer code and check base at position j.
+    double int_T[6]  = {};   // Σ hexamer_count_interior[h] × I(h[j]='T')
+    double int_TC[6] = {};   // Σ hexamer_count_interior[h] × I(h[j] in {T,C})
+    // Mirror for 3' end (pos j from 3' = base at index 5-j in hexamer)
+    double int_A3[6]  = {};  // Σ hexamer_count_interior[h] × I(h[5-j]='A')
+    double int_AG3[6] = {};  // Σ hexamer_count_interior[h] × I(h[5-j] in {A,G})
 
-    // Need a meaningful correction: at least 0.05% of reads must match
-    if (n5 < 100.0 || profile.adapter_deconv_p_a < 5e-4f) return false;
-
-    // Correct 5' profile: subtract adapter's contribution per position
-    for (int j = 0; j < 6; ++j) {
-        const double tc_obs = profile.tc_total_5prime[j];
-        if (tc_obs < n5 + 1.0) continue;  // sanity: adapter can't exceed total
-        const double t_obs   = profile.t_freq_5prime[j] * tc_obs;   // reconstruct T count
-        const double t_corr  = t_obs  - n5 * kAdapterT5[j];
-        const double tc_corr = tc_obs - n5;                          // all CTCTTC are T or C
-        if (tc_corr < 1.0) continue;
-        profile.t_freq_5prime[j]   = t_corr / tc_corr;
-        profile.tc_total_5prime[j] = tc_corr;
-    }
-
-    // Correct 3' profile using GAAGAG stub count
-    if (n3 >= 100.0 && profile.n_hexamers_3prime >= 1000) {
+    for (uint32_t code = 0; code < 4096u; ++code) {
+        const double cnt = profile.hexamer_count_interior[code];
+        if (cnt < 1.0) continue;
+        uint32_t tmp = code;
+        char bases[6];
+        for (int b = 5; b >= 0; --b) { bases[b] = kBases[tmp & 3u]; tmp >>= 2; }
         for (int j = 0; j < 6; ++j) {
-            const double ag_obs = profile.ag_total_3prime[j];
-            if (ag_obs < n3 + 1.0) continue;
-            const double a_obs   = profile.a_freq_3prime[j];   // already ratio here too
-            const double a_cnt   = a_obs * ag_obs;
-            const double a_corr  = a_cnt - n3 * kAdapterA3[j];
-            const double ag_corr = ag_obs - n3;
-            if (ag_corr < 1.0) continue;
-            profile.a_freq_3prime[j]   = a_corr / ag_corr;
-            profile.ag_total_3prime[j] = ag_corr;
+            int_T[j]  += cnt * (bases[j] == 'T' ? 1.0 : 0.0);
+            int_TC[j] += cnt * (bases[j] == 'T' || bases[j] == 'C' ? 1.0 : 0.0);
+            const char b3 = bases[5 - j];
+            int_A3[j]  += cnt * (b3 == 'A' ? 1.0 : 0.0);
+            int_AG3[j] += cnt * (b3 == 'A' || b3 == 'G' ? 1.0 : 0.0);
         }
     }
 
-    // Refresh damage_rate_5prime[0..5] from corrected t_freq ratios so that
-    // finalize_dmax sees the corrected d_max, not the pre-correction inverted values.
-    // Uses the same formula as finalize_context (line 204-205).
-    const float bg5 = profile.fit_baseline_5prime;
-    const float bg5_c = 1.0f - bg5;
-    if (bg5_c > 0.1f) {
+    // Measure total adapter bias as the total absolute deviation of 5' terminal TC
+    // composition from interior across positions 0-5.
+    double n_adapter5 = 0.0;
+    for (int j = 0; j < 6; ++j) {
+        if (int_TC[j] < 1.0) continue;
+        const double int_expected = int_T[j] / int_TC[j];
+        // Deviation accounts for both the sign and the TC denominator magnitude
+        n_adapter5 += std::abs(profile.t_freq_5prime[j] - int_expected)
+                       * profile.tc_total_5prime[j];
+    }
+
+    profile.adapter_deconv_n_stub5 = n_adapter5;
+    profile.adapter_deconv_p_a = static_cast<float>(n_adapter5 / (n5 + 1.0));
+
+    // Only apply if there is a non-trivial bias (>0.5% of reads affected)
+    if (profile.adapter_deconv_p_a < 5e-3f) return false;
+
+    // Replace 5' terminal profile positions j=0..5 with interior-derived expected values.
+    bool any_corrected = false;
+    for (int j = 0; j < 6; ++j) {
+        if (int_TC[j] < 1.0) continue;
+        const double tc_new = int_TC[j] * scale;
+        const double t_new  = int_T[j]  * scale;
+        if (tc_new < 1.0) continue;
+        profile.t_freq_5prime[j]   = t_new / tc_new;
+        profile.tc_total_5prime[j] = tc_new;
+        any_corrected = true;
+    }
+    if (!any_corrected) return false;
+
+    // Mirror correction on 3' profile: replace a_freq_3prime/ag_total for positions j=0..5.
+    if (profile.n_hexamers_3prime >= 10000) {
+        const double n3 = static_cast<double>(profile.n_hexamers_3prime);
+        const double scale3 = n3 / ni;
+        for (int j = 0; j < 6; ++j) {
+            if (int_AG3[j] < 1.0) continue;
+            const double ag_new = int_AG3[j] * scale3;
+            const double a_new  = int_A3[j]  * scale3;
+            if (ag_new < 1.0) continue;
+            profile.a_freq_3prime[j]   = a_new / ag_new;
+            profile.ag_total_3prime[j] = ag_new;
+        }
+    }
+
+    // Refresh damage_rate_5prime[0..5] from corrected ratios so finalize_dmax sees
+    // corrected d_max. Same formula as finalize_context.
+    const float bg5  = profile.fit_baseline_5prime;
+    const float bg5c = 1.0f - bg5;
+    if (bg5c > 0.1f) {
         for (int j = 0; j < 6; ++j) {
             const float raw = static_cast<float>(profile.t_freq_5prime[j]) - bg5;
-            profile.damage_rate_5prime[j] = std::max(0.0f, raw / bg5_c);
+            profile.damage_rate_5prime[j] = std::max(0.0f, raw / bg5c);
         }
     }
-
-    // Store d_max from corrected pos0-5 peak
-    float peak_deconv = 0.0f;
-    for (int j = 0; j < 6; ++j)
-        if (profile.damage_rate_5prime[j] > peak_deconv)
-            peak_deconv = profile.damage_rate_5prime[j];
-    profile.d_max_5prime_deconv = peak_deconv;
+    float peak = 0.0f;
+    for (int j = 0; j < 6; ++j) peak = std::max(peak, profile.damage_rate_5prime[j]);
+    profile.d_max_5prime_deconv = peak;
 
     profile.adapter_deconv_applied = true;
     return true;
