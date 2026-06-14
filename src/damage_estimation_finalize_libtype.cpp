@@ -1,6 +1,88 @@
 #include "damage_estimation_finalize_helpers.hpp"
 #include "damage_estimation_finalize_ctx.hpp"
+#include "taph/hexamer_tables.hpp"
+#include <array>
 namespace taph {
+
+// CTCTTC (SmaI/SapI linker stub): C=1,T=3,C=1,T=3,T=3,C=1 → code 1917
+// GAAGAG (reverse complement of CTCTTC): G=2,A=0,A=0,G=2,A=0,G=2 → code 2082
+// Per-position T indicator and TC indicator for each adapter base (length 6):
+//   CTCTTC: pos0=C, pos1=T, pos2=C, pos3=T, pos4=T, pos5=C
+static constexpr uint32_t kAdapterCode5 = 1917u;   // encode_hexamer("CTCTTC")
+static constexpr uint32_t kAdapterCode3 = 2082u;   // encode_hexamer("GAAGAG")
+static constexpr int kAdapterT5[6]  = {0,1,0,1,1,0}; // is T? for CTCTTC pos 0-5
+// All CTCTTC bases are T or C, so adapter_tc5[j]=1 for all j
+// GAAGAG: G,A,A,G,A,G → A/(A+G) indicator = {0,1,1,0,1,0}
+// GAAGAG read from 3' end: pos0=G[5],pos1=A[4],pos2=G[3],pos3=A[2],pos4=A[1],pos5=G[0]
+static constexpr int kAdapterA3[6]  = {0,1,0,1,1,0}; // is A? for GAAGAG pos 0-5 (from 3' end)
+// All GAAGAG bases are A or G, so adapter_ag3[j]=1 for all j
+
+// Apply 3-component adapter deconvolution.
+// Corrects t_freq (ratio) and tc_total (count) in-place using exact hexamer stub counts,
+// then resets junction_mask_n_5prime if the inversion disappears post-correction.
+// Returns true when correction was applied and changed the profile.
+static bool apply_adapter_deconvolution(SampleDamageProfile& profile) {
+    if (profile.n_hexamers_5prime < 1000) return false;
+
+    const double n5 = profile.hexamer_count_5prime[kAdapterCode5];
+    const double n3 = profile.hexamer_count_3prime[kAdapterCode3];
+
+    profile.adapter_deconv_n_stub5 = n5;
+    profile.adapter_deconv_n_stub3 = n3;
+    profile.adapter_deconv_p_a = static_cast<float>(n5 / profile.n_hexamers_5prime);
+
+    // Need a meaningful correction: at least 0.05% of reads must match
+    if (n5 < 100.0 || profile.adapter_deconv_p_a < 5e-4f) return false;
+
+    // Correct 5' profile: subtract adapter's contribution per position
+    for (int j = 0; j < 6; ++j) {
+        const double tc_obs = profile.tc_total_5prime[j];
+        if (tc_obs < n5 + 1.0) continue;  // sanity: adapter can't exceed total
+        const double t_obs   = profile.t_freq_5prime[j] * tc_obs;   // reconstruct T count
+        const double t_corr  = t_obs  - n5 * kAdapterT5[j];
+        const double tc_corr = tc_obs - n5;                          // all CTCTTC are T or C
+        if (tc_corr < 1.0) continue;
+        profile.t_freq_5prime[j]   = t_corr / tc_corr;
+        profile.tc_total_5prime[j] = tc_corr;
+    }
+
+    // Correct 3' profile using GAAGAG stub count
+    if (n3 >= 100.0 && profile.n_hexamers_3prime >= 1000) {
+        for (int j = 0; j < 6; ++j) {
+            const double ag_obs = profile.ag_total_3prime[j];
+            if (ag_obs < n3 + 1.0) continue;
+            const double a_obs   = profile.a_freq_3prime[j];   // already ratio here too
+            const double a_cnt   = a_obs * ag_obs;
+            const double a_corr  = a_cnt - n3 * kAdapterA3[j];
+            const double ag_corr = ag_obs - n3;
+            if (ag_corr < 1.0) continue;
+            profile.a_freq_3prime[j]   = a_corr / ag_corr;
+            profile.ag_total_3prime[j] = ag_corr;
+        }
+    }
+
+    // Refresh damage_rate_5prime[0..5] from corrected t_freq ratios so that
+    // finalize_dmax sees the corrected d_max, not the pre-correction inverted values.
+    // Uses the same formula as finalize_context (line 204-205).
+    const float bg5 = profile.fit_baseline_5prime;
+    const float bg5_c = 1.0f - bg5;
+    if (bg5_c > 0.1f) {
+        for (int j = 0; j < 6; ++j) {
+            const float raw = static_cast<float>(profile.t_freq_5prime[j]) - bg5;
+            profile.damage_rate_5prime[j] = std::max(0.0f, raw / bg5_c);
+        }
+    }
+
+    // Store d_max from corrected pos0-5 peak
+    float peak_deconv = 0.0f;
+    for (int j = 0; j < 6; ++j)
+        if (profile.damage_rate_5prime[j] > peak_deconv)
+            peak_deconv = profile.damage_rate_5prime[j];
+    profile.d_max_5prime_deconv = peak_deconv;
+
+    profile.adapter_deconv_applied = true;
+    return true;
+}
 
 void finalize_libtype(SampleDamageProfile& profile, const FinalCtx& ctx) {
     // Library type detection.
@@ -70,6 +152,32 @@ void finalize_libtype(SampleDamageProfile& profile, const FinalCtx& ctx) {
         // then use the mask boundary as the minimum start for all BIC offset searches.
         // Both bic_null and bic_alt in fit_decay_fixed_lambda are computed over the same
         // [min_sp, end_pos] window, so the common-support constraint is automatically satisfied.
+        // 3-component adapter deconvolution: if the 5' terminal is inverted and we have
+        // exact CTCTTC hexamer matches, correct the aggregate profile before masking.
+        // This recovers positions 0-4 where the exponential decay carries >99% of the signal.
+        if (profile.inverted_pattern_5prime)
+            apply_adapter_deconvolution(profile);
+
+        // After correction, re-evaluate whether inversion is still present.
+        // The correction modifies t_freq_5prime/tc_total_5prime in-place; re-check
+        // pos0 vs interior to see if the mask is still needed.
+        if (profile.adapter_deconv_applied) {
+            float ct_bg = 0.0f; int n_bg = 0;
+            for (int p = 5; p < 15; ++p) {
+                if (profile.tc_total_5prime[p] > 100.0) {
+                    ct_bg += static_cast<float>(profile.t_freq_5prime[p]); ++n_bg;
+                }
+            }
+            if (n_bg > 0) ct_bg /= n_bg;
+            bool still_inverted = false;
+            for (int p = 0; p < 3; ++p) {
+                if (profile.tc_total_5prime[p] > 100.0 &&
+                    profile.t_freq_5prime[p] < ct_bg - 0.02)
+                    still_inverted = true;
+            }
+            if (!still_inverted) profile.inverted_pattern_5prime = false;
+        }
+
         int ga_mask_5 = 0;
         if (profile.inverted_pattern_5prime) {
             // t_freq_5prime is already a fraction (converted in-place by finalize_init).

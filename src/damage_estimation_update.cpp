@@ -109,11 +109,13 @@ void FrameSelector::update_sample_profile(
     int read_deam_bin = -1;  // per-read deam stratum (0=modern..4=ancient), hoisted for the
                              // stratified trinucleotide spectrum accumulation further below.
     if (interior_safe) {
-        double term_t5 = 0.0, term_tc5 = 0.0;
+        double term_t5 = 0.0, term_tc5 = 0.0, term_a5 = 0.0, term_ag5 = 0.0;
         for (size_t p = 0; p < std::min<size_t>(5, len); ++p) {
             const char b = decoded[p];
-            if (b == 'T') { term_t5 += 1.0; term_tc5 += 1.0; }
+            if      (b == 'T') { term_t5 += 1.0; term_tc5 += 1.0; }
             else if (b == 'C') { term_tc5 += 1.0; }
+            else if (b == 'A') { term_a5 += 1.0; term_ag5 += 1.0; }
+            else if (b == 'G') { term_ag5 += 1.0; }
         }
 
         // 3' position 0 is skipped: SS prep can create a ligation artifact at
@@ -143,12 +145,18 @@ void FrameSelector::update_sample_profile(
         if (mid_total > 0.0) {
             double score_num = 0.0, score_den = 0.0;
             double ct5_exc = 0.0, ga3_exc = 0.0;
+            double ga5_exc = 0.0;
             if (term_tc5 > 0.0 && mid_tc > 0.0) {
                 const double term = (term_t5 + 0.5) / (term_tc5 + 1.0);
                 const double base = (mid_t + 0.5) / (mid_tc + 1.0);
                 ct5_exc    = std::max(0.0, term - base);
                 score_num += ct5_exc * term_tc5;
                 score_den += term_tc5;
+            }
+            if (term_ag5 > 0.0 && mid_ag > 0.0) {
+                const double term = (term_a5 + 0.5) / (term_ag5 + 1.0);
+                const double base = (mid_a + 0.5) / (mid_ag + 1.0);
+                ga5_exc = std::max(0.0, term - base);
             }
             if (term_ag3 > 0.0 && mid_ag > 0.0) {
                 const double term = (term_a3 + 0.5) / (term_ag3 + 1.0);
@@ -182,12 +190,20 @@ void FrameSelector::update_sample_profile(
             //   Stratified accumulation — κ₂_TpG / n_TpG vs κ₂ / n tests CpG deamination enrichment.
             //   Using only T (not C) avoids mixing original CpG (undamaged) with deaminated CpG.
             const bool tpg5 = (len >= 2) && (decoded[0] == 'T') && (decoded[1] == 'G');
+            // Composition-immune channels: g5 = ct5_exc − ga5_exc, g3 = ga3_exc − ct3_exc.
+            // Symmetric AT-terminus raises both T/(T+C) and A/(A+G) equally → cancels in diff.
+            // Genuine 5' C→T deamination raises only ct5_exc → g5 > 0; composition → g5 ≈ 0.
+            const double g5 = ct5_exc - ga5_exc;
+            const double g3 = ga3_exc - ct3_exc;
             profile.per_read_ct5_sum    += ct5_exc;
             profile.per_read_ga3_sum    += ga3_exc;
             profile.per_read_ct5ga3     += ct5_exc * ga3_exc;
             profile.per_read_ct5ga3_cpg += tpg5 ? (ct5_exc * ga3_exc) : 0.0;
             profile.per_read_n_tpg      += tpg5 ? 1.0 : 0.0;
             profile.per_read_ct5ct3     += ct5_exc * ct3_exc;
+            profile.per_read_g5_sum     += g5;
+            profile.per_read_g3_sum     += g3;
+            profile.per_read_g5g3       += g5 * g3;
             if (len > 0)
                 profile.per_read_score_len += deam_score / static_cast<double>(len);
 
@@ -1510,6 +1526,9 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
     dst.per_read_ct5ga3_cpg    += src.per_read_ct5ga3_cpg;
     dst.per_read_n_tpg         += src.per_read_n_tpg;
     dst.per_read_ct5ct3        += src.per_read_ct5ct3;
+    dst.per_read_g5_sum        += src.per_read_g5_sum;
+    dst.per_read_g3_sum        += src.per_read_g3_sum;
+    dst.per_read_g5g3          += src.per_read_g5g3;
     dst.per_read_score_len     += src.per_read_score_len;
 
     for (int i = 0; i < SampleDamageProfile::N_OX_BINS; ++i) {
@@ -2255,6 +2274,9 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.per_read_ct5ga3_cpg  = 0.0;
     profile.per_read_n_tpg       = 0.0;
     profile.per_read_ct5ct3      = 0.0;
+    profile.per_read_g5_sum      = 0.0;
+    profile.per_read_g3_sum      = 0.0;
+    profile.per_read_g5g3        = 0.0;
     profile.per_read_score_len   = 0.0;
     profile.oxidation_like_signal = 0.0f;
     profile.oxidation_like_signal_se = 0.0f;

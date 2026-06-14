@@ -1096,6 +1096,9 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"k2_ct5_ga3_corr\": "  << (dp.per_read_ct5ga3 - dp.per_read_ct5ct3) / n_all << ",\n";
         j << "    \"k2_tpg\": "           << dp.per_read_ct5ga3_cpg  / n_all << ",\n";
         j << "    \"n_tpg_reads\": "      << dp.per_read_n_tpg               << ",\n";
+        j << "    \"g5_mean\": "          << dp.per_read_g5_sum      / n_all << ",\n";
+        j << "    \"g3_mean\": "          << dp.per_read_g3_sum      / n_all << ",\n";
+        j << "    \"k2_g5g3\": "          << dp.per_read_g5g3        / n_all << ",\n";
         j << "    \"score_len_cov\": "    << dp.per_read_score_len   / n_all << "\n";
         j << "  },\n";
     }
@@ -1728,7 +1731,11 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"adapter_offset_3prime\": " << dp.fit_offset_3prime << ",\n";
         j << "    \"position0_artifact_5prime\": " << (dp.position_0_artifact_5prime ? "true" : "false") << ",\n";
         j << "    \"position0_artifact_3prime\": " << (dp.position_0_artifact_3prime ? "true" : "false") << ",\n";
-        j << "    \"junction_mask_n_5prime\": " << dp.junction_mask_n_5prime << ",\n";
+        j << "    \"junction_mask_n_5prime\": " << dp.junction_mask_n_5prime << ",\n"
+          << "    \"adapter_deconv_applied\": " << (dp.adapter_deconv_applied ? "true" : "false") << ",\n"
+          << "    \"adapter_deconv_n_stub5\": " << std::fixed << std::setprecision(0) << dp.adapter_deconv_n_stub5 << ",\n"
+          << "    \"adapter_deconv_p_a\": " << std::setprecision(6) << dp.adapter_deconv_p_a << ",\n"
+          << "    \"d_max_5prime_deconv\": " << std::setprecision(4) << dp.d_max_5prime_deconv << ",\n";
         j << "    \"hexamer_entropy_5prime\": " << std::setprecision(4) << hs.entropy_terminal << ",\n";
         j << "    \"hexamer_entropy_interior\": " << hs.entropy_interior << ",\n";
         j << "    \"hexamer_terminal_interior_jsd\": " << hs.jsd << ",\n";

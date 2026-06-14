@@ -221,7 +221,20 @@ struct SampleDamageProfile {
     double per_read_ct5ga3_cpg = 0.0;   // Σ ct5_exc × ga3_exc for TpG reads only (stratified κ₂_TpG)
     double per_read_n_tpg      = 0.0;   // count of TpG-context reads   (normaliser for κ₂_TpG)
     double per_read_ct5ct3     = 0.0;   // Σ ct5_exc × ct3_exc          (strand-discordant floor)
+    double per_read_g5_sum     = 0.0;   // Σ (ct5_exc − ga5_exc)        (composition-immune 5' channel)
+    double per_read_g3_sum     = 0.0;   // Σ (ga3_exc − ct3_exc)        (composition-immune 3' channel)
+    double per_read_g5g3       = 0.0;   // Σ g5 × g3                    (immune κ₂; f-linear, composition-zero)
     double per_read_score_len  = 0.0;   // Σ deam_score / L             (Cov(score,1/L) numerator)
+
+    // 3-component adapter deconvolution.
+    // Exact CTCTTC/GAAGAG hexamer counts correct the aggregate t_freq/tc_total profile
+    // before the Briggs NLS fit, eliminating the junction mask and recovering pos0-4 signal.
+    double adapter_deconv_n_stub5  = 0.0;   // hexamer_count_5prime[CTCTTC] (exact 6-mer matches)
+    double adapter_deconv_n_stub3  = 0.0;   // hexamer_count_3prime[GAAGAG]
+    float  adapter_deconv_p_a      = 0.0f;  // n_stub5 / n_hexamers_5prime
+    float  d_max_5prime_deconv     = 0.0f;  // d_max from deconv-corrected fit (0 if not applied)
+    float  d_max_3prime_deconv     = 0.0f;
+    bool   adapter_deconv_applied  = false; // true when correction successfully removed inversion
 
     // Empirical GG-breakpoint contrast (reference-free, composition-internal).
     // This is an observable terminal-context double difference, not a direct lesion call:
