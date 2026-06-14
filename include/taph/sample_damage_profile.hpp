@@ -1314,7 +1314,6 @@ struct SampleDamageProfile {
     OxoTwoMarkerResult oxidation_comovement;
 
     // Mixture model results (K-component EM over GC-stratified bins)
-    int mixture_K = 0;                 // Number of classes selected by BIC
     int mixture_n_components = 0;      // Number of classes selected by BIC
     float mixture_d_population = 0.0f; // E[δ] over all C-sites
     float mixture_d_ancient = 0.0f;    // E[δ | δ > 5%] (ancient tail)
@@ -1374,13 +1373,7 @@ struct SampleDamageProfile {
     float d_alignability_weighted = 0.0f;  // Raw alignability-weighted d_max
     float metamatch_gamma = 0.0f;          // Blending coefficient (0 = use d_global, 1 = use weighted)
     float mean_alignability = 0.0f;        // Mean alignability score across reads
-    float alignability_damage_corr = 0.0f; // Correlation between alignability and per-read damage
-
-    // Alignability-weighted accumulators (for incremental computation)
-    double alignability_weighted_t_sum = 0.0;  // Σ(alignability × T_terminal)
-    double alignability_weighted_c_sum = 0.0;  // Σ(alignability × C_terminal)
-    double alignability_sum = 0.0;             // Σ(alignability)
-    double alignability_sq_sum = 0.0;          // Σ(alignability²) for variance
+    float alignability_damage_corr = 0.0f;
 
     // Compute adaptive GC threshold from histogram
     float compute_adaptive_gc_threshold(float target_percentile = 0.70f) {

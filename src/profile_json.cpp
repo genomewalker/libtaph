@@ -225,7 +225,6 @@ void profile_to_json(const SampleDamageProfile& dp,
     // ⇒ A_b_true ∈ [amp, ∞). A finite upper bound is unidentified reference-free (a ceiling would assert
     // a hidden π_dmg ≥ threshold prior), so the upper bound is emitted as null.
     j << "    \"per_ancient_A_b_lower\": " << amp_out << ",\n";
-    j << "    \"per_ancient_A_b_upper\": null,\n";
     j << "    \"per_ancient_A_b_note\": \"upper bound unidentified reference-free (= amp/pi_dmg, pi_dmg unknown)\",\n";
     j << "    \"d_metamatch\": " << d_metamatch_out << ",\n";
     j << "    \"source\": \"" << source_str_out << "\",\n";
@@ -255,29 +254,6 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"p_damage\": " << (dp.joint_model_valid ? std::to_string(dp.joint_p_damage) : "null") << ",\n";
     j << "      \"n_informative_positions\": " << (dp.joint_model_valid ? std::to_string(dp.joint_n_informative) : "null") << ",\n";
     j << "      \"valid\": " << (dp.joint_model_valid ? "true" : "false") << "\n";
-    j << "    },\n";
-    const bool mix_gc_identified = dp.mixture_identifiable && dp.mixture_converged;
-    j << "    \"mixture_gc\": {\n";
-    // DEPRECATED diagnostic (SOLUTION_pi_delta_dmax.md §6.6): the reference-free GC mixture
-    // is non-identifiable (β=π·A) and FLOORS at H0 (E[d_ancient]>0 at a true null). It no
-    // longer feeds any libtaph verdict — authenticity/preservation now use the validated
-    // d_max+w_length bulk law. Retained only to regenerate the r=0.76-vs-0.90 audit that
-    // justified choosing δ over the mixture. DO NOT consume d_ancient/pi_ancient downstream.
-    j << "      \"deprecated\": true,\n";
-    j << "      \"note\": \"non-identifiable reference-free; floors at H0; superseded by bulk_damage pi (w_length-gated)\",\n";
-    j << "      \"status\": \"" << (mix_gc_identified ? "identified" : "undetermined") << "\",\n";
-    if (mix_gc_identified) {
-        j << "      \"d_ancient\": " << dp.mixture_d_ancient << ",\n";
-        j << "      \"pi_ancient\": " << dp.mixture_pi_ancient << ",\n";
-        j << "      \"d_population_highgc\": " << dp.mixture_d_population_highgc << ",\n";
-    } else {
-        j << "      \"d_ancient\": null,\n";
-        j << "      \"pi_ancient\": null,\n";
-        j << "      \"d_population_highgc\": null,\n";
-    }
-    j << "      \"identifiable\": " << (dp.mixture_identifiable ? "true" : "false") << ",\n";
-    j << "      \"converged\": " << (dp.mixture_converged ? "true" : "false") << ",\n";
-    j << "      \"n_components\": " << dp.mixture_n_components << "\n";
     j << "    },\n";
     j << "    \"cpg_like\": {\n";
     j << "      \"dmax_ct5_cpg\": "           << nan_or(dp.dmax_ct5_cpg_like)    << ",\n";

@@ -260,7 +260,6 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
                 }
 
                 auto mixture_result = MixtureDamageModel::fit(super_reads);
-                profile.mixture_K = mixture_result.K;
                 profile.mixture_n_components = mixture_result.n_components;
                 profile.mixture_d_population = mixture_result.d_population;
                 profile.mixture_d_ancient = mixture_result.d_ancient;

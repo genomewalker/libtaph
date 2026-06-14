@@ -2098,7 +2098,6 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.bulk_headline_delta = 0.0;
     profile.bulk_attempted = false;
 
-    profile.mixture_K = 0;
     profile.mixture_n_components = 0;
     profile.mixture_d_population = 0.0f;
     profile.mixture_d_ancient = 0.0f;
