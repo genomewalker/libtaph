@@ -492,6 +492,180 @@ do not use `bulk_damage.lambda` as a fragment-length or strand-break rate.
 
 ---
 
+### `deam_context_spectrum` block — trinucleotide C→T context spectrum
+
+Deamination rate depends on the local sequence context because stacking interactions
+and base-pairing geometry modulate cytosine accessibility and hydration. The
+`deam_context_spectrum` block reports the **16-channel trinucleotide C→T terminal
+excess spectrum** — the 5′ terminal C→T rate relative to the interior rate for each
+of the 16 N[C→T]N contexts (N ∈ {A,C,G,T}).
+
+Channel index ordering: `ACA ACCi ACG ACT  CCA CCC CCG CCT  GCA GCC GCG GCT  TCA TCC TCG TCT`
+(i.e. `prev ∈ ACGT` outer, `next ∈ ACGT` inner). The four CpG channels (next = G,
+indices 2, 6, 10, 14: ACG, CCG, GCG, TCG) are driven primarily by 5-methylcytosine
+deamination and are mechanistically distinct from the twelve non-CpG channels.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `channels` | string[16] | Channel labels in the order used by all 16-element arrays |
+| `ct_5prime_excess` | float[16] | 5′ terminal C→T rate minus interior C→T rate, per context |
+| `ct_3prime_excess` | float[16] | 3′ terminal C→T rate minus interior (DS complement arm) |
+| `ga_3prime_rc_excess` | float[16] | 3′ G→A reverse-complement excess; independent check on the same damage events read from the complementary strand |
+| `comparison_vector` | float[16] | Unsigned element-wise maximum of 5′ and 3′ excess — summarises the dominant arm |
+| `signed_comparison_vector` | float[16] | Signed version; sign indicates which arm dominates |
+| `primary_arm` | string | `"5prime"` or `"3prime"` depending on which terminus carries stronger excess |
+| `sum_positive_excess` | float | Sum of positive entries in `ct_5prime_excess` — a scalar summary of total 5′ context-dependent deamination |
+
+CpG channels (ACG, CCG, GCG, TCG) are informative for methylation state: elevated
+excess in CpG contexts relative to the matched non-CpG contexts (ACN, CCN, GCN, TCN
+for N ≠ G) indicates a methylated source genome. Non-CpG channels reflect unmethylated
+hydrolytic deamination and are sensitive to the chemical environment at burial (pH,
+organic-nitrogen load, water activity).
+
+---
+
+### `deam_stratified_channels` block — damage-stratum-specific methylation and depurination
+
+Reads are binned by the number of terminal C→T events they carry at the 5′ and 3′
+positions (the **deamination stratum**). Stratum 0 contains reads with no terminal
+C→T at either end (enriched for undamaged or modern molecules); stratum 4 (or the
+highest index) contains reads with the maximum counted terminal C→T events at both
+ends (enriched for the most-ancient fraction). Three aggregate strata are reported:
+
+| Stratum | Selection | Typical source |
+|---------|-----------|----------------|
+| `modern` | Reads in stratum 0 (no terminal C→T) | Undamaged / modern contamination |
+| `bulk` | All reads | Full library mixture |
+| `ancient` | Reads in the highest deamination stratum | Ancient-enriched fraction |
+
+For each stratum, the block reports:
+
+| Field | Description |
+|-------|-------------|
+| `n_reads` | Number of reads in this stratum |
+| `methylation_next_cond_logodds` | Log-odds of the next base being G given a terminal C→T event, relative to a non-CpG baseline; positive values indicate CpG-context enrichment (methylation signal). Computed only over reads with ≥ 1 terminal C→T |
+| `depurination_index` | Terminal A+G enrichment (per-read AP-site proxy, Channel E) computed restricted to this stratum |
+
+Comparing `modern` and `ancient` strata isolates deposition-time chemistry from
+modern contamination or taphonomic remodelling: if `methylation_next_cond_logodds` is
+substantially higher in the `ancient` stratum than in `modern`, the ancient fraction
+retains methylation-enhanced CpG deamination consistent with the burial environment.
+
+---
+
+### `trinuc_spectrum_by_deam` block — deamination-stratified trinucleotide context counts
+
+The raw trinucleotide context counts underlying `deam_context_spectrum`, stratified by
+deamination stratum. This block provides the data necessary to compute per-stratum
+C→T excess rates for any context and is the primary input for
+stratum-aware ancient-fraction decompositions.
+
+**Encoding.** Contexts are indexed as `prev × 16 + mid × 4 + next` with A=0, C=1, G=2,
+T=3 (64 total contexts). Terminal positions are 5′ read positions 1–4; interior
+positions are read positions 10–14. The same convention is used at the 3′ end.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `n_strata` | int | Number of deamination strata (typically 5: strata 0–4) |
+| `deam_stratum_reads` | int[n_strata] | Read count per stratum |
+| `tri_5prime_terminal` | int[n_strata][64] | Per-stratum counts of each trinucleotide context at 5′ terminal positions (1–4) |
+| `tri_5prime_interior` | int[n_strata][64] | Per-stratum counts at 5′ interior positions (10–14) |
+| `tri_3prime_terminal` | int[n_strata][64] | Per-stratum counts at 3′ terminal positions |
+| `tri_3prime_interior` | int[n_strata][64] | Per-stratum counts at 3′ interior positions |
+
+To compute a per-stratum C→T excess for context N[C]N (e.g. ACT, index = 0×16+1×4+3 = 7):
+`excess_s = terminal[s][idx_C→T] / (terminal[s][idx_C→T] + terminal[s][idx_C→C]) − interior equivalent`
+where `idx_C→T` encodes the T-containing trinucleotide and `idx_C→C` the reference
+C-containing trinucleotide for the same flanking bases.
+
+Note that this block contains raw counts, not rates. Divide by the sum of the reference
+and damaged context counts to obtain rates.
+
+---
+
+### `damage_channel_stats` block — per-channel terminal vs interior statistics
+
+A flat summary of terminal excess, interior enrichment, and rate-decay parameters
+for all 12 substitution channels (`CT CA CG GA GT GC TC TA TG AG AT AC`) at both
+the 5′ and 3′ ends. This provides a channel-level view complementary to the
+context-specific blocks above.
+
+The block has two sub-objects, `5prime` and `3prime`, each containing:
+
+| Field | Description |
+|-------|-------------|
+| `interior_start_pos` | Read position at which interior counting begins (default 3) |
+| `ct_interior_fraction` | Interior C→T fraction — the composition baseline used for excess computation |
+| `ct_decay_lambda` | Exponential decay constant fitted to the CT terminal profile; `null` when fit is not reliable |
+| `channels` | Object keyed by two-letter substitution code; see sub-fields below |
+
+Per-channel sub-fields:
+
+| Sub-field | Description |
+|-----------|-------------|
+| `interior_fraction` | Fraction of reads showing this substitution at interior positions |
+| `interior_log_ratio` | log(`interior_fraction` / 0.5) — signed distance from the uniform expectation; negative = interior-depleted (terminal-enriched) |
+| `terminal_excess` | Terminal substitution rate minus interior rate; positive = enriched at the terminus |
+| `decay_lambda` | Exponential decay constant for this channel's terminal profile; `null` when fit is unreliable or excess is near zero |
+| `lambda_ratio_vs_ct` | `decay_lambda` of this channel divided by `ct_decay_lambda` — normalises for read-length differences; 1.0 = same spatial decay as C→T |
+| `coupled_balance` | For paired channels (GT↔TG, CT↔TC): ratio of terminal excess on the 3′ complement to expected from the 5′ excess under Chargaff symmetry; `null` when the expected excess is near zero. Values near 1 indicate strand-balanced damage; values ≫ 1 indicate strand-asymmetric terminal enrichment |
+
+**Interpreting `coupled_balance` for oxidative damage.** For genuine in-situ 8-oxoG
+oxidation of double-stranded DNA, G→T damage is distributed across the molecule and
+is not strongly terminal-enriched (`terminal_excess` near zero or small negative for GT).
+A `coupled_balance` value ≫ 1 for the GT channel at 5′ would indicate strand-asymmetric
+terminal G→T enrichment consistent with an OxoG library-preparation artefact (Costello
+2013). Values near 1 or negative `terminal_excess` support genuine in-situ oxidation.
+
+---
+
+### `tetranuc_damage_rates` block — 4-mer context C→T and G→T rates
+
+The tetranucleotide (4-mer) context block extends the trinucleotide spectrum to include
+one flanking base on each side of the central C or G, providing finer resolution of
+sequence-context effects. Four keys are emitted:
+
+| Key | Central base | Damage type | Use case |
+|-----|-------------|-------------|----------|
+| `ct_5prime` | C | C→T terminal excess | CHG vs CHH vs CpG methylation context separation |
+| `gt_5prime` | G | G→T terminal excess | 8-oxoG context specificity; GG-adjacent enrichment |
+| `ct_5prime_by_deam` | C | C→T per deamination stratum | Ancient-component C→T rates without EM |
+| `gt_5prime_by_deam` | G | G→T per deamination stratum | Ancient-component G→T; stratum-monotonicity test |
+
+**Context encoding.** Keys are 4-character strings `PGNN` where P = prev base, G/C =
+central reference base, N1 = next1, N2 = next2 (A=0, C=1, G=2, T=3 in index space).
+Example: `"AGCA"` encodes 5′-A–**G**–C–A-3′ with G as the reference base for G→T.
+
+**Per-context fields** (each context key → object):
+
+| Field | Description |
+|-------|-------------|
+| `terminal_rate` | Fraction of central-base reads showing the substitution at 5′ terminal positions (1–4) |
+| `interior_rate` | Same fraction at interior positions (10–14) |
+| `excess` | `terminal_rate − interior_rate`; positive = terminal-enriched damage |
+| `terminal_n` | Total reads (reference + damaged) at terminal positions for this context |
+| `interior_n` | Total reads at interior positions |
+
+**`gt_5prime_by_deam` and stratum monotonicity.** The per-stratum variant is an array of
+5 objects (strata 0–4), each with the same per-context structure. Stratum 0 = reads with
+no terminal C→T (modern-enriched); stratum 4 = reads with terminal C→T at both ends
+(ancient-enriched). For a genuine oxidative signal, the pool-weighted mean G→T excess
+should rise monotonically from stratum 1 to stratum 4 because oxidised molecules are
+preferentially retained in the ancient fraction. For an OxoG library-preparation artefact
+(shearing-induced 8-oxoG), the G→T excess is deposited during library prep and is
+uncorrelated with which reads carry terminal C→T — the stratum profile should be flat.
+
+**GG-adjacent enrichment.** Genuine 8-oxoG formation by one-electron guanine oxidation
+is strongly favoured at 5′-GG-3′ dinucleotides and GG-containing tracts because
+oxidative hole-transport along the DNA helix delocalises to the lowest-potential
+guanine (Sugiyama & Saito 1996). The `gt_5prime` context map should therefore show
+elevated excess for 4-mer keys where P = G (5′-GG context) or N1 = G (GG 3′-adjacent),
+relative to non-GG contexts. A uniform elevation across all 64 G-centred contexts would
+be more consistent with a diffuse oxidant (e.g. free hydroxyl radical) or an
+artefactual source.
+
+---
+
 ## Library-type classification
 
 Which damage channels are active depends on library preparation. Double-stranded (DS)
@@ -538,6 +712,12 @@ near zero.
 | CpG split | C→T amplitude by CpG / non-CpG context | Methylation-enhanced deamination | `cpg_like` |
 | Interior clustering | Adjacent CT co-occurrence in read interior | Clustered interior deamination | `interior_ct_cluster` |
 | 8-oxoG 16-ctx | G→T asymmetry by trinucleotide context | 8-oxoG context specificity | `s_oxog_16ctx` |
+| Context spectrum | 16-channel trinucleotide C→T excess | Context-dependent deamination / CpG methylation | `deam_context_spectrum` |
+| Deam strata | Methylation and depurination stratified by damage level | Ancient-fraction isolation | `deam_stratified_channels` |
+| Trinuc × strata | Raw trinucleotide context counts per deamination stratum | Stratum-aware context decomposition | `trinuc_spectrum_by_deam` |
+| Channel stats | Per-channel terminal excess, interior fraction, decay λ | Unified substitution-channel summary | `damage_channel_stats` |
+| 4-mer CT | 4-mer N[C→T]NN terminal excess + deamination strata | CHG/CHH/CpG separation; ancient C→T rates | `tetranuc_damage_rates.ct_5prime[_by_deam]` |
+| 4-mer GT | 4-mer N[G→T]NN terminal excess + deamination strata | 8-oxoG context specificity; stratum monotonicity test | `tetranuc_damage_rates.gt_5prime[_by_deam]` |
 
 Channels B–E cross-validate Channel A without contributing to position masking. If
 Channel A detects deamination but Channel B contradicts it, the signal is flagged as a

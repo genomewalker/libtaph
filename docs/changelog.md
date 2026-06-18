@@ -2,6 +2,35 @@
 
 ## main (unreleased)
 
+### New JSON blocks: tetranucleotide damage rates, context spectrum, channel stats
+
+#### Added
+- `tetranuc_damage_rates` — 4-mer (tetranucleotide) C→T and G→T terminal excess rates.
+  Four keys: `ct_5prime`, `gt_5prime`, `ct_5prime_by_deam[5]`, `gt_5prime_by_deam[5]`.
+  Context encoding: `PGNN` (4 chars; P=prev, G/C=central, N1=next1, N2=next2).
+  Per-context fields: `terminal_rate`, `interior_rate`, `excess`, `terminal_n`, `interior_n`.
+  The `_by_deam` variants stratify counts across 5 deamination strata (0=modern, 4=ancient),
+  enabling stratum-monotonicity tests for G→T oxidation and ancient-component C→T rates.
+  `SampleDamageProfile` gains `tetra_5prime_terminal[256]`, `tetra_5prime_interior[256]`,
+  and their `_by_deam[N_OX_DEAM_STRATA]` variants. `add_ctx4()` in
+  `damage_estimation_update.cpp` accumulates 4-mer context counts at terminal (pos 1–4)
+  and interior (pos 10–14) positions per read, stratified by deamination bin.
+- `damage_channel_stats` — per-channel (all 12 substitution channels) summary of
+  `terminal_excess`, `interior_fraction`, `interior_log_ratio`, `decay_lambda`,
+  `lambda_ratio_vs_ct`, and `coupled_balance` at both 5′ and 3′ ends.
+- `deam_context_spectrum` — 16-channel trinucleotide C→T excess spectrum
+  (`ct_5prime_excess[16]`, `ct_3prime_excess[16]`, `ga_3prime_rc_excess[16]`).
+  Channel order: ACA ACC ACG ACT CCA CCC CCG CCT GCA GCC GCG GCT TCA TCC TCG TCT.
+- `trinuc_spectrum_by_deam` — raw trinucleotide context counts per deamination stratum
+  at terminal and interior positions (4 arrays of shape [n_strata][64]).
+- `deam_stratified_channels` — modern/bulk/ancient stratum summaries with
+  `methylation_next_cond_logodds` and `depurination_index` per stratum.
+- `profile_json.hpp` gains `paired_ct_decay`, `paired_ga_decay`, and paired OxoG
+  count fields (`paired_tg_count/denom`, `paired_ca_count/denom`, `paired_oxog_rate`,
+  `paired_n_pairs/n_bases`) for downstream `--subst-in` paired-overlap injection.
+
+---
+
 ### Breaking: `cpg_contrast` removed from C++ API and JSON output
 
 The upstream-context contrast (keyed on `decoded[p-1]`, base **5' of** the
