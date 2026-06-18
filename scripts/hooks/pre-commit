@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Regenerate field index tables when docs/fields/ changes.
+set -e
+
+REPO=$(git rev-parse --show-toplevel)
+
+if git diff --cached --name-only | grep -q '^docs/fields/'; then
+    python3 "$REPO/docs/generate_field_index.py"
+    git add "$REPO/docs/damage-types.md" "$REPO/docs/fields/index.md"
+fi

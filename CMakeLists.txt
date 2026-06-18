@@ -4,6 +4,18 @@ project(libtaph VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# ── Dev setup: install git hooks ──────────────────────────────────────────────
+if(EXISTS "${CMAKE_SOURCE_DIR}/.git")
+    execute_process(
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_SOURCE_DIR}/scripts/hooks/pre-commit"
+            "${CMAKE_SOURCE_DIR}/.git/hooks/pre-commit"
+    )
+    execute_process(
+        COMMAND chmod +x "${CMAKE_SOURCE_DIR}/.git/hooks/pre-commit"
+    )
+endif()
+
 # ── Library target ────────────────────────────────────────────────────────────
 add_library(taph
     src/damage_estimation_update.cpp

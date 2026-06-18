@@ -124,6 +124,7 @@ void profile_to_json(const SampleDamageProfile& dp,
 
     // ── Top-level ─────────────────────────────────────────────────────────────
     j << "{\n";
+    j << "  \"schema_version\": 2,\n";
     j << "  \"input\": \"" << json_escape(in.sample_name) << "\",\n";
     j << "  \"n_reads\": " << in.n_reads << ",\n";
     j << "  \"library_type\": \"" << dp.library_type_str() << "\",\n";
