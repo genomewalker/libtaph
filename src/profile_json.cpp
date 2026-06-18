@@ -1511,6 +1511,108 @@ void profile_to_json(const SampleDamageProfile& dp,
         emit_ctx_rates("ct_3prime",
                        dp.tri_3prime_terminal, dp.tri_3prime_interior,
                        1 /*C*/, 3 /*T*/);
+        j << ",\n";
+        emit_ctx_rates("gt_5prime",
+                       dp.tri_5prime_terminal, dp.tri_5prime_interior,
+                       2 /*G*/, 3 /*T*/);
+        j << "\n  },\n";
+    }
+
+    // ── 4-mer (tetranucleotide) damage rates ─────────────────────────────────
+    // Encoding: prev*64 + mid*16 + next1*4 + next2  (A=0,C=1,G=2,T=3).
+    // Key = "P M N1 N2" (4 chars).
+    // ct_5prime / ct_5prime_by_deam: C-centred (CHG/CHH/CpG methylation proxy).
+    // gt_5prime / gt_5prime_by_deam: G-centred (8-oxo-dG oxidative damage proxy).
+    {
+        static constexpr char B[4] = {'A','C','G','T'};
+
+        auto emit_tetra_ctx = [&](const char* key,
+                                  const std::array<uint64_t, SampleDamageProfile::N_TETRANUC>& term,
+                                  const std::array<uint64_t, SampleDamageProfile::N_TETRANUC>& intr,
+                                  int mid_ref, int mid_dam) {
+            j << "    \"" << key << "\": {";
+            bool first = true;
+            for (int p = 0; p < 4; ++p) {
+                for (int n1 = 0; n1 < 4; ++n1) {
+                    for (int n2 = 0; n2 < 4; ++n2) {
+                        int ir = p*64 + mid_ref*16 + n1*4 + n2;
+                        int id = p*64 + mid_dam*16 + n1*4 + n2;
+                        uint64_t tn = term[ir] + term[id];
+                        uint64_t xn = intr[ir] + intr[id];
+                        double tr  = tn > 0 ? (double)term[id] / tn  : -1.0;
+                        double ir2 = xn > 0 ? (double)intr[id] / xn : -1.0;
+                        double ex  = (tr >= 0 && ir2 >= 0) ? tr - ir2 : -1.0;
+                        char ctx[5] = {B[p], B[mid_ref], B[n1], B[n2], 0};
+                        if (!first) j << ",";
+                        first = false;
+                        j << "\"" << ctx << "\":{"
+                          << "\"terminal_rate\":" << std::fixed << std::setprecision(6) << tr
+                          << ",\"interior_rate\":" << ir2
+                          << ",\"excess\":" << ex
+                          << ",\"terminal_n\":" << tn
+                          << ",\"interior_n\":" << xn << "}";
+                    }
+                }
+            }
+            j << "}";
+        };
+
+        using TetraByDeam = std::array<std::array<uint64_t, SampleDamageProfile::N_TETRANUC>,
+                                       SampleDamageProfile::N_OX_DEAM_STRATA>;
+        auto emit_tetra_ctx_by_deam = [&](const char* key,
+                                          const TetraByDeam& term_by_deam,
+                                          const TetraByDeam& intr_by_deam,
+                                          int mid_ref, int mid_dam) {
+            j << "    \"" << key << "\": [";
+            for (int s = 0; s < SampleDamageProfile::N_OX_DEAM_STRATA; ++s) {
+                if (s > 0) j << ",";
+                j << "{";
+                bool fs = true;
+                for (int p = 0; p < 4; ++p) {
+                    for (int n1 = 0; n1 < 4; ++n1) {
+                        for (int n2 = 0; n2 < 4; ++n2) {
+                            int ir = p*64 + mid_ref*16 + n1*4 + n2;
+                            int id = p*64 + mid_dam*16 + n1*4 + n2;
+                            uint64_t tn = term_by_deam[s][ir] + term_by_deam[s][id];
+                            uint64_t xn = intr_by_deam[s][ir] + intr_by_deam[s][id];
+                            double tr  = tn > 0 ? (double)term_by_deam[s][id] / tn  : -1.0;
+                            double ir2 = xn > 0 ? (double)intr_by_deam[s][id] / xn : -1.0;
+                            double ex  = (tr >= 0 && ir2 >= 0) ? tr - ir2 : -1.0;
+                            char ctx[5] = {B[p], B[mid_ref], B[n1], B[n2], 0};
+                            if (!fs) j << ",";
+                            fs = false;
+                            j << "\"" << ctx << "\":{"
+                              << "\"terminal_rate\":" << std::fixed << std::setprecision(6) << tr
+                              << ",\"interior_rate\":" << ir2
+                              << ",\"excess\":" << ex
+                              << ",\"terminal_n\":" << tn
+                              << ",\"interior_n\":" << xn << "}";
+                        }
+                    }
+                }
+                j << "}";
+            }
+            j << "]";
+        };
+
+        j << "  \"tetranuc_damage_rates\": {\n";
+        emit_tetra_ctx("ct_5prime",
+                       dp.tetra_5prime_terminal, dp.tetra_5prime_interior,
+                       1 /*C*/, 3 /*T*/);
+        j << ",\n";
+        emit_tetra_ctx("gt_5prime",
+                       dp.tetra_5prime_terminal, dp.tetra_5prime_interior,
+                       2 /*G*/, 3 /*T*/);
+        j << ",\n";
+        emit_tetra_ctx_by_deam("ct_5prime_by_deam",
+                               dp.tetra_5prime_terminal_by_deam,
+                               dp.tetra_5prime_interior_by_deam,
+                               1 /*C*/, 3 /*T*/);
+        j << ",\n";
+        emit_tetra_ctx_by_deam("gt_5prime_by_deam",
+                               dp.tetra_5prime_terminal_by_deam,
+                               dp.tetra_5prime_interior_by_deam,
+                               2 /*G*/, 3 /*T*/);
         j << "\n  },\n";
     }
 
@@ -2676,7 +2778,46 @@ void profile_to_json(const SampleDamageProfile& dp,
 
         j << "  ]\n";
     }
-    j << "}\n";
+    if (!in.paired_ct_decay.empty() || in.paired_oxog_rate >= 0.0) {
+        j << ",\n  \"paired_overlap_subst\": {\n";
+        j << "    \"n_pairs\": " << in.paired_n_pairs << ",\n";
+        j << "    \"n_bases\": " << in.paired_n_bases << ",\n";
+        auto emit_decay = [&](const char* key, const std::vector<double>& v, bool trailing_comma) {
+            j << "    \"" << key << "\": [";
+            for (size_t i = 0; i < v.size(); ++i) { if (i) j << ","; j << std::setprecision(6) << v[i]; }
+            j << (trailing_comma ? "],\n" : "]\n");
+        };
+        emit_decay("ct_5prime_decay", in.paired_ct_decay, true);
+        emit_decay("ga_3prime_decay", in.paired_ga_decay, true);
+        double ox = in.paired_oxog_rate;
+        j << "    \"oxog_rate\": " << (ox >= 0.0 ? std::to_string(ox) : "null") << ",\n";
+        // Formal OxoG excess test: TG rate vs CA Chargaff control
+        // Valid because 8-oxoG persists into sequencing (misread at base-caller level),
+        // unlike deamination which is PCR-fixed to concordant T:A before sequencing.
+        if (in.paired_tg_denom > 0 && in.paired_ca_denom > 0) {
+            double tg_r  = (double)in.paired_tg_count / in.paired_tg_denom;
+            double ca_r  = (double)in.paired_ca_count / in.paired_ca_denom;
+            double exc   = tg_r - ca_r;
+            double se    = std::sqrt(tg_r*(1.0-tg_r)/in.paired_tg_denom +
+                                     ca_r*(1.0-ca_r)/in.paired_ca_denom);
+            double z     = se > 0.0 ? exc / se : 0.0;
+            double ci_lo = exc - 1.96*se;
+            double ci_hi = exc + 1.96*se;
+            j << "    \"oxog_excess\": {\n"
+              << "      \"tg_rate\": "    << tg_r  << ",\n"
+              << "      \"ca_ctrl_rate\": " << ca_r  << ",\n"
+              << "      \"excess\": "     << exc   << ",\n"
+              << "      \"se\": "         << se    << ",\n"
+              << "      \"z\": "          << z     << ",\n"
+              << "      \"ci_lo\": "      << ci_lo << ",\n"
+              << "      \"ci_hi\": "      << ci_hi << "\n"
+              << "    }\n";
+        } else {
+            j << "    \"oxog_excess\": null\n";
+        }
+        j << "  }";
+    }
+    j << "\n}\n";
 }
 
 void count_tables_to_jsonl(const SampleDamageProfile& dp, std::ostream& out) {

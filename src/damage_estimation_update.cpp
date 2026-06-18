@@ -381,6 +381,28 @@ void FrameSelector::update_sample_profile(
             if (mid - 1 >= 0 && mid + 1 < static_cast<int>(len))
                 add_ctx(mid - 1, mid, mid + 1, profile.tri_3prime_pos[p]);
         }
+
+        // 4-mer (tetranucleotide) counts for CHG/CHH separation.
+        // Requires prev(p-1), mid(p), next1(p+1), next2(p+2) — all in bounds.
+        // Encoding: i0*64 + i1*16 + i2*4 + i3  (A=0,C=1,G=2,T=3).
+        auto add_ctx4 = [&](int p,
+                            std::array<uint64_t, SampleDamageProfile::N_TETRANUC>& bulk,
+                            std::array<std::array<uint64_t, SampleDamageProfile::N_TETRANUC>,
+                                       SampleDamageProfile::N_OX_DEAM_STRATA>& strat) {
+            if (p < 1 || p + 2 >= static_cast<int>(len)) return;
+            int i0 = nuc_idx(decoded[p - 1]);
+            int i1 = nuc_idx(decoded[p]);
+            int i2 = nuc_idx(decoded[p + 1]);
+            int i3 = nuc_idx(decoded[p + 2]);
+            if (i0 < 0 || i1 < 0 || i2 < 0 || i3 < 0) return;
+            const int idx = i0*64 + i1*16 + i2*4 + i3;
+            ++bulk[idx];
+            if (read_deam_bin >= 0) ++strat[read_deam_bin][idx];
+        };
+        for (int p = 1; p <= 4; ++p)
+            add_ctx4(p, profile.tetra_5prime_terminal, profile.tetra_5prime_terminal_by_deam);
+        for (int p = 10; p <= 14; ++p)
+            add_ctx4(p, profile.tetra_5prime_interior, profile.tetra_5prime_interior_by_deam);
     }
 
     // CpG-like context split — 5' terminal positions (all 15)
@@ -1310,6 +1332,14 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         dst.oxog16_t[i] += src.oxog16_t[i];
         dst.oxog16_a_rc[i] += src.oxog16_a_rc[i];
     }
+    for (int i = 0; i < SampleDamageProfile::N_TETRANUC; ++i) {
+        dst.tetra_5prime_terminal[i] += src.tetra_5prime_terminal[i];
+        dst.tetra_5prime_interior[i] += src.tetra_5prime_interior[i];
+        for (int s = 0; s < SampleDamageProfile::N_OX_DEAM_STRATA; ++s) {
+            dst.tetra_5prime_terminal_by_deam[s][i] += src.tetra_5prime_terminal_by_deam[s][i];
+            dst.tetra_5prime_interior_by_deam[s][i] += src.tetra_5prime_interior_by_deam[s][i];
+        }
+    }
     for (int i = 0; i < SampleDamageProfile::N_TRINUC; ++i) {
         dst.tri_5prime_terminal[i] += src.tri_5prime_terminal[i];
         dst.tri_5prime_interior[i] += src.tri_5prime_interior[i];
@@ -2021,6 +2051,10 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.oxog16_a_rc.fill(0.0f);
     profile.s_oxog_16ctx.fill(0.0f);
     profile.cov_oxog_16ctx.fill(0.0f);
+    profile.tetra_5prime_terminal.fill(0);
+    profile.tetra_5prime_interior.fill(0);
+    for (auto& a : profile.tetra_5prime_terminal_by_deam) a.fill(0);
+    for (auto& a : profile.tetra_5prime_interior_by_deam) a.fill(0);
     profile.tri_5prime_terminal.fill(0.0);
     profile.tri_5prime_interior.fill(0.0);
     profile.tri_3prime_terminal.fill(0.0);

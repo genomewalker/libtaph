@@ -194,6 +194,19 @@ struct SampleDamageProfile {
     std::array<uint64_t, N_TRINUC> tri_3prime_terminal = {};
     std::array<uint64_t, N_TRINUC> tri_3prime_interior = {};
 
+    // 4-mer (tetranucleotide) spectrum for CHG/CHH separation.
+    // Encoding: prev*64 + mid*16 + next1*4 + next2  (A=0,C=1,G=2,T=3).
+    // 5' terminal = positions 1..4; interior = positions 10..14.
+    // Only 5' end is tracked (the damage-bearing strand for DS libraries).
+    // Stratified variant mirrors tri_5prime_terminal_by_deam: reads are binned
+    // by per-read deamination score (0=modern .. N_OX_DEAM_STRATA-1=ancient),
+    // enabling ancient-component 4-mer rates without requiring EM convergence.
+    static constexpr int N_TETRANUC = 256;
+    std::array<uint64_t, N_TETRANUC> tetra_5prime_terminal = {};
+    std::array<uint64_t, N_TETRANUC> tetra_5prime_interior = {};
+    std::array<std::array<uint64_t, N_TETRANUC>, N_OX_DEAM_STRATA> tetra_5prime_terminal_by_deam = {};
+    std::array<std::array<uint64_t, N_TETRANUC>, N_OX_DEAM_STRATA> tetra_5prime_interior_by_deam = {};
+
     // Trinucleotide spectrum stratified by per-read deam_bin (0=modern .. 4=most ancient): the
     // composition-controlled, internal-split version of the context-dependent damage. Lets the
     // C->T (5') / G->A (3') context law be read out for ancient vs modern reads separately

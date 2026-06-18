@@ -43,6 +43,23 @@ struct ProfileJsonInput {
 
     // Length-stratified profiles (optional; full per-bin summary from fqdup)
     const LengthStratifiedDamageProfile* lsd = nullptr;
+
+    // Per-position overlap substitution rates from fqdup merge --subst-out.
+    // Computed from R1 vs RC(R2) mismatches before consensus — strand-resolved.
+    // Empty = not provided.
+    std::vector<double> paired_ct_decay;   // C→T rate at pos 0..N from 5' of insert
+    std::vector<double> paired_ga_decay;   // G→A rate at pos 0..N from 3' of insert
+    // OxoG: G→T (fwd[*][T][G]) vs Chargaff control C→A (fwd[*][C][A]).
+    // PCR fixation makes the ct/ga decay channels unreliable for authentic aDNA deamination;
+    // OxoG is detectable because 8-oxoG persists into sequencing and causes misreading at
+    // the base-caller level (not fixed concordantly by PCR).
+    int64_t paired_tg_count  = 0;   // sum_pos fwd[pos][T][G]
+    int64_t paired_tg_denom  = 0;   // sum_pos sum_r1 fwd[pos][r1][G]
+    int64_t paired_ca_count  = 0;   // sum_pos fwd[pos][C][A]  (Chargaff control)
+    int64_t paired_ca_denom  = 0;   // sum_pos sum_r1 fwd[pos][r1][A]
+    double paired_oxog_rate  = -1.0; // = paired_tg_count / paired_tg_denom (-1 = not computed)
+    int64_t paired_n_pairs   = 0;
+    int64_t paired_n_bases   = 0;
 };
 
 // Serialize a finalized SampleDamageProfile to JSON on `out`.
