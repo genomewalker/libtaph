@@ -60,6 +60,17 @@ struct ProfileJsonInput {
     double paired_oxog_rate  = -1.0; // = paired_tg_count / paired_tg_denom (-1 = not computed)
     int64_t paired_n_pairs   = 0;
     int64_t paired_n_bases   = 0;
+    std::vector<double> paired_tg_pos;
+    std::vector<double> paired_ca_pos;
+
+    // Fitted bsubst decay: bg + d_max * exp(-lambda * p), per-C-site scale (bg≈0.005).
+    // -1.0 = not computed (e.g. no bsubst, or <3 non-zero positions).
+    double paired_ct_d_max_5prime  = -1.0;
+    double paired_ct_lambda_5prime = -1.0;
+    double paired_ct_bg_5prime     = -1.0;
+    double paired_ga_d_max_3prime  = -1.0;
+    double paired_ga_lambda_3prime = -1.0;
+    double paired_ga_bg_3prime     = -1.0;
 };
 
 // Serialize a finalized SampleDamageProfile to JSON on `out`.

@@ -146,14 +146,14 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "  \"library_type_auto\": " << (dp.library_type_auto_detected ? "true" : "false") << ",\n";
     j << "  \"library_type_rescued\": " << (dp.library_type_rescued ? "true" : "false") << ",\n";
     j << "  \"library_type_evaluable\": " << (dp.library_type_evaluable ? "true" : "false") << ",\n";
-    j << "  \"library_p_ds\": " << std::setprecision(6) << dp.library_p_ds << ",\n";
-    j << "  \"library_p_ss\": " << dp.library_p_ss << ",\n";
-    j << "  \"library_p_bias\": " << dp.library_p_bias << ",\n";
-    j << "  \"library_p_winner\": " << dp.library_p_winner << ",\n";
-    j << "  \"library_p_ds_final\": " << dp.library_p_ds_final << ",\n";
-    j << "  \"library_p_ss_final\": " << dp.library_p_ss_final << ",\n";
-    j << "  \"library_p_bias_final\": " << dp.library_p_bias_final << ",\n";
-    j << "  \"library_p_winner_final\": " << dp.library_p_winner_final << ",\n";
+    j << "  \"library_p_ds\": " << nan_or(dp.library_p_ds) << ",\n";
+    j << "  \"library_p_ss\": " << nan_or(dp.library_p_ss) << ",\n";
+    j << "  \"library_p_bias\": " << nan_or(dp.library_p_bias) << ",\n";
+    j << "  \"library_p_winner\": " << nan_or(dp.library_p_winner) << ",\n";
+    j << "  \"library_p_ds_final\": " << nan_or(dp.library_p_ds_final) << ",\n";
+    j << "  \"library_p_ss_final\": " << nan_or(dp.library_p_ss_final) << ",\n";
+    j << "  \"library_p_bias_final\": " << nan_or(dp.library_p_bias_final) << ",\n";
+    j << "  \"library_p_winner_final\": " << nan_or(dp.library_p_winner_final) << ",\n";
     j << "  \"library_auto_type\": \"" << libtype_cstr(dp.library_auto_type) << "\",\n";
     j << "  \"library_auto_evaluable\": " << (dp.library_auto_evaluable ? "true" : "false") << ",\n";
     j << "  \"library_forced_type\": \"" << libtype_cstr(dp.library_forced_type) << "\",\n";
@@ -161,10 +161,12 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "  \"library_bic_winner_model_class\": \"" << dp.library_bic_winner_model_class << "\",\n";
     j << "  \"library_p_is_pre_override\": " << (dp.library_p_is_pre_override ? "true" : "false") << ",\n";
     j << "  \"library_bic_second_model\": \"" << dp.library_bic_second_model << "\",\n";
-    j << "  \"library_bic_margin\": " << std::setprecision(2) << dp.library_bic_margin << ",\n";
-    j << "  \"library_p_ds_class_min\": " << std::setprecision(6) << dp.library_p_ds_class_min << ",\n";
-    j << "  \"library_p_ss_class_min\": " << dp.library_p_ss_class_min << ",\n";
-    j << "  \"library_p_bias_class_min\": " << dp.library_p_bias_class_min << ",\n";
+    j << "  \"library_bic_margin\": " << nan_or(dp.library_bic_margin) << ",\n";
+    j << "  \"library_bic_margin_per_obs\": " << std::setprecision(6) << nan_or(dp.library_bic_margin_per_obs) << ",\n";
+    j << "  \"library_bic_saturated\": " << (dp.library_bic_saturated ? "true" : "false") << ",\n";
+    j << "  \"library_p_ds_class_min\": " << nan_or(dp.library_p_ds_class_min) << ",\n";
+    j << "  \"library_p_ss_class_min\": " << nan_or(dp.library_p_ss_class_min) << ",\n";
+    j << "  \"library_p_bias_class_min\": " << nan_or(dp.library_p_bias_class_min) << ",\n";
     j << "  \"library_artifact_contaminated\": " << (artifact_reasons.empty() ? "false" : "true") << ",\n";
     j << "  \"library_artifact_reasons\": [";
     for (size_t i = 0; i < artifact_reasons.size(); ++i) {
@@ -231,8 +233,8 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"source\": \"" << source_str_out << "\",\n";
     j << "    \"lambda_5prime\": " << (dp.lambda_5prime_fitted ? std::to_string(dp.lambda_5prime) : "null") << ",\n";
     j << "    \"lambda_3prime\": " << (dp.lambda_3prime_fitted ? std::to_string(dp.lambda_3prime) : "null") << ",\n";
-    j << "    \"bg_5prime\": " << dp.fit_baseline_5prime << ",\n";
-    j << "    \"bg_3prime\": " << dp.fit_baseline_3prime << ",\n";
+    j << "    \"bg_5prime\": " << nan_or(dp.fit_baseline_5prime) << ",\n";
+    j << "    \"bg_3prime\": " << nan_or(dp.fit_baseline_3prime) << ",\n";
     j << "    \"validated\": " << (dp.damage_validated ? "true" : "false") << ",\n";
     j << "    \"artifact\": " << (dp.damage_artifact ? "true" : "false") << ",\n";
     j << "    \"joint\": {\n";
@@ -277,23 +279,21 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"cpg_score_p\": " << nan_or(cpg.p) << ",\n";
     j << "      \"methylation_excess\": "  << nan_or(dp.cpg_methylation_excess) << ",\n";
     j << "      \"methylation_index\": "   << nan_or(dp.cpg_methylation_index)  << ",\n";
-    // Interior-based methylation index: uses tri_5prime_interior_by_deam so overhang
-    // C→T (steeply terminal) does not contaminate the signal. Stratification axis is
-    // deam_bin (sum all bins here) — NOT used for stratification to avoid circularity.
+    // Interior-based methylation index: uses tri_5prime_interior (unstratified bulk) so
+    // overhang C→T (steeply terminal) does not contaminate the signal.
     // CpG context: mid=C(1),next=G(2) → trinuc=prev*16+6; TpG: mid=T(3),next=G(2) → prev*16+14.
     {
         double cpg_c = 0, cpg_t = 0, ncpg_c = 0, ncpg_t = 0;
-        for (int b = 0; b < SampleDamageProfile::N_OX_DEAM_STRATA; ++b)
-            for (int prev = 0; prev < 4; ++prev) {
-                cpg_c  += dp.tri_5prime_interior_by_deam[b][prev*16 + 6];
-                cpg_t  += dp.tri_5prime_interior_by_deam[b][prev*16 + 14];
-                ncpg_c += dp.tri_5prime_interior_by_deam[b][prev*16 + 4]
-                        + dp.tri_5prime_interior_by_deam[b][prev*16 + 5]
-                        + dp.tri_5prime_interior_by_deam[b][prev*16 + 7];
-                ncpg_t += dp.tri_5prime_interior_by_deam[b][prev*16 + 12]
-                        + dp.tri_5prime_interior_by_deam[b][prev*16 + 13]
-                        + dp.tri_5prime_interior_by_deam[b][prev*16 + 15];
-            }
+        for (int prev = 0; prev < 4; ++prev) {
+            cpg_c  += dp.tri_5prime_interior[prev*16 + 6];   // XCG
+            cpg_t  += dp.tri_5prime_interior[prev*16 + 14];  // XTG
+            ncpg_c += dp.tri_5prime_interior[prev*16 + 4]
+                    + dp.tri_5prime_interior[prev*16 + 5]
+                    + dp.tri_5prime_interior[prev*16 + 7];
+            ncpg_t += dp.tri_5prime_interior[prev*16 + 12]
+                    + dp.tri_5prime_interior[prev*16 + 13]
+                    + dp.tri_5prime_interior[prev*16 + 15];
+        }
         const double cpg_f  = (cpg_c + cpg_t)   > 0 ? cpg_t  / (cpg_c  + cpg_t)  : -1.0;
         const double ncpg_f = (ncpg_c + ncpg_t) > 0 ? ncpg_t / (ncpg_c + ncpg_t) : -1.0;
         const bool   sat    = cpg_f > 0.8 && ncpg_f > 0.8;
@@ -436,6 +436,9 @@ void profile_to_json(const SampleDamageProfile& dp,
             j << ",\"n_components\":" << lb.mixture_n_components
               << ",\"converged\":" << (lb.mixture_converged ? "true" : "false")
               << ",\"identifiable\":" << (lb.mixture_identifiable ? "true" : "false")
+              << ",\"applicable\":" << (lb.mixture_identifiable ? "true" : "false")
+              << ",\"coverage_fraction\":null"
+              << ",\"conditions\":\"GC-partitioned mixture; valid only when ancient and modern GC distributions separable\""
               << "}";
             j << ",\"gc_d_max\":[";
             for (int g = 0; g < LengthBinDamageProfile::N_GC_BINS; ++g) {
@@ -502,13 +505,13 @@ void profile_to_json(const SampleDamageProfile& dp,
             j << "],\"per_pos_5prime_gt_undamaged\":[";
             write_dnan_arr(lb.per_pos_5prime_gt_undamaged);
             j << "]}";
-            j << ",\"trinuc\":{\"tri_5prime_terminal\":[";
+            j << ",\"4mer\":{\"4mer_5prime_terminal\":[";
             for (int i = 0; i < 64; ++i) { j << lb.tri_5prime_terminal[i]; if (i < 63) j << ","; }
-            j << "],\"tri_5prime_interior\":[";
+            j << "],\"4mer_5prime_interior\":[";
             for (int i = 0; i < 64; ++i) { j << lb.tri_5prime_interior[i]; if (i < 63) j << ","; }
-            j << "],\"tri_3prime_terminal\":[";
+            j << "],\"4mer_3prime_terminal\":[";
             for (int i = 0; i < 64; ++i) { j << lb.tri_3prime_terminal[i]; if (i < 63) j << ","; }
-            j << "],\"tri_3prime_interior\":[";
+            j << "],\"4mer_3prime_interior\":[";
             for (int i = 0; i < 64; ++i) { j << lb.tri_3prime_interior[i]; if (i < 63) j << ","; }
             j << "]}";
             j << "}";
@@ -521,6 +524,9 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"d_population\": " << lsd.d_joint_population << ",\n";
         j << "      \"converged\": "   << (lsd.joint_converged ? "true" : "false") << ",\n";
         j << "      \"separated\": "   << (lsd.joint_separated ? "true" : "false") << ",\n";
+        j << "      \"applicable\": "  << ((lsd.joint_converged && lsd.joint_separated) ? "true" : "false") << ",\n";
+        j << "      \"coverage_fraction\": -1.0,\n";
+        j << "      \"conditions\": \"length x damage joint mixture; identifies ancient fraction from fragment-length prior\",\n";
         j << "      \"cell_w_ancient\": [";
         for (size_t b = 0; b < lsd.cell_w_ancient.size(); ++b) {
             if (b > 0) j << ",";
@@ -541,28 +547,28 @@ void profile_to_json(const SampleDamageProfile& dp,
 
     // ── Complement asymmetry ──────────────────────────────────────────────────
     j << "  \"complement_asymmetry\": {\n";
-    j << "    \"D\": " << std::setprecision(6) << dp.ox_gt_asymmetry << ",\n";
-    j << "    \"tg_interior\": " << dp.ox_gt_baseline << ",\n";
-    j << "    \"ac_interior\": " << dp.ox_ca_baseline << ",\n";
-    j << "    \"tg_terminal\": " << dp.ox_gt_rate_terminal << ",\n";
-    j << "    \"ac_terminal\": " << dp.ox_ca_rate_terminal << ",\n";
-    j << "    \"gt_bg_fitted\": " << dp.g_bg_fitted << ",\n";
-    j << "    \"gt_term_fitted\": " << dp.g_term_fitted << ",\n";
-    j << "    \"gt_decay_fitted\": " << dp.g_decay_fitted << ",\n";
-    j << "    \"gt_bg_ci_lo\": " << std::setprecision(6) << dp.g_bg_fitted_ci_lo << ",\n";
-    j << "    \"gt_bg_ci_hi\": " << dp.g_bg_fitted_ci_hi << ",\n";
+    j << "    \"D\": " << nan_or(dp.ox_gt_asymmetry) << ",\n";
+    j << "    \"tg_interior\": " << nan_or(dp.ox_gt_baseline) << ",\n";
+    j << "    \"ac_interior\": " << nan_or(dp.ox_ca_baseline) << ",\n";
+    j << "    \"tg_terminal\": " << nan_or(dp.ox_gt_rate_terminal) << ",\n";
+    j << "    \"ac_terminal\": " << nan_or(dp.ox_ca_rate_terminal) << ",\n";
+    j << "    \"gt_bg_fitted\": " << nan_or(dp.g_bg_fitted) << ",\n";
+    j << "    \"gt_term_fitted\": " << nan_or(dp.g_term_fitted) << ",\n";
+    j << "    \"gt_decay_fitted\": " << nan_or(dp.g_decay_fitted) << ",\n";
+    j << "    \"gt_bg_ci_lo\": " << nan_or(dp.g_bg_fitted_ci_lo) << ",\n";
+    j << "    \"gt_bg_ci_hi\": " << nan_or(dp.g_bg_fitted_ci_hi) << ",\n";
     j << "    \"gt_fit_degenerate\": " << (dp.g_fit_degenerate ? "true" : "false") << ",\n";
-    j << "    \"gt_bg_fitted_unclamped\": " << dp.g_bg_fitted_unclamped << ",\n";
+    j << "    \"gt_bg_fitted_unclamped\": " << nan_or(dp.g_bg_fitted_unclamped) << ",\n";
     j << "    \"gt_bg_at_upper_boundary\": " << (dp.gt_bg_at_upper_boundary ? "true" : "false") << ",\n";
     j << "    \"gt_decay_at_upper_boundary\": " << (dp.gt_decay_at_upper_boundary ? "true" : "false") << ",\n";
     j << "    \"gt_term_zero_clamped\": " << (dp.gt_term_zero_clamped ? "true" : "false") << ",\n";
     j << "    \"ox_theta_at_clamp\": " << (dp.ox_theta_at_clamp ? "true" : "false") << ",\n";
-    j << "    \"gt_bg_interior_mean\": " << dp.g_bg_interior_mean << ",\n";
-    j << "    \"s_gt\": " << dp.s_gt << ",\n";
+    j << "    \"gt_bg_interior_mean\": " << nan_or(dp.g_bg_interior_mean) << ",\n";
+    j << "    \"s_gt\": " << nan_or(dp.s_gt) << ",\n";
     // Correction 4: s_gt is a strand-asymmetric oxidation CONTRAST, valid only under interior Chargaff
     // balance. The gate is additive — s_gt itself is unchanged; consumers read s_gt_valid before trusting it.
     j << "    \"s_gt_valid\": " << (dp.s_gt_valid ? "true" : "false") << ",\n";
-    j << "    \"chargaff_gc_balance\": " << dp.chargaff_gc_balance << ",\n";
+    j << "    \"chargaff_gc_balance\": " << nan_or(dp.chargaff_gc_balance) << ",\n";
     j << "    \"s_gt_estimand\": \"strand_asymmetric_oxidation_contrast_not_total_oxidation\",\n";
     // D/s_gt are applicable only to SS (Chargaff cancellation makes them ≈0 for DS).
     j << "    \"d_applicable\": " << (is_ss ? "true" : "false") << ",\n";
@@ -720,7 +726,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"oxog_context_cosine\": null,\n";
     else
         j << "    \"oxog_context_cosine\": " << std::setprecision(6) << otr.cosine << ",\n";
-    j << "    \"oxog_trinuc_n_context\": " << otr.n_ctx << ",\n";
+    j << "    \"oxog_4mer_n_context\": " << otr.n_ctx << ",\n";
     if (std::isnan(otr.gt_asymmetry))
         j << "    \"oxog_gt_asymmetry\": null,\n    \"oxog_gt_rate\": null,\n";
     else
@@ -836,13 +842,7 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"mechanism_status\": \"empirical_proxy\",\n";
     j << "    \"delta\": " << nan_or(dp.oxidative_scission_delta) << ",\n";
     j << "    \"delta_5prime\": " << nan_or(dp.oxidative_scission_delta_5prime) << ",\n";
-    j << "    \"delta_3prime\": " << nan_or(dp.oxidative_scission_delta_3prime) << ",\n";
-    j << "    \"delta_by_deam\": [";
-    for (int b = 0; b < SampleDamageProfile::N_OX_DEAM_STRATA; ++b) {
-        j << nan_or(dp.oxidative_scission_delta_by_deam[b]);
-        if (b < SampleDamageProfile::N_OX_DEAM_STRATA - 1) j << ",";
-    }
-    j << "]\n";
+    j << "    \"delta_3prime\": " << nan_or(dp.oxidative_scission_delta_3prime) << "\n";
     j << "  },\n";
 
     // ── Interior CT cluster ───────────────────────────────────────────────────
@@ -925,53 +925,21 @@ void profile_to_json(const SampleDamageProfile& dp,
             for (int i = 0; i < 64; ++i) { j << v[i]; if (i < 63) j << ","; }
             j << "]" << (trailing ? "," : "") << "\n";
         };
-        j << "  \"trinuc_spectrum\": {\n";
-        emit_arr("tri_5prime_terminal", dp.tri_5prime_terminal, true);
-        emit_arr("tri_5prime_interior", dp.tri_5prime_interior, true);
-        emit_arr("tri_3prime_terminal", dp.tri_3prime_terminal, true);
-        emit_arr("tri_3prime_interior", dp.tri_3prime_interior, false);
+        j << "  \"4mer_spectrum\": {\n";
+        emit_arr("4mer_5prime_terminal", dp.tri_5prime_terminal, true);
+        emit_arr("4mer_5prime_interior", dp.tri_5prime_interior, true);
+        emit_arr("4mer_3prime_terminal", dp.tri_3prime_terminal, true);
+        emit_arr("4mer_3prime_interior", dp.tri_3prime_interior, false);
         j << "  },\n";
     }
 
-    // ── Trinucleotide spectrum stratified by deam_bin (internal ancient/modern split) ──
-    // Per-stratum 64-context counts (terminal + interior, 5' C->T / 3' G->A). deam_bin 0=modern
-    // .. 4=most ancient (per-read terminal-deamination excess). This is the composition-controlled,
-    // mechanistic replacement for de-novo SBS96 signatures: the context law read out ancient vs modern.
-    {
-        j << "  \"trinuc_spectrum_by_deam\": {\n";
-        j << "    \"n_strata\": " << SampleDamageProfile::N_OX_DEAM_STRATA << ",\n";
-        j << "    \"deam_stratum_reads\": [";
-        for (int s = 0; s < SampleDamageProfile::N_OX_DEAM_STRATA; ++s) {
-            j << dp.deam_stratum_reads[s];
-            if (s < SampleDamageProfile::N_OX_DEAM_STRATA - 1) j << ",";
-        }
-        j << "],\n";
-        auto emit_strat = [&](const char* name,
-                              const std::array<std::array<uint64_t, 64>,
-                                                SampleDamageProfile::N_OX_DEAM_STRATA>& v,
-                              bool trailing) {
-            j << "    \"" << name << "\": [";
-            for (int s = 0; s < SampleDamageProfile::N_OX_DEAM_STRATA; ++s) {
-                j << "[";
-                for (int i = 0; i < 64; ++i) { j << v[s][i]; if (i < 63) j << ","; }
-                j << "]";
-                if (s < SampleDamageProfile::N_OX_DEAM_STRATA - 1) j << ",";
-            }
-            j << "]" << (trailing ? "," : "") << "\n";
-        };
-        emit_strat("tri_5prime_terminal", dp.tri_5prime_terminal_by_deam, true);
-        emit_strat("tri_5prime_interior", dp.tri_5prime_interior_by_deam, true);
-        emit_strat("tri_3prime_terminal", dp.tri_3prime_terminal_by_deam, true);
-        emit_strat("tri_3prime_interior", dp.tri_3prime_interior_by_deam, false);
-        j << "  },\n";
-    }
 
     // ── Per-position trinucleotide counts ─────────────────────────────────────
     // [pos][64 contexts], pos 1..N_POS_TRI-1 (pos 0 skipped — no left flank).
     // Downstream: normalise T/(T+C) per XCY context per position for reference-free
     // positional damage spectra analogous to bam2sbs sbs3d output.
     {
-        j << "  \"trinuc_pos_spectrum\": {\n";
+        j << "  \"4mer_pos_spectrum\": {\n";
         for (const char* end : {"5prime", "3prime"}) {
             const auto& arr = (end[0] == '5') ? dp.tri_5prime_pos : dp.tri_3prime_pos;
             j << "    \"" << end << "\": [";
@@ -1068,9 +1036,13 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"cv2\": "              << cv2                            << ",\n";
         j << "    \"ct5_mean\": "         << dp.per_read_ct5_sum  / n_all  << ",\n";
         j << "    \"ga3_mean\": "         << dp.per_read_ga3_sum  / n_all  << ",\n";
-        j << "    \"k2_ct5_ga3\": "       << dp.per_read_ct5ga3      / n_all << ",\n";
-        j << "    \"k2_ct5_ct3\": "       << dp.per_read_ct5ct3      / n_all << ",\n";
-        j << "    \"k2_ct5_ga3_corr\": "  << (dp.per_read_ct5ga3 - dp.per_read_ct5ct3) / n_all << ",\n";
+        j << "    \"k2_ct5_ga3\": "             << dp.per_read_ct5ga3      / n_all << ",\n";
+        j << "    \"k2_ct5_ct3\": "             << dp.per_read_ct5ct3      / n_all << ",\n";
+        // k2_artifact_floor: cross-end covariance on strand-concordant pair (5'CT,3'CT).
+        // Consistently > k2_ct5_ga3 (genuine signal), so corrected k2 is always negative.
+        // Artifact diagnostic only — not a pi estimator. See docs/SOLUTION_pi_delta_dmax.md.
+        j << "    \"k2_artifact_floor\": "      << dp.per_read_ct5ct3      / n_all << ",\n";
+        j << "    \"k2_ct5_ga3_corr\": "        << (dp.per_read_ct5ga3 - dp.per_read_ct5ct3) / n_all << ",\n";
         j << "    \"k2_tpg\": "           << dp.per_read_ct5ga3_cpg  / n_all << ",\n";
         j << "    \"n_tpg_reads\": "      << dp.per_read_n_tpg               << ",\n";
         j << "    \"g5_mean\": "          << dp.per_read_g5_sum      / n_all << ",\n";
@@ -1153,109 +1125,6 @@ void profile_to_json(const SampleDamageProfile& dp,
         } else {
             j << "    \"w_A\": null,\n    \"w_C\": null,\n    \"w_G\": null,\n    \"w_T\": null,\n";
             j << "    \"depurination_index\": null\n";
-        }
-        j << "  },\n";
-    }
-
-    // ── Deamination-stratified channels (modern / bulk / ancient) ────────────────
-    // Dose-response validation for methylation and depurination indices.
-    // modern=deam_bin0, bulk=all_bins, ancient=bins3-4. Authentic signals:
-    //   depurination_index(ancient) > depurination_index(modern)
-    //   methylation_next_cond_logodds: same direction across fractions.
-    // Uses tri_5prime_interior_by_deam + tri_5prime_terminal_by_deam (no new accumulators).
-    // No deamination correction applied here (per-bin delta unavailable).
-    {
-        constexpr int NS = SampleDamageProfile::N_OX_DEAM_STRATA;  // 5
-        static constexpr struct { const char* name; int lo; int hi; } FRACS[3] = {
-            {"modern",  0,    0   },
-            {"bulk",    0,    NS-1},
-            {"ancient", NS-2, NS-1},
-        };
-
-        // Projected-gradient NNLS for 4 unknowns — identical kernel to above.
-        auto run_nnls = [](const double bg2[4][4][4], double bg2t,
-                           const double obs2[4][4],  double obs2t,
-                           double w_out[4]) -> double {
-            if (bg2t < 100.0 || obs2t < 100.0) return std::numeric_limits<double>::quiet_NaN();
-            double A[16][4]={}, bv[16]={};
-            for (int b0=0;b0<4;b0++) for (int b1=0;b1<4;b1++) {
-                const int i=b0*4+b1;
-                bv[i] = obs2[b0][b1]/obs2t;
-                for (int x=0;x<4;x++) A[i][x] = bg2[x][b0][b1]/bg2t;
-            }
-            double w[4]={0.25,0.25,0.25,0.25};
-            double AtA[4][4]={}, Atb[4]={};
-            for (int i=0;i<16;i++) for (int x=0;x<4;x++) {
-                Atb[x]+=A[i][x]*bv[i];
-                for (int y=0;y<4;y++) AtA[x][y]+=A[i][x]*A[i][y];
-            }
-            double L=0.0; for (int x=0;x<4;x++) L+=AtA[x][x];
-            const double lr = L>1e-12 ? 0.5/L : 0.01;
-            for (int iter=0;iter<2000;iter++) {
-                double grad[4]={};
-                for (int x=0;x<4;x++) {
-                    for (int y=0;y<4;y++) grad[x]+=AtA[x][y]*w[y];
-                    grad[x]-=Atb[x];
-                }
-                for (int x=0;x<4;x++) w[x]=std::max(0.0,w[x]-lr*grad[x]);
-            }
-            double ws=w[0]+w[1]+w[2]+w[3];
-            if (ws>1e-12) for (int x=0;x<4;x++) { w[x]/=ws; w_out[x]=w[x]; }
-            return (w[1]+w[3])>1e-9 ? (w[0]+w[2])/(w[1]+w[3])
-                                     : std::numeric_limits<double>::quiet_NaN();
-        };
-
-        j << "  \"deam_stratified_channels\": {\n";
-        for (int fi = 0; fi < 3; ++fi) {
-            const int blo = FRACS[fi].lo, bhi = FRACS[fi].hi;
-
-            // Reads in this fraction
-            uint64_t n_frac = 0;
-            for (int b=blo;b<=bhi;b++) n_frac += dp.deam_stratum_reads[b];
-
-            // Methylation next-conditioned log-odds from interior bins
-            double cc=0,ct=0,nc=0,nt=0;
-            for (int b=blo;b<=bhi;b++) for (int pv=0;pv<4;pv++) {
-                cc += dp.tri_5prime_interior_by_deam[b][pv*16+6];
-                ct += dp.tri_5prime_interior_by_deam[b][pv*16+14];
-                nc += dp.tri_5prime_interior_by_deam[b][pv*16+4]
-                    + dp.tri_5prime_interior_by_deam[b][pv*16+5]
-                    + dp.tri_5prime_interior_by_deam[b][pv*16+7];
-                nt += dp.tri_5prime_interior_by_deam[b][pv*16+12]
-                    + dp.tri_5prime_interior_by_deam[b][pv*16+13]
-                    + dp.tri_5prime_interior_by_deam[b][pv*16+15];
-            }
-            constexpr double alp = 0.5;
-            const bool ok = (cc+ct+nc+nt) > 1000;
-            const double mlo = ok
-                ? std::log((ct+alp)/(cc+alp)) - std::log((nt+alp)/(nc+alp))
-                : std::numeric_limits<double>::quiet_NaN();
-
-            // Depurination NNLS: obs from tri_5prime_terminal_by_deam, bg from interior
-            double bg2[4][4][4]={}, obs2[4][4]={};
-            double bg2t=0, obs2t=0;
-            for (int b=blo;b<=bhi;b++)
-                for (int t=0;t<SampleDamageProfile::N_TRINUC;t++) {
-                    const int x=(t>>4)&3, b0=(t>>2)&3, b1=t&3;
-                    bg2[x][b0][b1] += static_cast<double>(dp.tri_5prime_interior_by_deam[b][t]);
-                    bg2t            += static_cast<double>(dp.tri_5prime_interior_by_deam[b][t]);
-                    obs2[b0][b1]   += static_cast<double>(dp.tri_5prime_terminal_by_deam[b][t]);
-                    obs2t          += static_cast<double>(dp.tri_5prime_terminal_by_deam[b][t]);
-                }
-            // obs2 now = Σ_{next} tri_terminal[b0*16+b1*4+next] for each (b0,b1)
-            // Divide obs2t by 4 to get marginal count (each (b0,b1) counted 4× over next)
-            // Actually obs2t is already sum over all 64 cells = correct total for normalization.
-            double w2[4]={};
-            const double dep2 = run_nnls(bg2, bg2t, obs2, obs2t, w2);
-
-            auto jn2 = [&](double v) {
-                if (std::isfinite(v)) j << std::setprecision(6) << v; else j << "null";
-            };
-            j << "    \"" << FRACS[fi].name << "\": {\n";
-            j << "      \"n_reads\": " << n_frac << ",\n";
-            j << "      \"methylation_next_cond_logodds\": "; jn2(mlo); j << ",\n";
-            j << "      \"depurination_index\": "; jn2(dep2); j << "\n";
-            j << "    }" << (fi < 2 ? "," : "") << "\n";
         }
         j << "  },\n";
     }
@@ -1422,7 +1291,7 @@ void profile_to_json(const SampleDamageProfile& dp,
 
             j << "    \"" << end_key << "\": {\n";
             j << "      \"interior_start_pos\": " << plat << ",\n";
-            j << "      \"ct_interior_fraction\": " << std::fixed << std::setprecision(6) << ct_bg  << ",\n";
+            j << "      \"ct_interior_fraction\": " << nan_or(ct_bg) << ",\n";
             // ct_interior_fraction = f_T/(f_C+f_T) at interior positions; null=0.5 (Chargaff/undamaged ds).
             // Complementary pair invariant: XY_fraction + YX_fraction = 1.0 exactly (all 12 channels sum to 6).
             j << "      \"ct_decay_lambda\": "    << nan_or(ct_lam) << ",\n";
@@ -1597,6 +1466,19 @@ void profile_to_json(const SampleDamageProfile& dp,
         };
 
         j << "  \"tetranuc_damage_rates\": {\n";
+        // Metadata fields — not context dicts, type-safe for parsers.
+        // terminal_positions: 1-indexed read positions included in terminal window.
+        //   Position 0 is excluded (no left flank available for 4-mer encoding).
+        // interior_positions: 1-indexed interior baseline window.
+        // stratification_axis: the score used to assign ct_5prime_by_deam strata.
+        //   "cross_end" = max(3'_GA_excess, 3'_CT_excess); orthogonal to 5' C→T,
+        //   valid for both DS and SS libraries. Strata: 0=lowest..4=highest damage.
+        // bulk_equals_sum_strata: true when interior_safe gates both bulk and strat
+        //   accumulators, guaranteeing ct_5prime == sum(ct_5prime_by_deam[s]).
+        j << "    \"terminal_positions\":[1,2,3,4],\n";
+        j << "    \"interior_positions\":[10,11,12,13,14],\n";
+        j << "    \"stratification_axis\":\"cross_end\",\n";
+        j << "    \"bulk_equals_sum_strata\":true,\n";
         emit_tetra_ctx("ct_5prime",
                        dp.tetra_5prime_terminal, dp.tetra_5prime_interior,
                        1 /*C*/, 3 /*T*/);
@@ -1615,6 +1497,34 @@ void profile_to_json(const SampleDamageProfile& dp,
                                dp.tetra_5prime_interior_by_deam,
                                2 /*G*/, 3 /*T*/);
         j << "\n  },\n";
+    }
+
+    // ── Stop-codon excess: continuous reference-free deamination estimator ────
+    // Mean terminal-vs-interior C→T excess for CAA, CAG, CGA codon contexts from
+    // the 4-mer ct_5prime accumulator. Range: ~-0.015 (modern/anti-damage) to
+    // +0.05 (strongly damaged ancient). Crosses zero at ~9% KapK ancient fraction
+    // in FLB/KapK mixtures. -999 = insufficient data.
+    // Encoding: index = p*64 + mid*16 + n1*4 + n2  (A=0,C=1,G=2,T=3)
+    //   CAA → ir_base=16, id_base=48 | CAG → ir_base=18, id_base=50 | CGA → ir_base=24, id_base=56
+    {
+        static constexpr int IR_BASES[3] = {16, 18, 24};   // C as mid_ref (idx 1)
+        static constexpr int ID_BASES[3] = {48, 50, 56};   // T as mid_dam (idx 3)
+        double sc_exc = 0.0; int valid = 0;
+        for (int ci = 0; ci < 3; ++ci) {
+            double sum = 0.0; int cnt = 0;
+            for (int p = 0; p < 4; ++p) {
+                int ir = p*64 + IR_BASES[ci];
+                int id = p*64 + ID_BASES[ci];
+                uint64_t tn = dp.tetra_5prime_terminal[ir] + dp.tetra_5prime_terminal[id];
+                uint64_t xn = dp.tetra_5prime_interior[ir] + dp.tetra_5prime_interior[id];
+                if (!tn || !xn) continue;
+                sum += (double)dp.tetra_5prime_terminal[id]/tn - (double)dp.tetra_5prime_interior[id]/xn;
+                cnt++;
+            }
+            if (cnt > 0) { sc_exc += sum/cnt; valid++; }
+        }
+        j << "  \"stop_codon_exc\": " << std::fixed << std::setprecision(6)
+          << (valid > 0 ? sc_exc/valid : -999.0) << ",\n";
     }
 
     // ── Context-modulated deamination profile ─────────────────────────────────
@@ -1672,6 +1582,21 @@ void profile_to_json(const SampleDamageProfile& dp,
         for (int i = 0; i < 16; ++i)
             snorm[i] = (l2 > 1e-9) ? cmp[i] / l2 : 0.0;
 
+        // Bilateral CpG Δ: min(5′CT, 3′GA_RC). CpG channels = i%4==2 (next=G):
+        // ACG(2), CCG(6), GCG(10), TCG(14). Protocol-agnostic: ss4 artifact inflates
+        // ga_3prime_rc but not ct_5prime, so min() collapses to the 5′ value for ss4;
+        // for DS ancient both arms carry genuine signal and both are elevated.
+        auto cpgd_of = [](const double* ex) {
+            double cpg = 0.0, non = 0.0;
+            for (int i = 0; i < 16; ++i) {
+                if (i % 4 == 2) cpg += ex[i]; else non += ex[i];
+            }
+            return cpg / 4.0 - non / 12.0;
+        };
+        const double cpg_d5         = cpgd_of(ex5);
+        const double cpg_d3         = cpgd_of(ex3g_rc);
+        const double cpg_bilateral  = std::min(cpg_d5, cpg_d3);
+
         auto emit16 = [&](const char* name, const double* v, bool comma) {
             j << "    \"" << name << "\": [";
             for (int i = 0; i < 16; ++i) {
@@ -1696,14 +1621,51 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"primary_arm\": \""
           << (is_ss ? "ct_3prime" : "ct_5prime_ga_3prime_mean") << "\",\n";
         j << "    \"sum_positive_excess\": "
-          << std::fixed << std::setprecision(6) << pos_sum << "\n";
+          << std::fixed << std::setprecision(6) << pos_sum << ",\n";
+        j << "    \"cpg_delta_5prime\": "
+          << std::fixed << std::setprecision(6) << cpg_d5 << ",\n";
+        j << "    \"cpg_delta_3prime_ga\": "
+          << std::fixed << std::setprecision(6) << cpg_d3 << ",\n";
+        j << "    \"cpg_delta_bilateral\": "
+          << std::fixed << std::setprecision(6) << cpg_bilateral << ",\n";
+        j << "    \"cpg_authenticated\": "
+          << (cpg_bilateral >= CPG_BILATERAL_ANCIENT_THR ? "true" : "false") << "\n";
+        j << "  },\n";
+    }
+
+    // ── Reference-free π estimate ─────────────────────────────────────────────
+    {
+        const auto& pi = dp.pi;
+        const char* pi_state_str =
+            (pi.state == DamageConfidence::DETECTED)    ? "DETECTED"    :
+            (pi.state == DamageConfidence::TRACE)       ? "TRACE"       :
+            (pi.state == DamageConfidence::ANCIENT_CPG) ? "ANCIENT_CPG" :
+            (pi.state == DamageConfidence::NOT_DETECTED)? "NOT_DETECTED":
+                                                          "UNDETERMINED";
+        auto jn = [&](double v) {
+            if (std::isfinite(v) && v >= 0.0) j << std::setprecision(6) << v;
+            else                               j << "null";
+        };
+        j << "  \"pi_estimate\": {\n";
+        j << "    \"point\": ";  jn(pi.point); j << ",\n";
+        j << "    \"ci_lo\": ";  jn(pi.lo);    j << ",\n";
+        j << "    \"ci_hi\": ";  jn(pi.hi);    j << ",\n";
+        j << "    \"state\": \"" << pi_state_str << "\",\n";
+        j << "    \"cpg_delta_bilateral\": ";
+        if (!std::isnan(dp.cpg_delta_bilateral)) j << std::setprecision(6) << dp.cpg_delta_bilateral;
+        else                                      j << "null";
+        j << ",\n";
+        j << "    \"cpg_authenticated\": "
+          << ((!std::isnan(dp.cpg_delta_bilateral) &&
+               (double)dp.cpg_delta_bilateral >= CPG_BILATERAL_ANCIENT_THR) ? "true" : "false")
+          << "\n";
         j << "  },\n";
     }
 
     // ── Ancient-fraction d_max ─────────────────────────────────────────────────
     // d_max estimated only from reads classified as ancient by the per-read LLR
     // scorer (fused into the oxoG pass). Comparable to metaDMG "damaged fraction".
-    j << "  \"ancient_fraction\": {\n";
+    j << "  \"mixture_model\": {\n";
     j << "    \"valid\": " << (dp.damaged_fraction_valid ? "true" : "false") << ",\n";
     // C1: d_max_5prime/3prime use the mixture identity d_anc = d_bulk / π, which amplifies
     // noise as π → 0. Below π=0.1 the identity estimate is unreliable → null + flag; the
@@ -1743,7 +1705,34 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "],\n";
     j << "      \"leakage_5prime\": " << (dp.modern_fraction_leakage_5prime ? "true" : "false") << ",\n";
     j << "      \"leakage_3prime\": " << (dp.modern_fraction_leakage_3prime ? "true" : "false") << "\n";
-    j << "    }\n";
+    j << "    },\n";
+    {
+        // Cross-estimate sanity: max/min ratio of the non-null pi_ancient estimates.
+        double pi_min = std::numeric_limits<double>::infinity();
+        double pi_max = 0.0;
+        int    pi_cnt = 0;
+        auto note_pi = [&](double v) {
+            if (std::isfinite(v) && v > 0.0) {
+                if (v < pi_min) pi_min = v;
+                if (v > pi_max) pi_max = v;
+                ++pi_cnt;
+            }
+        };
+        if (dp.damaged_fraction_valid) note_pi(dp.damaged_fraction_pi);
+        if (in.lsd) {
+            if (in.lsd->joint_converged && in.lsd->joint_separated)
+                note_pi(in.lsd->pi_joint_ancient);
+            for (const auto& lb : in.lsd->bins)
+                if (lb.mixture_identifiable && lb.mixture_converged)
+                    note_pi(lb.mixture_pi_damaged);
+        }
+        const bool pi_have = pi_cnt >= 2 && pi_min > 0.0;
+        const double pi_spread = pi_have ? (pi_max / pi_min) : -1.0;
+        j << "    \"consistency_check\": {\n";
+        j << "      \"pi_ancient_spread\": " << (pi_have ? std::to_string(pi_spread) : "null") << ",\n";
+        j << "      \"flagged\": " << ((pi_have && pi_spread > 3.0) ? "true" : "false") << "\n";
+        j << "    }\n";
+    }
     j << "  },\n";
 
     // ── Preservation ──────────────────────────────────────────────────────────
@@ -2264,6 +2253,8 @@ void profile_to_json(const SampleDamageProfile& dp,
         else                        { j << "    \"d_max_ancient\": null,\n";
                                       j << "    \"d_max_se\": null,\n"; }
         j << "    \"d_max_ancient_valid\": " << (bd.d_max_ancient_valid ? "true" : "false") << ",\n";
+        j << "    \"applicable\": false,\n";
+        j << "    \"conditions\": \"requires high-coverage near-saturated libraries; not valid for low-damage or mixed libraries\",\n";
         if (bd.d_max_raw_railed) j << "    \"d_max_raw\": null,\n";
         else                   { j << "    \"d_max_raw\": "; jn(bd.d_max_raw); j << ",\n"; }
         j << "    \"d_max_raw_railed\": " << (bd.d_max_raw_railed ? "true" : "false") << ",\n";
@@ -2342,7 +2333,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         };
         const auto& tau = dp.tau;
         const char* tau_state_str =
-            (tau.state == DamageConfidence::DETECTED)     ? "DETECTED" :
+            (tau.state == DamageConfidence::DETECTED)     ? "DETECTED"     :
             (tau.state == DamageConfidence::NOT_DETECTED) ? "NOT_DETECTED" :
                                                             "UNDETERMINED";
         j << "  \"tau_discriminator\": {\n";
@@ -2790,6 +2781,15 @@ void profile_to_json(const SampleDamageProfile& dp,
         };
         emit_decay("ct_5prime_decay", in.paired_ct_decay, true);
         emit_decay("ga_3prime_decay", in.paired_ga_decay, true);
+        if (in.paired_ct_d_max_5prime >= 0.0) {
+            j << std::setprecision(6)
+              << "    \"ct_d_max_5prime\": "  << in.paired_ct_d_max_5prime  << ",\n"
+              << "    \"ct_lambda_5prime\": " << in.paired_ct_lambda_5prime << ",\n"
+              << "    \"ct_bg_5prime\": "     << in.paired_ct_bg_5prime     << ",\n"
+              << "    \"ga_d_max_3prime\": "  << in.paired_ga_d_max_3prime  << ",\n"
+              << "    \"ga_lambda_3prime\": " << in.paired_ga_lambda_3prime << ",\n"
+              << "    \"ga_bg_3prime\": "     << in.paired_ga_bg_3prime     << ",\n";
+        }
         double ox = in.paired_oxog_rate;
         j << "    \"oxog_rate\": " << (ox >= 0.0 ? std::to_string(ox) : "null") << ",\n";
         // Formal OxoG excess test: TG rate vs CA Chargaff control
@@ -2804,6 +2804,7 @@ void profile_to_json(const SampleDamageProfile& dp,
             double z     = se > 0.0 ? exc / se : 0.0;
             double ci_lo = exc - 1.96*se;
             double ci_hi = exc + 1.96*se;
+            bool pos_follow = !in.paired_tg_pos.empty();
             j << "    \"oxog_excess\": {\n"
               << "      \"tg_rate\": "    << tg_r  << ",\n"
               << "      \"ca_ctrl_rate\": " << ca_r  << ",\n"
@@ -2812,9 +2813,14 @@ void profile_to_json(const SampleDamageProfile& dp,
               << "      \"z\": "          << z     << ",\n"
               << "      \"ci_lo\": "      << ci_lo << ",\n"
               << "      \"ci_hi\": "      << ci_hi << "\n"
-              << "    }\n";
+              << (pos_follow ? "    },\n" : "    }\n");
         } else {
-            j << "    \"oxog_excess\": null\n";
+            j << (in.paired_tg_pos.empty() ? "    \"oxog_excess\": null\n"
+                                           : "    \"oxog_excess\": null,\n");
+        }
+        if (!in.paired_tg_pos.empty()) {
+            emit_decay("oxog_pos_5prime",    in.paired_tg_pos, true);
+            emit_decay("oxog_ca_pos_5prime", in.paired_ca_pos, false);
         }
         j << "  }";
     }
