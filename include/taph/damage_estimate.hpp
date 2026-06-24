@@ -18,7 +18,18 @@ constexpr double W_LENGTH_GATE = 0.6;
 // 3-state confidence (SOLUTION §6.3/§6.4). NOT_DETECTED is RESERVED: the reference-free bulk estimator
 // cannot assert "modern" — mapping recovers dilute ancient that delta=0 misses (§5) — so it emits only
 // DETECTED or UNDETERMINED. NOT_DETECTED is for a future reference-anchored path.
-enum class DamageConfidence { DETECTED, TRACE, NOT_DETECTED, UNDETERMINED, ANCIENT_CPG };
+// LOW_ABUNDANCE: end-asymmetric recovery. Fired ONLY when channel-5 strand symmetry FAILED because
+// one terminus is ->G-overcall artifact-dead (artifact_overcall_Xp) AND the OPPOSITE (live) end passes a
+// two-model decay LRT (Briggs exp decay vs position-fixed spike/flat null) on its merged per-position
+// histogram. pi is then formed from the live end alone (A = live_end_d_max, denom = D_MAX_CONSERVED).
+// Distinct from DETECTED (both ends clean, strand-symmetric) and ABSTAIN (no recoverable signal).
+// BELOW_FLOOR: detection floor. Entered on the SAME end-asymmetric path as LOW_ABUNDANCE (exactly one
+// terminus artifact-dead) but the surviving end FAILS to authenticate as a live decay channel — either
+// its two-model decay LRT does not clear significance, or its terminal-window eligible-site count is
+// below PI_FLOOR_MIN_ELIG. This is the honest output for a truly-undetectable / artifact-only library:
+// no point estimate is identifiable, so only an UPPER BOUND on pi is emitted (pi.hi set; point/lo null).
+enum class DamageConfidence { DETECTED, TRACE, NOT_DETECTED, UNDETERMINED, ANCIENT_CPG, LOW_ABUNDANCE,
+                              BELOW_FLOOR };
 
 // Bilateral CpG Δ threshold: min(cpgΔ_5′, cpgΔ_3′GA) ≥ this → ANCIENT_CPG when δ-decay model
 // returns zero (sharp-spike or dilute-signal profiles that evade the exponential fit).
@@ -37,6 +48,29 @@ constexpr double PI_SHAPE_LRT_THR = 9.21;
 // ~5x smaller-scale than a summed-position excess, so the original 0.03 clipped genuine damage). upgrade:
 // recalibrate via a gargammel damage titration (plan), and fix the amp↔D_MAX_CONSERVED scale for the pi value.
 constexpr double PI_CH5_AMP_THR = 0.015;
+
+// Terminal ->G overcall artifact threshold (low-abundance cascade degeneracy guard). The raw G-fraction
+// (full base composition) must exceed the interior baseline by at least this much BOTH at the terminus
+// (pos0-1) AND sustained into the inner window (pos2-4) to register a dead-end ->G overcall. The empirical
+// overcall (FLB57md 5', VALIDATED) is a SUSTAINED plateau: raw G ~0.43-0.73 vs interior ~0.23 from pos0
+// through pos4 (peak excess ~+0.50, inner-window excess ~+0.31), NOT a sharp pos0-1 spike. The flag is
+// artifact-specific BY CONSTRUCTION: a positive raw-G excess cannot arise from terminal deamination (5'
+// C->T leaves G untouched; 3' G->A DEPLETES G), so it never gates out a genuine G-enriched live (G->A)
+// end. ceiling: 0.05 placeholder calibrated on FLB57md's dead 5' plateau; recalibrate via gargammel titration.
+constexpr double ARTIFACT_G_SPIKE_THR = 0.05;
+
+// Detection-floor minimum: the live-end terminal window must carry at least this many eligible (C-bearing,
+// event-stratum C>0) sites summed over the fitted positions p=0..P_PI-1 before a LOW_ABUNDANCE point/CI may
+// be emitted. Below it the decay LRT is statistically powerless (cov~1 terminal windows go noise-dominated),
+// so the honest output is BELOW_FLOOR with an upper bound only. live_end_decay_lrt already requires ≥3
+// positions at ≥50 elig each to even fit (≈150 floor on the fit itself); this raises the bar to a window
+// total that makes the χ²(df=1) ≥6.63 verdict trustworthy. ceiling: 200 placeholder calibrated against the
+// per-position ≥50 fit gate; upgrade: recalibrate the (n_elig, power) curve via a gargammel damage titration.
+constexpr double PI_FLOOR_MIN_ELIG = 200.0;
+
+// (Removed PI_LOW_ABUNDANCE_MIN_DMAX: the LOW_ABUNDANCE gate is self-calibrating — it requires the
+// d_max-SE-propagated lower CI edge to clear PI_THR, i.e. the recovered interval significantly excludes
+// zero, rather than a hardcoded amplitude floor.)
 
 // Gated ancient-fraction estimate: point + 95% interval + state. point/lo/hi == -1 ⇒ not set.
 // For profile.tau, point/lo/hi carry τ̂ and its 95% χ²-profile CI; the floor-model decomposition

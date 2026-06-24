@@ -450,6 +450,51 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
         profile.d5_blunting_suspected = flat5 && !flat3 && (profile.d_max_3prime >= 0.05f);
     }
 
+    // Terminal ->G OVERCALL artifact flag (low-abundance cascade degeneracy guard).
+    // Raw G-fraction over the FULL base composition, excess over interior, must form a POSITION-FIXED
+    // SPIKE at pos0-1 (large peak, NOT continuing a smooth terminal decay into pos2-4). A positive raw-G
+    // excess cannot come from G->A deamination (which depletes G), so this axis is artifact-specific and
+    // spares the genuine live 3' G->A signal by construction; the non-decay shape test is a second guard.
+    {
+        const double bg_tot = profile.baseline_a_freq + profile.baseline_g_freq
+                            + profile.baseline_t_freq + profile.baseline_c_freq;
+        const double g_int  = bg_tot > 0.0 ? profile.baseline_g_freq / bg_tot : 0.0;
+
+        auto g_excess_spike = [&](const std::array<double,15>& a, const std::array<double,15>& g,
+                                  const std::array<double,15>& t, const std::array<double,15>& c)
+            -> std::pair<bool,float>
+        {
+            auto gfrac = [&](int p) -> double {
+                const double tot = a[p] + g[p] + t[p] + c[p];
+                return tot > 0.0 ? g[p] / tot : 0.0;
+            };
+            // Peak raw-G excess over interior at the terminus (pos0-1).
+            const double peak = std::max(gfrac(0), gfrac(1)) - g_int;
+            // ARTIFACT-SPECIFICITY BY CONSTRUCTION: genuine terminal deamination NEVER raises raw G at
+            // either end — 5' C->T leaves G untouched, 3' G->A DEPLETES G — so a POSITIVE raw-G excess
+            // cannot be a real decaying channel and never gates out a genuine G-enriched (G->A) live end.
+            // The empirical ->G overcall (FLB57md 5') is a SUSTAINED plateau, not a sharp pos0-1 spike:
+            // it stays well above interior through pos2-4 (raw-G ~0.43 vs interior ~0.23 at p4). We require
+            // the excess to be both LARGE at the terminus AND SUSTAINED into the inner window — a sustained
+            // positive raw-G excess is the dead-end signature; a one-position blip is rejected. The
+            // decay-shaped vs spike discrimination is carried by live_end_decay_lrt on the OPPOSITE
+            // (eligible-channel) end; this raw-G flag only marks WHICH end is artifact-dead.
+            double inner = 0.0;
+            for (int p = 2; p <= 4; ++p) inner = std::max(inner, gfrac(p) - g_int);
+            const bool dead = (peak >= ARTIFACT_G_SPIKE_THR) && (inner >= ARTIFACT_G_SPIKE_THR);
+            return {dead, static_cast<float>(std::max(0.0, peak))};
+        };
+
+        auto [sp5, ex5] = g_excess_spike(profile.a_freq_5prime, profile.g_freq_5prime,
+                                         profile.t_freq_5prime, profile.c_freq_5prime);
+        auto [sp3, ex3] = g_excess_spike(profile.a_freq_3prime, profile.g_freq_3prime,
+                                         profile.t_freq_3prime, profile.c_freq_3prime);
+        profile.artifact_overcall_5p = sp5;
+        profile.artifact_overcall_3p = sp3;
+        profile.artifact_g_excess_5p = ex5;
+        profile.artifact_g_excess_3p = ex3;
+    }
+
     // d_metamatch: Channel B-anchored estimate.
     // Formula: d_metamatch = d_global + γ × (d_channel_b - d_global)
     // γ from Channel B LLR; blends toward Channel B for validated samples.

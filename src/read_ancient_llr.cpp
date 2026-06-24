@@ -64,6 +64,108 @@ Channel5 channel5_eval(const SampleDamageProfile& profile) {
 
 bool channel5_authentic(const SampleDamageProfile& profile) { return channel5_eval(profile).authentic; }
 
+// === END-ASYMMETRIC live-end decay LRT (low-abundance cascade primary gate) ===
+// Two-model LRT on ONE end's merged per-position histogram, run on the SAME terminal window the spike
+// occupies (covariate-matched: same L/C strata, same positions p=0..P_PI-1; interior/longest reads are
+// NEVER used as the artifact-inclusive reference). Shared baseline b = terminal-window asymptote (deepest
+// live position). The two competing shapes for the terminus:
+//   ALT  (Briggs decay):  r(p) = b + (1-b)·A·e^{-λp}        — genuine terminal deamination, decays into interior
+//   NULL (spike/flat):    r(p) = s for p∈{0,1}, r(p) = b otherwise  — position-fixed dropout (->G overcall),
+//                                                                     elevated only at the very terminus, no decay
+// LRT = 2·(ll_decay − ll_spike). The null free param s is the pooled pos0-1 rate (1 extra df over flat),
+// so this is a SHAPE test (decay continuation through pos2-4) not a mere amplitude test — exactly the
+// degeneracy discriminator: a dropout spike collapses to b by pos2 (null wins), a real channel decays
+// smoothly (alt wins). Same closed-form WLS linearisation as fit_pi_shape; consumes only the merged cube.
+struct EndDecayLRT { double lrt = 0.0; double A = 0.0; double A_se = 0.0; double lambda = 0.0;
+                     double baseline = 0.0; double n_elig_total = 0.0; bool fitted = false; bool live = false; };
+EndDecayLRT live_end_decay_lrt(const SampleDamageProfile::PiPosCube& cube) {
+    constexpr int P = SampleDamageProfile::P_PI;
+    EndDecayLRT out;
+    std::array<std::array<double,2>, P> pos = {};  // [p] = {n_elig, n_deam}
+    // Pool over ALL C (incl. C=0). C_bin is the 5' C->T centroid: for the 3'-live case (5' artifact-dead,
+    // FLB57md) it is artifact-contaminated, so C∈{1,2} selects on the 5' artifact and scrambles the 3'
+    // signal -> flat rates, no decay. The UNSTRATIFIED per-position profile (all C) is the one the Briggs
+    // fit uses, where the genuine d_max3 decay lives. (The modest C-enrichment isn't worth the circularity.)
+    for (int L = 0; L < SampleDamageProfile::N_PI_LEN; ++L)
+        for (int C = 0; C < SampleDamageProfile::N_PI_C; ++C)
+            for (int p = 0; p < P; ++p) {
+                pos[p][0] += static_cast<double>(cube[L][C][p].n_elig);
+                pos[p][1] += static_cast<double>(cube[L][C][p].n_deam);
+            }
+    for (int p = 0; p < P; ++p) out.n_elig_total += pos[p][0];
+    int n_live = 0;
+    for (int p = 0; p < P; ++p) if (pos[p][0] >= 50.0) ++n_live;
+    if (n_live < 3) return out;
+
+    double b = 0.0;
+    for (int p = P - 1; p >= 0; --p)
+        if (pos[p][0] >= 50.0) { b = pos[p][1] / pos[p][0]; break; }
+    b = std::clamp(b, 0.0, 0.95);  // do NOT cap at 0.5: the deep-window asymptote can exceed 0.5
+                                   // (e.g. 3' A/(A+G)); a 0.5 cap forced r_p-b<=0 -> degenerate WLS -> lambda=0
+
+    // ALT: linearise y_p = log((r_p−b)/(1−b)) = log A − λ·p, binomial-weighted WLS (same as fit_pi_shape).
+    double sw = 0.0, swx = 0.0, swxx = 0.0, swy = 0.0, swxy = 0.0;
+    for (int p = 0; p < P; ++p) {
+        const double n = pos[p][0];
+        if (n < 50.0) continue;
+        const double r = pos[p][1] / n;
+        const double num = r - b;
+        if (num <= 1e-6 || b >= 1.0) continue;
+        const double y = std::log(num / (1.0 - b));
+        const double rc = std::clamp(r, 1e-6, 1.0 - 1e-6);
+        const double w = n * rc * (1.0 - rc);
+        const double x = static_cast<double>(p);
+        sw += w; swx += w * x; swxx += w * x * x; swy += w * y; swxy += w * x * y;
+    }
+    const double det = sw * swxx - swx * swx;
+    if (!(det > 0.0) || sw <= 0.0) return out;
+    const double logA  = (swxx * swy - swx * swxy) / det;
+    const double slope = (sw * swxy - swx * swy) / det;
+    double A = std::clamp(std::exp(logA), 0.0, 1.0);
+    double lambda = std::max(0.0, -slope);
+    if (!std::isfinite(A) || !std::isfinite(lambda)) return out;
+    const double var_logA = swxx / det;
+    const double A_se = (var_logA >= 0.0) ? A * std::sqrt(var_logA) : 0.2 * A;
+
+    const auto binom_ll = [&](const double* r) {
+        double ll = 0.0;
+        for (int p = 0; p < P; ++p) {
+            const double n = pos[p][0], k = pos[p][1];
+            if (n <= 0.0) continue;
+            const double rp = std::clamp(r[p], 1e-9, 1.0 - 1e-9);
+            ll += k * std::log(rp) + (n - k) * std::log(1.0 - rp);
+        }
+        return ll;
+    };
+    // Nested decay-vs-FLAT LRT (valid χ², always ≥0 for a real decay): ALT = WLS Briggs decay, NULL =
+    // constant pooled rate (decay with A=0). The decay-vs-SPIKE test was NOT nested (a free terminal rate
+    // is more flexible than the flat-decay), so ll_decay<ll_spike gave a hugely NEGATIVE statistic that
+    // could never clear the floor. Spike/dropout discrimination is handled per-end by the artifact flag,
+    // which already marks the dead end; here we only need the LIVE end to carry a genuine terminal decay.
+    double r_decay[P], r_flat[P];
+    double tot_n = 0.0, tot_k = 0.0;
+    for (int p = 0; p < P; ++p) if (pos[p][0] >= 50.0) { tot_n += pos[p][0]; tot_k += pos[p][1]; }
+    const double r_bar = tot_n > 0.0 ? tot_k / tot_n : b;
+    for (int p = 0; p < P; ++p) {
+        r_decay[p] = b + (1.0 - b) * A * std::exp(-lambda * static_cast<double>(p));
+        r_flat[p]  = r_bar;
+    }
+    const double lrt = 2.0 * (binom_ll(r_decay) - binom_ll(r_flat));
+
+    out.A = A; out.A_se = A_se; out.lambda = lambda; out.baseline = b;
+    out.lrt = lrt; out.fitted = true;
+    // LIVE ⇔ the decay shape beats a flat constant-rate null (df=2: A and λ) AND it genuinely decays
+    // (λ>0, A above floor). χ²(df=2) 0.99 = 9.21.
+    out.live = lrt >= 9.21 && lambda > 0.0 && A >= 0.04;
+    if (std::getenv("TAPH_DBG_LRT")) {
+        std::fprintf(stderr, "[LRT2] b=%.4f r_bar=%.4f A=%.4f lambda=%.4f lrt=%.2f live=%d nelig=%.0f | rates:",
+                     b, r_bar, A, lambda, lrt, (int)out.live, out.n_elig_total);
+        for (int p = 0; p < P; ++p) std::fprintf(stderr, " %.4f", pos[p][0] > 0 ? pos[p][1]/pos[p][0] : 0.0);
+        std::fprintf(stderr, "\n");
+    }
+    return out;
+}
+
 }  // namespace
 
 // Gated reference-free pi RANGE from the per-position terminal-decay fit (PiShapeFit). pi is a
@@ -82,6 +184,7 @@ bool channel5_authentic(const SampleDamageProfile& profile) { return channel5_ev
 void finalize_pi(SampleDamageProfile& profile) {
     profile.pi = DamageEstimate{};
     if (!profile.bulk_attempted) return;
+    constexpr double PI_THR = 0.005;  // π-floor shared by DETECTED, TRACE, and LOW_ABUNDANCE gates
 
     const auto try_ancient_cpg = [&]() {
         if (!std::isnan(profile.cpg_delta_bilateral) &&
@@ -95,11 +198,83 @@ void finalize_pi(SampleDamageProfile& profile) {
     // ->G overcall pushes FLB57md's bulk delta ABOVE genuinely-damaged FLB03mAds3), so the prior
     // fit_pi_shape-gated path mis-abstained on real damage. fit_pi_shape (profile.pi_shape) is retained
     // for the per-read LLR decay (lambda/baseline), NOT as the detection gate here.
-    const Channel5 c5 = channel5_eval(profile);
-    if (!c5.authentic) { try_ancient_cpg(); return; }
-
     const auto clip01 = [](double x) { return std::clamp(x, 0.0, 1.0); };
     const double denom = D_MAX_CONSERVED;
+
+    const Channel5 c5 = channel5_eval(profile);
+    if (!c5.authentic) {
+        // END-ASYMMETRIC LOW_ABUNDANCE recovery. channel-5 needs BOTH ends strand-symmetric; it fails
+        // when one terminus is ->G-overcall artifact-dead. Recover IFF EXACTLY ONE end is artifact-flagged
+        // AND the OPPOSITE (live) end passes the two-model decay LRT. The artifact flag marks WHICH end is
+        // dead; the LRT proves the surviving end carries decay-shaped (not spike) terminal deamination.
+        // DS-ONLY: end-asymmetric recovery is validated for double-stranded libraries (live end carries a
+        // clean G->A/C->T terminal decay). For SINGLE-STRANDED libraries the 3' terminus carries a
+        // library-prep artifact (a clean-looking C->T decay, asymmetric d_max3>>d_max5; e.g. ExrNTC ss
+        // blanks d_max3~0.64 vs metaDMG per-taxon max ~0.08) that the live-end test cannot separate from
+        // real damage, so recovery on ss would emit inflated garbage. Honest scope: ds recovers, ss ABSTAINs
+        // (its 3'-prep artifact is unresolved). TODO: model/subtract the ss 3'-prep artifact, then enable ss.
+        const bool ds_lib = profile.library_type != SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+        if (denom > 0.0 && ds_lib) {
+            const bool a5 = profile.artifact_overcall_5p, a3 = profile.artifact_overcall_3p;
+            if (a5 != a3) {  // exactly one end dead
+                const bool live_is_3p = a5;  // 5' dead ⇒ 3' is the live end (FLB57md), and vice versa
+                const EndDecayLRT le = live_end_decay_lrt(
+                    live_is_3p ? profile.pi_pos_3prime_ds : profile.pi_pos_5prime);
+                const double A = live_is_3p ? profile.d_max_3prime : profile.d_max_5prime;
+                // NOTE: an amplitude ceiling (A < D_MAX_CONSERVED) is WRONG for deep time — at ~4 Myr
+                // deamination can saturate, so a genuine d_max of 0.5-0.7 is plausible; D_MAX_CONSERVED=0.39
+                // is a YOUNG-aDNA cohort mean. Discrimination of real-saturated vs artifact must be by SHAPE,
+                // not amplitude (see assessment: per-position window shape does NOT separate them here either).
+                if (A > 0.0) {
+                    // A_se: prefer the bulk damaged-split SE; else the LRT's own A_se; else 20% of A.
+                    const double A_se = (profile.bulk_damage.d_max_damaged_valid &&
+                                         profile.bulk_damage.d_max_se > 0.0)
+                                            ? profile.bulk_damage.d_max_se
+                                            : (le.A_se > 0.0 ? le.A_se : 0.2 * A);
+                    // Propagate a denominator-uncertainty term too: D_MAX_CONSERVED is a cohort mean,
+                    // not sample-specific, so widen by its documented spread (0.34-0.48 ⇒ ~0.035 sd).
+                    constexpr double DENOM_SD = 0.035;
+                    const double rel = std::sqrt((A_se * A_se) / (A * A) +
+                                                 (DENOM_SD * DENOM_SD) / (denom * denom));
+                    const double pt = A / denom;
+                    const double lo = clip01(pt * (1.0 - 1.96 * rel));
+                    const double hi = clip01(pt * (1.0 + 1.96 * rel));
+                    // DETECTION FLOOR — SELF-CALIBRATING, no hardcoded d_max threshold. The live end is
+                    // recovered IFF its d_max-SE-propagated lower CI edge clears the same PI_THR π-floor the
+                    // symmetric DETECTED path uses (i.e. the recovered interval significantly excludes zero),
+                    // AND the terminal window carries enough eligible sites. Significance comes from the data's
+                    // own d_max_se (Briggs fit) + the cohort-denominator spread — not a magic amplitude cut.
+                    // The Briggs length-stratified d_max already established the decay (the per-position window
+                    // LRT `le` is under-powered at this dilution and kept only as a diagnostic). The dead end is
+                    // the artifact-flagged one; A is a G->A amplitude a ->G overcall would DEPLETE not inflate.
+                    // Pass ⇒ LOW_ABUNDANCE; fail ⇒ BELOW_FLOOR (honest upper bound, point+lo nulled).
+                    // TWO conditions, both needed and both principled (not a new hardcode):
+                    //  (1) significance — the d_max-SE-propagated lower CI clears PI_THR (self-calibrating);
+                    //  (2) detection floor — live d_max ≥ the codebase's existing amplitude floor a_min(0.04).
+                    // Significance alone is insufficient: at high depth (a 943k-read blank) a tiny artifact
+                    // d_max~0.023 has a tight CI and looks "significant", so it must also clear the minimum
+                    // detectable amplitude below which real damage is indistinguishable from artifact ref-free.
+                    // FLB57md live 3' d_max3≈0.058 ≥ 0.04 passes; the blank's 0.023 falls to BELOW_FLOOR.
+                    const double A_MIN = TauConfig{}.a_min;
+                    if (lo > PI_THR && A >= A_MIN && le.n_elig_total >= PI_FLOOR_MIN_ELIG) {
+                        profile.pi.point = clip01(pt);
+                        profile.pi.lo    = lo;
+                        profile.pi.hi    = hi;
+                        profile.pi.state = DamageConfidence::LOW_ABUNDANCE;
+                    } else {
+                        profile.pi.point = -1.0;
+                        profile.pi.lo    = -1.0;
+                        profile.pi.hi    = hi;
+                        profile.pi.state = DamageConfidence::BELOW_FLOOR;
+                    }
+                    return;
+                }
+            }
+        }
+        try_ancient_cpg();
+        return;
+    }
+
     if (denom <= 0.0) { try_ancient_cpg(); return; }
 
     // pi VALUE from the Briggs per-end d_max (position-peak amplitude, COMMENSURATE with D_MAX_CONSERVED).
@@ -115,7 +290,6 @@ void finalize_pi(SampleDamageProfile& profile) {
     profile.pi.hi    = clip01((A + 1.96 * A_se) / denom);
     profile.pi.point = clip01(A / denom);  // range midpoint; JSON nulls it unless lo≤point≤hi
 
-    constexpr double PI_THR = 0.005;
     if (profile.pi.lo > PI_THR)       profile.pi.state = DamageConfidence::DETECTED;
     else if (profile.pi.hi >= PI_THR) profile.pi.state = DamageConfidence::TRACE;
     else                              try_ancient_cpg();
@@ -170,6 +344,11 @@ double damage_evidence_llr(const ReadDamageObs& obs, const SampleDamageProfile& 
 }
 
 std::optional<double> read_ancient_posterior(const ReadDamageObs& obs, const SampleDamageProfile& profile) {
+    // DELIBERATELY DETECTED-only: LOW_ABUNDANCE authenticates the SAMPLE end-asymmetrically (bulk pi),
+    // but per-read scoring needs a fitted per-position λ that ref-free mode never produces, and the dead
+    // end's reads carry the ->G artifact. Admitting LOW_ABUNDANCE here would emit confident-but-wrong
+    // per-read posteriors. The ranked per-read tail (online-FDR) is the deferred cascade step that will
+    // unlock it; until then LOW_ABUNDANCE returns nullopt (no per-read claim) by design.
     if (profile.pi.state != DamageConfidence::DETECTED) return std::nullopt;
     const double pi = std::clamp(profile.pi.point, 1e-6, 1.0 - 1e-6);
     const double logit_pi = std::log(pi / (1.0 - pi));

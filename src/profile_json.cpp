@@ -1755,6 +1755,8 @@ void profile_to_json(const SampleDamageProfile& dp,
             (pi.state == DamageConfidence::DETECTED)    ? "DETECTED"    :
             (pi.state == DamageConfidence::TRACE)       ? "TRACE"       :
             (pi.state == DamageConfidence::ANCIENT_CPG) ? "ANCIENT_CPG" :
+            (pi.state == DamageConfidence::LOW_ABUNDANCE)? "LOW_ABUNDANCE":
+            (pi.state == DamageConfidence::BELOW_FLOOR)  ? "BELOW_FLOOR"  :
             (pi.state == DamageConfidence::NOT_DETECTED)? "NOT_DETECTED":
                                                           "UNDETERMINED";
         auto jn = [&](double v) {
@@ -1768,7 +1770,14 @@ void profile_to_json(const SampleDamageProfile& dp,
                                  pi.lo >= 0.0 && pi.hi >= pi.lo;
         const bool pi_identifiable = std::isfinite(pi.point) && pi.point >= 0.0 &&
                                      pi_range_ok && pi.point >= pi.lo && pi.point <= pi.hi;
-        const char* pi_state_out = pi_identifiable ? pi_state_str : "ABSTAIN";
+        // BELOW_FLOOR is an UPPER-BOUND verdict by construction: point/lo are null and only hi is set, so it
+        // is (correctly) not "identifiable". It must still report its own state — the abstain override applies
+        // only to states that PROMISE a point but failed to land it inside their CI.
+        const bool pi_upper_bound_only = pi.state == DamageConfidence::BELOW_FLOOR &&
+                                         std::isfinite(pi.hi) && pi.hi >= 0.0;
+        const char* pi_state_out = pi_identifiable     ? pi_state_str :
+                                   pi_upper_bound_only  ? "BELOW_FLOOR" :
+                                                          "ABSTAIN";
         j << "  \"pi_estimate\": {\n";
         j << "    \"point\": ";  if (pi_identifiable) jn(pi.point); else j << "null"; j << ",\n";
         j << "    \"ci_lo\": ";  jn(pi.lo);    j << ",\n";
@@ -2111,7 +2120,12 @@ void profile_to_json(const SampleDamageProfile& dp,
               ? dp.fit_amplitude_5prime / dp.fit_baseline_5prime : 0.0f) << ",\n";
         j << "        \"d3_amp_over_bg\": " << (dp.fit_baseline_3prime > 1e-4f
               ? dp.fit_amplitude_3prime / dp.fit_baseline_3prime : 0.0f) << ",\n";
-        j << "        \"d5_blunting_suspected\": " << (dp.d5_blunting_suspected ? "true" : "false") << "\n";
+        j << "        \"d5_blunting_suspected\": " << (dp.d5_blunting_suspected ? "true" : "false") << ",\n";
+        // Terminal ->G overcall artifact (position-fixed raw-G spike, NOT G->A): marks the dead end.
+        j << "        \"artifact_overcall_5p\": " << (dp.artifact_overcall_5p ? "true" : "false") << ",\n";
+        j << "        \"artifact_overcall_3p\": " << (dp.artifact_overcall_3p ? "true" : "false") << ",\n";
+        j << "        \"artifact_g_excess_5p\": " << dp.artifact_g_excess_5p << ",\n";
+        j << "        \"artifact_g_excess_3p\": " << dp.artifact_g_excess_3p << "\n";
         j << "      }" << (is_ss ? "," : "") << "\n";
 
         // ss_end_asymmetry: CircLigase selection bias and extreme 5'/3' asymmetry.

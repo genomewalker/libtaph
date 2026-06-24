@@ -59,6 +59,18 @@ struct SampleDamageProfile {
     std::array<double, 15> t_freq_3prime = {};  // T count at each position (control)
     std::array<double, 15> c_freq_3prime = {};  // C count at each position (control)
 
+    // TERMINAL RAW G-CALL RATE for the low-abundance artifact flag (degeneracy guard).
+    // The per-position raw G-fraction over the FULL base composition is:
+    //   G_frac_3prime(p) = g_freq_3prime[p] / (a_freq_3prime[p]+g_freq_3prime[p]+t_freq_3prime[p]+c_freq_3prime[p])
+    //   G_frac_5prime(p) = g_freq_5prime[p] / (a_freq_5prime[p]+g_freq_5prime[p]+t_freq_5prime[p]+c_freq_5prime[p])
+    //   interior G-frac  = baseline_g_freq / (baseline_a_freq+baseline_t_freq+baseline_c_freq+baseline_g_freq)
+    // This is the ARTIFACT axis: a ->G overcall raises raw G across the whole composition.
+    // It is distinct from the authentic G->A deamination signal in pi_pos_3prime_ds, which
+    // lives WITHIN the A+G eligible channel (n_deam=A, n_elig=A+G) and DECAYS with p. The
+    // decay-vs-spike LRT discriminates the two; this raw G-fraction only flags the dead end.
+    // All four 3' + four 5' arrays and the interior baselines are fixed-size, summation-
+    // mergeable (merge_sample_profiles), and reset (reset_sample_profile). No new field needed.
+
     // Middle-of-read baseline counts (undamaged)
     double baseline_t_freq = 0.0;
     double baseline_c_freq = 0.0;
@@ -730,6 +742,26 @@ struct SampleDamageProfile {
     float d3_profile_var_pos0_9   = 0.0f;
     // d5 flat while d3 has real decay → 5' overhang blunted before adapter ligation
     bool  d5_blunting_suspected   = false;
+
+    // === Terminal ->G OVERCALL artifact flag (low-abundance cascade, degeneracy guard) ===
+    // A reference-free per-end flag for the dead-end pathology that makes FLB57md ABSTAIN: the
+    // 5' terminus is ->G overcalled (raw G ~2.2x interior at pos0-1, position-fixed spike, no decay).
+    // Statistic: per-position RAW G-fraction over the FULL base composition (NOT the eligible A+G
+    // channel), excess over the interior baseline:
+    //   g_excess(p) = g_freq_Xprime[p]/(a+g+t+c)_Xprime[p] - baseline_g_freq/(baseline a+g+t+c)
+    // Flagged when the excess is a POSITION-FIXED SPIKE: large at pos0-1 (peak ≥ ARTIFACT_G_SPIKE_THR
+    // above interior) AND it does NOT decay exponentially (the inner window pos2-4 does not continue a
+    // smooth terminal decay; the spike is confined to pos0-1).
+    // WHY THIS SPARES GENUINE G->A (the whole point): genuine 3' G->A deamination CONVERTS G to A, so
+    // it REDUCES raw G at the terminus → g_excess(p) ≤ 0 for an authentic live 3' end. A POSITIVE raw-G
+    // spike therefore cannot be produced by G->A deamination; it is artifact-specific by construction.
+    // The eligible-channel ratio (pi_pos_3prime_ds) is deliberately NOT used here — there G->A and the
+    // overcall both move G and would be conflated. The decay-vs-spike LRT remains the primary live-end
+    // discriminator; this flag only marks WHICH end is artifact-dead so the opposite end is trusted.
+    bool  artifact_overcall_5p    = false;
+    bool  artifact_overcall_3p    = false;
+    float artifact_g_excess_5p    = 0.0f;  // peak raw-G excess over interior at pos0-1 (5')
+    float artifact_g_excess_3p    = 0.0f;  // peak raw-G excess over interior at pos0-1 (3')
 
     // Damaged-fraction d_max: damage estimated only from reads classified as damaged
     // by the per-read LLR scorer (fused into the oxoG pass inside fqdup profile).
