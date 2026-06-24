@@ -49,6 +49,14 @@ constexpr double PI_SHAPE_LRT_THR = 9.21;
 // recalibrate via a gargammel damage titration (plan), and fix the amp↔D_MAX_CONSERVED scale for the pi value.
 constexpr double PI_CH5_AMP_THR = 0.015;
 
+// SS channel-5 strand-asymmetry ceiling. DS deamination is strand-symmetric by mechanism (5' C->T mirrors
+// 3' G->A), so ds uses a PROPORTIONAL residual gate (resid < 0.5*amp). SS deamination is intrinsically
+// 5'-dominant (5' >> 3'), so the proportional gate is unmeetable for genuine ss; an ABSOLUTE residual
+// ceiling is the ss-appropriate form. EMPIRICAL: real ss FLB resid 0.04-0.05 vs ss-blank composition
+// artifact resid 0.27-0.34; 0.15 sits cleanly between (3x real, ~half blank-min). Pairs with amp>THR,
+// which already rejects the blanks (amp <= 0.011 < 0.015 < real ss amp 0.020-0.028).
+constexpr double PI_SS_RESID_MAX = 0.15;
+
 // Terminal ->G overcall artifact threshold (low-abundance cascade degeneracy guard). The raw G-fraction
 // (full base composition) must exceed the interior baseline by at least this much BOTH at the terminus
 // (pos0-1) AND sustained into the inner window (pos2-4) to register a dead-end ->G overcall. The empirical

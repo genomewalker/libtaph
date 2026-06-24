@@ -40,13 +40,17 @@ Channel5 channel5_eval(const SampleDamageProfile& profile) {
         return static_cast<double>(term[id]) / tn - static_cast<double>(intr[id]) / xn;
     };
 
+    // Both ds and ss read the 3' arm as G->A (mid_ref=2=G, mid_dam=0=A, RC-mapped to align with 5' C->T).
+    // EMPIRICAL: real ss FLB libraries show 3' G->A (ds-like, symmetric with 5' C->T), NOT 3' C->T — the
+    // C->T-at-3' signal belongs to the ss-blank composition artifact (ExrNTC: 3' C->T strongly positive
+    // while 3' G->A goes negative). So the strand-symmetry arm authenticates real ss and rejects the blank.
+    const bool is_ss = profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED;
     double amp = 0.0, amp2 = 0.0, resid = 0.0;
     int used = 0;
     for (int i = 0; i < 16; ++i) {
         const int p = i / 4, n = i % 4;
         const double ex5 = ctx_ex(profile.tri_5prime_terminal, profile.tri_5prime_interior, 1, 3, p, n);
-        const double ex3 = ctx_ex(profile.tri_3prime_terminal, profile.tri_3prime_interior,
-                                  2, 0, RC4[n], RC4[p]);
+        const double ex3 = ctx_ex(profile.tri_3prime_terminal, profile.tri_3prime_interior, 2, 0, RC4[n], RC4[p]);
         const double a_i = 0.5 * (ex5 + ex3);
         amp   += a_i;
         amp2  += a_i * a_i;
@@ -59,7 +63,12 @@ Channel5 channel5_eval(const SampleDamageProfile& profile) {
     // between-context SE of the mean amplitude (rough, but a real uncertainty band for the pi interval)
     const double var = std::max(0.0, amp2 / used - amp * amp);
     const double amp_se = std::sqrt(var / used);
-    return { amp > PI_CH5_AMP_THR && resid < 0.5 * amp, amp, resid, amp_se };
+    // DS: proportional symmetry gate (strand-symmetric mechanism). SS: absolute residual ceiling, since
+    // genuine ss is 5'-dominant and cannot meet resid<0.5*amp; the amp>THR floor rejects the ss blanks.
+    const bool authentic = is_ss
+        ? (amp > PI_CH5_AMP_THR && resid < PI_SS_RESID_MAX)
+        : (amp > PI_CH5_AMP_THR && resid < 0.5 * amp);
+    return { authentic, amp, resid, amp_se };
 }
 
 bool channel5_authentic(const SampleDamageProfile& profile) { return channel5_eval(profile).authentic; }
