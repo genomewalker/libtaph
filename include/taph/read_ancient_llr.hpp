@@ -5,7 +5,7 @@
 
 #include "taph/damage_estimate.hpp"
 
-// Per-read ancient/modern scoring primitive (SOLUTION_pi_delta_dmax.md §6.2). The library owns the
+// Per-read damaged/non-damaged scoring primitive (SOLUTION_pi_delta_dmax.md §6.2). The library owns the
 // likelihood; the consumer owns the prior (π) and the split threshold. Additive shadow-mode step 1.
 
 namespace taph {
@@ -31,12 +31,26 @@ struct ReadDamageObs {
     std::uint32_t           n_three = 0;
 };
 
-// Prior-free per-read log-likelihood-ratio: log P(obs | ancient) − log P(obs | modern), evaluated under
-// the VALIDATED δ/c model — amplitude A = D_MAX_CONSERVED imported (not estimated), λ/baseline from the
-// fitted decay; NOT the non-identifiable mixture (§6.5(1)). The consumer forms
-//   posterior = sigmoid(*llr + logit(profile.pi.point))
-// and thresholds. Returns std::nullopt when profile.pi.state != DETECTED — it refuses rather than emit a
-// number that lies at H0 (§6.4).
+// PRIOR-FREE per-read both-end, position-resolved log-likelihood-ratio: log P(obs | damaged) − log P(obs |
+// non-damaged) under the VALIDATED δ/c model — amplitude A = D_MAX_CONSERVED imported (not estimated),
+// λ/baseline from the fitted per-position decay; NOT the non-identifiable mixture (§6.5(1)). This is the
+// RANKING primitive: it returns a finite score for EVERY read (no refuse, no prior) so a consumer can sort
+// reads by ancient evidence even before the sample-level π gate fires. For single-stranded libraries the two
+// ends share one lesion chemistry (5′ C→T and 3′ C→T are the same deamination event read off opposite
+// termini of one molecule), so the ends are NOT independent; a dependence-deflation factor SS_DEP_RHO down-
+// weights the second end's contribution to avoid double-counting one molecule's overhang (documented
+// approximation — a full joint two-end model is the moment-cube path, not this ranking kernel). DS ends ARE
+// independent (separate strands), so no deflation. Returns 0.0 when there are no informative sites.
+double damage_evidence_llr(const ReadDamageObs& obs, const SampleDamageProfile& profile);
+
+// PRIOR-AWARE per-read posterior: sigmoid(damage_evidence_llr(obs,profile) + logit(profile.pi.point)).
+// Returns std::nullopt UNLESS profile.pi.state == DETECTED — it refuses rather than fold in a π that lies
+// at H0 (§6.4). The consumer thresholds the returned posterior in (0,1).
+std::optional<double> read_ancient_posterior(const ReadDamageObs& obs, const SampleDamageProfile& profile);
+
+// Backward-compat alias (legacy callers): identical contract to the original prior-free LLR — returns the
+// raw log-LR when profile.pi.state == DETECTED and the per-position λ was fitted, else std::nullopt.
+// New code should call damage_evidence_llr (ranking) or read_ancient_posterior (gated decision) directly.
 std::optional<double> read_ancient_llr(const ReadDamageObs& obs, const SampleDamageProfile& profile);
 
 // Reference-free length-decay constant τ of the per-bin amplitude δ(L)≈A·exp(−L/τ). Profiles χ²(τ) over a
@@ -44,6 +58,12 @@ std::optional<double> read_ancient_llr(const ReadDamageObs& obs, const SampleDam
 // τ̂ + its 95% χ²-profile interval + the 3-state verdict. Replaces the wrong-axis per-position Briggs λ on
 // the ref-free path; finalize_tau runs before finalize_pi and gates it via state==DETECTED.
 DamageEstimate finalize_tau(const SampleDamageProfile& profile, const TauConfig& cfg = TauConfig{});
+
+// Per-position terminal-decay Briggs fit of the 5′ C→T channel from pi_pos_5prime: closed-form
+// (Zhao-2025-style) WLS linearisation of r(p)=baseline+(1−baseline)·A·exp(−λ·p) with binomial
+// weights, plus a shape LRT (decay vs flat-null, df=2). Runs alongside finalize_tau (separate
+// because it needs no length-bin profiling). finalize_pi gates the pi range on PiShapeFit::detected.
+PiShapeFit fit_pi_shape(const SampleDamageProfile& profile, const TauConfig& cfg = TauConfig{});
 
 // Reference-free scission rate γ (bp⁻¹): left-truncated exponential MLE over the right tail of the
 // fine fragment-length histogram (peak bin onwards). γ tracks molecular degradation; larger γ → shorter

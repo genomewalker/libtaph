@@ -92,7 +92,103 @@ FloorFit wls2(const std::vector<LiveBin>& live, double tau) {
     return {f0, A};
 }
 
+// Binomial log-likelihood Σ [k·log r + (n−k)·log(1−r)] for a per-position rate model r(p).
+double binom_loglik(const std::array<std::array<double,2>, SampleDamageProfile::P_PI>& pos,
+                    const double* r) {
+    double ll = 0.0;
+    for (int p = 0; p < SampleDamageProfile::P_PI; ++p) {
+        const double n = pos[p][0], k = pos[p][1];
+        if (n <= 0.0) continue;
+        const double rp = std::clamp(r[p], 1e-9, 1.0 - 1e-9);
+        ll += k * std::log(rp) + (n - k) * std::log(1.0 - rp);
+    }
+    return ll;
+}
+
 }  // namespace
+
+// Closed-form Briggs/Zhao-2025 per-position terminal-decay fit of the pooled 5′ C→T channel.
+// Pools pi_pos_5prime over all (L,C) bins to per-position {n_elig, n_deam}; estimates the background
+// baseline b from the deepest position (asymptote), linearises log((r_p−b)/(1−b)) = log A − λ·p and
+// solves {log A, λ} by binomial-weighted least squares; A_se via delta-method on the WLS intercept.
+// Shape LRT = 2·(loglik_decay − loglik_flat) over the binomial model (df = 2).
+PiShapeFit fit_pi_shape(const SampleDamageProfile& profile, const TauConfig& cfg) {
+    PiShapeFit out;
+    constexpr int P = SampleDamageProfile::P_PI;
+
+    std::array<std::array<double,2>, P> pos = {};  // [p] = {n_elig, n_deam}
+    for (int L = 0; L < SampleDamageProfile::N_PI_LEN; ++L)
+        for (int C = 0; C < SampleDamageProfile::N_PI_C; ++C) {
+            if (C == 0) continue;  // C_bin 0 = no 5' damage event (uninformative)
+            const auto& arr = profile.pi_pos_5prime[L][C];
+            for (int p = 0; p < P; ++p) {
+                pos[p][0] += static_cast<double>(arr[p].n_elig);
+                pos[p][1] += static_cast<double>(arr[p].n_deam);
+            }
+        }
+
+    int n_live = 0;
+    for (int p = 0; p < P; ++p) if (pos[p][0] >= 50.0) ++n_live;
+    if (n_live < 3) return out;  // too few positions to identify a 2-param decay shape
+
+    // Baseline b from the deepest live position with adequate depth (terminal-window asymptote).
+    double b = 0.0;
+    for (int p = P - 1; p >= 0; --p)
+        if (pos[p][0] >= 50.0) { b = pos[p][1] / pos[p][0]; break; }
+    b = std::clamp(b, 0.0, 0.5);
+
+    // Linearise: y_p = log((r_p − b)/(1 − b)) = log A − λ·p. Binomial weight w_p = n_p·r_p·(1−r_p).
+    double sw = 0.0, swx = 0.0, swxx = 0.0, swy = 0.0, swxy = 0.0;
+    for (int p = 0; p < P; ++p) {
+        const double n = pos[p][0];
+        if (n < 50.0) continue;
+        const double r = pos[p][1] / n;
+        const double num = r - b;
+        if (num <= 1e-6 || b >= 1.0) continue;  // at/below baseline: no decay signal at this position
+        const double y = std::log(num / (1.0 - b));
+        const double w = n * std::clamp(r, 1e-6, 1.0 - 1e-6) * (1.0 - std::clamp(r, 1e-6, 1.0 - 1e-6));
+        const double x = static_cast<double>(p);
+        sw += w; swx += w * x; swxx += w * x * x; swy += w * y; swxy += w * x * y;
+    }
+    const double det = sw * swxx - swx * swx;
+    if (!(det > 0.0) || sw <= 0.0) return out;
+
+    const double logA  = (swxx * swy - swx * swxy) / det;   // intercept
+    const double slope = (sw * swxy - swx * swy) / det;     // = −λ
+    double A      = std::exp(logA);
+    double lambda = -slope;
+    if (!std::isfinite(A) || !std::isfinite(lambda)) return out;
+    A      = std::clamp(A, 0.0, 1.0);
+    lambda = std::max(0.0, lambda);  // negative λ = rising tail = not a decay; clamp to flat
+
+    // SE of A via the WLS intercept variance Var(logA)=swxx/det, then delta-method A_se=A·SE(logA).
+    const double var_logA = swxx / det;
+    const double A_se     = (var_logA >= 0.0) ? A * std::sqrt(var_logA) : -1.0;
+
+    // Shape LRT: binomial loglik of the decay model vs a flat constant-rate null.
+    double r_decay[P], r_flat[P];
+    double tot_n = 0.0, tot_k = 0.0;
+    for (int p = 0; p < P; ++p) {
+        r_decay[p] = b + (1.0 - b) * A * std::exp(-lambda * static_cast<double>(p));
+        if (pos[p][0] >= 50.0) { tot_n += pos[p][0]; tot_k += pos[p][1]; }
+    }
+    const double r_bar = tot_n > 0.0 ? tot_k / tot_n : 0.0;
+    for (int p = 0; p < P; ++p) r_flat[p] = r_bar;
+
+    const double ll_decay = binom_loglik(pos, r_decay);
+    const double ll_flat  = binom_loglik(pos, r_flat);
+    const double lrt = 2.0 * (ll_decay - ll_flat);
+
+    out.A        = A;
+    out.A_se     = A_se;
+    out.lambda   = lambda;
+    out.baseline = b;
+    out.lrt      = lrt;
+    out.fitted   = true;
+    // Require a genuine decay (λ>0, A above the amplitude floor) AND a significant shape LRT.
+    out.detected = lrt >= PI_SHAPE_LRT_THR && lambda > 0.0 && A >= cfg.a_min;
+    return out;
+}
 
 DamageEstimate finalize_tau(const SampleDamageProfile& profile, const TauConfig& cfg) {
     DamageEstimate out;

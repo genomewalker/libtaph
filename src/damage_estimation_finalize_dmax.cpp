@@ -21,15 +21,34 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
         } else {
             raw_d_max_5prime = std::clamp(profile.damage_rate_5prime[0], 0.0f, 1.0f);
         }
+        // SS damage is C→T at BOTH ends, so the 3' channel is T/(T+C), not A/(A+G).
+        // damage_rate_3prime[] is built from the G→A channel (finalize_context) which is
+        // the DS 3' signal; for SS recompute the 3' rate from raw t_freq/tc_total_3prime
+        // counts (still raw here) against the interior T/(T+C) baseline, mirroring the
+        // GA normalization (rate = max(0,(p-b)/(1-b))) and the SS damage_status block below.
+        const bool is_ss_3p =
+            (profile.forced_library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED) ||
+            (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED);
+        auto ss_ct3_rate = [&](int p) -> float {
+            double n = profile.tc_total_3prime[p];
+            if (n <= 0.0) return 0.0f;
+            double t_frac = profile.t_freq_3prime[p] / n;
+            double denom  = 1.0 - ctx.baseline_tc;
+            if (denom <= 0.0) return 0.0f;
+            return std::clamp(static_cast<float>((t_frac - ctx.baseline_tc) / denom), 0.0f, 1.0f);
+        };
         if (profile.position_0_artifact_3prime || profile.inverted_pattern_3prime
             || profile.briggs_pos0_masked_3prime) {
             float peak = 0.0f;
             for (int p = 1; p <= 5 && p < 15; ++p) {
-                if (profile.damage_rate_3prime[p] > peak) peak = profile.damage_rate_3prime[p];
+                float r = is_ss_3p ? ss_ct3_rate(p) : profile.damage_rate_3prime[p];
+                if (r > peak) peak = r;
             }
             raw_d_max_3prime = peak;
         } else {
-            raw_d_max_3prime = std::clamp(profile.damage_rate_3prime[0], 0.0f, 1.0f);
+            raw_d_max_3prime = is_ss_3p
+                ? ss_ct3_rate(0)
+                : std::clamp(profile.damage_rate_3prime[0], 0.0f, 1.0f);
         }
 
 
@@ -197,7 +216,7 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
                         profile.pi_damaged = static_cast<float>(damaged_obs) / static_cast<float>(total_obs);
                     }
                     if (damaged_weight > 0) {
-                        profile.d_ancient = damaged_weighted_d / static_cast<float>(damaged_weight);
+                        profile.d_damaged = damaged_weighted_d / static_cast<float>(damaged_weight);
                     }
 
                     float pop_weighted_d = 0.0f;
@@ -262,9 +281,9 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
                 auto mixture_result = MixtureDamageModel::fit(super_reads);
                 profile.mixture_n_components = mixture_result.n_components;
                 profile.mixture_d_population = mixture_result.d_population;
-                profile.mixture_d_ancient = mixture_result.d_ancient;
+                profile.mixture_d_damaged = mixture_result.d_damaged;
                 profile.mixture_d_population_highgc = mixture_result.d_population_highgc;
-                profile.mixture_pi_ancient = mixture_result.pi_ancient;
+                profile.mixture_pi_damaged = mixture_result.pi_damaged;
                 profile.mixture_bic = mixture_result.bic;
                 profile.mixture_converged = mixture_result.converged;
                 profile.mixture_identifiable = mixture_result.identifiable;
@@ -594,17 +613,17 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
     profile.terminal_ct_mixture_amp_valid_as_point =
         (profile.d_max_source != SampleDamageProfile::DmaxSource::MAX_SS_ASYMMETRY) &&
         (profile.d_max_source != SampleDamageProfile::DmaxSource::MIN_ASYMMETRY);
-    // Correction 2 (audit-corrected): the only per-ancient amplitude object is a LOWER BOUND.
+    // Correction 2 (audit-corrected): the only per-damaged-read amplitude object is a LOWER BOUND.
     // A_b_true = amp / π_dmg, π_dmg ∈ (0,1] ⇒ A_b_true ∈ [amp, ∞); the upper bound is unidentified
-    // reference-free (a finite ceiling would assert a hidden π_dmg ≥ threshold prior). Never form amp/w_ancient.
-    profile.per_ancient_A_b_lower = profile.terminal_ct_mixture_amp;
-    // EM ancient-component weight gate (documents the attenuation; not divided into the amplitude).
+    // reference-free (a finite ceiling would assert a hidden π_dmg ≥ threshold prior). Never form amp/w_damaged.
+    profile.per_damaged_A_b_lower = profile.terminal_ct_mixture_amp;
+    // EM damaged-component weight gate (documents the attenuation; not divided into the amplitude).
     if (profile.mixture_converged && profile.mixture_identifiable)
-        profile.w_ancient_gate = SampleDamageProfile::WAncientGate::IDENTIFIED;
+        profile.w_damaged_gate = SampleDamageProfile::WDamagedGate::IDENTIFIED;
     else if (profile.mixture_converged)
-        profile.w_ancient_gate = SampleDamageProfile::WAncientGate::UNDETERMINED;
+        profile.w_damaged_gate = SampleDamageProfile::WDamagedGate::UNDETERMINED;
     else
-        profile.w_ancient_gate = SampleDamageProfile::WAncientGate::UNAVAILABLE;
+        profile.w_damaged_gate = SampleDamageProfile::WDamagedGate::UNAVAILABLE;
 }
 
 } // namespace taph

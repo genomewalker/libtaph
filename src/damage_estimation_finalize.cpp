@@ -24,11 +24,18 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     FinalCtx ctx;
     finalize_init(profile, ctx);
     finalize_decay(profile, ctx);
-    finalize_oxidation(profile, ctx);
+    // finalize_oxidation must run AFTER finalize_libtype: its s_gt threshold
+    // (is_ss_lib) and oxidation_like 3'-deam channel (use_3prime_deam) read
+    // profile.library_type, which defaults to DOUBLE_STRANDED until finalize_libtype
+    // resolves it. Running oxidation first gave auto-detected SS samples DS logic.
+    // finalize_libtype itself depends only on finalize_init + finalize_decay +
+    // finalize_context (damage_rate_5/3prime), none of which oxidation produces.
     finalize_context(profile, ctx);
     finalize_libtype(profile, ctx);
+    finalize_oxidation(profile, ctx);
     finalize_bulk(profile);
     profile.tau                   = finalize_tau(profile);
+    profile.pi_shape              = fit_pi_shape(profile);
     profile.scission              = finalize_scission(profile);
     profile.epsilon               = finalize_epsilon(profile);
     profile.gc_depletion          = finalize_gc_depletion(profile);
@@ -63,8 +70,37 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
         profile.burial = bf;
     }
 
+    // Bilateral CpG Δ: same logic as profile_json.cpp deam_context_spectrum.
+    // Uses tri arrays (not tetra) to include the d=1 position's CpG signal.
+    {
+        static constexpr int RC4[4] = {3,2,1,0};
+        auto ctx_ex = [&](const std::array<uint64_t,64>& term,
+                          const std::array<uint64_t,64>& intr,
+                          int mid_ref, int mid_dam, int p, int n) -> double {
+            int ir = p*16 + mid_ref*4 + n;
+            int id = p*16 + mid_dam*4 + n;
+            uint64_t tn = term[ir] + term[id];
+            uint64_t xn = intr[ir] + intr[id];
+            if (!tn || !xn) return 0.0;
+            return (double)term[id]/tn - (double)intr[id]/xn;
+        };
+        double ex5[16], ex3g_rc[16];
+        for (int i = 0; i < 16; ++i) {
+            int p = i/4, n = i%4;
+            ex5[i]     = ctx_ex(profile.tri_5prime_terminal, profile.tri_5prime_interior, 1,3, p,n);
+            ex3g_rc[i] = ctx_ex(profile.tri_3prime_terminal, profile.tri_3prime_interior, 2,0, RC4[n],RC4[p]);
+        }
+        auto cpgd_of = [](const double* ex) {
+            double cpg = 0.0, non = 0.0;
+            for (int i = 0; i < 16; ++i) {
+                if (i % 4 == 2) cpg += ex[i]; else non += ex[i];
+            }
+            return cpg / 4.0 - non / 12.0;
+        };
+        profile.cpg_delta_bilateral = (float)std::min(cpgd_of(ex5), cpgd_of(ex3g_rc));
+    }
+    finalize_dmax(profile, ctx);   // must precede finalize_pi: pi reads the calibrated per-end d_max
     finalize_pi(profile);
-    finalize_dmax(profile, ctx);
     finalize_preservation(profile);
 }
 

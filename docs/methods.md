@@ -354,7 +354,7 @@ Every stage of the pipeline makes explicit decisions about what to do when evide
 
 **Shrinkage baselines.** In the GC-stratified fits, per-bin baselines are shrunk toward the global baseline before any likelihood is evaluated. Low-count bins therefore pull toward the overall sample rather than producing a noise-driven `d_max`, while high-count bins dominate their own posterior. The GC categorical component of `MixtureDamageModel` applies Dirichlet smoothing with `alpha = 1` (`p_gc[k][b] = w[b][k] * c_sites + 1`), which prevents a single unrepresented GC bin from zeroing out a class's likelihood.
 
-**Per-cell invalidity markers.** `fit_length_gc_joint_mixture` marks cells with insufficient C-sites (`c_sites < 1`) or that were never valid after `finalize_all` with `cell_w_ancient[b][g] = -1.0`. Downstream code distinguishes "low ancient fraction" (value near 0) from "no evidence" (value -1), so consumers do not silently treat missing cells as uncontaminated.
+**Per-cell invalidity markers.** `fit_length_gc_joint_mixture` marks cells with insufficient C-sites (`c_sites < 1`) or that were never valid after `finalize_all` with `cell_w_ancient[b][g] = -1.0`. Downstream code distinguishes "low damaged fraction" (value near 0) from "no evidence" (value -1), so consumers do not silently treat missing cells as uncontaminated.
 
 **Uninformative priors as floors.** Several late-stage signals fall back to explicit priors rather than aggressive extrapolation. Preservation-layer `preservation_f_cpg` defaults to `0.3` (uninformative) when the CpG signal is absent or inverted, which prevents a dropped signal from being interpreted as evidence of no CpG methylation. The sample-level `preservation_f_cpg` fallback fires for `total < 1000`, returning `0.40`. Joint damage model priors follow the same philosophy: when the posterior collapses to the no-damage model, `p_damage = BF / (1 + BF)` under a `0.5` prior, so the classifier reports "not detected" rather than "no damage" when the data are uninformative.
 
@@ -389,12 +389,12 @@ Bin edges can be supplied explicitly or derived from the empirical length distri
 
 On top of a finalized `LengthBinStats`, `fit_length_gc_joint_mixture` runs a shared-component 2-Gaussian mixture over the flat length × GC cell grid. The damaged component has a single `d_ancient` shared across all cells; the undamaged component is fixed at `μ=0`. Each cell contributes its `d_max` and `c_sites`. The fit returns:
 
-- `d_ancient`, `pi_ancient`: shared mean and mixing weight of the ancient component.
+- `d_ancient`, `pi_ancient`: shared mean and mixing weight of the damaged component.
 - `d_population`: `c_sites`-weighted mean `d_max` across all cells.
 - `cell_w_ancient[b][g]`: posterior `P(damaged | cell)` for each (length bin, GC bin). Cells with insufficient C-sites are marked `-1.0`.
 - `converged`, `separated`: numerical state of the EM fit.
 
-The design reuses `DamageMixtureModel`'s fixed priors (undamaged width `τ₀ = 0.01`, damaged width `τ₁ = 0.10`, minimum per-cell sigma `0.02`) so length × GC cells live in the same calibration as the GC-only fit. Per-cell posteriors give downstream code a per-length-bin ancient fraction rather than a single global number, which matters when the short end of the distribution is almost entirely ancient and the long end is dominated by a modern contaminant.
+The design reuses `DamageMixtureModel`'s fixed priors (undamaged width `τ₀ = 0.01`, damaged width `τ₁ = 0.10`, minimum per-cell sigma `0.02`) so length × GC cells live in the same calibration as the GC-only fit. Per-cell posteriors give downstream code a per-length-bin damaged fraction rather than a single global number, which matters when the short end of the distribution is almost entirely damaged and the long end is dominated by a non-damaged contaminant.
 
 ---
 

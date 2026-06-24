@@ -18,7 +18,25 @@ constexpr double W_LENGTH_GATE = 0.6;
 // 3-state confidence (SOLUTION §6.3/§6.4). NOT_DETECTED is RESERVED: the reference-free bulk estimator
 // cannot assert "modern" — mapping recovers dilute ancient that delta=0 misses (§5) — so it emits only
 // DETECTED or UNDETERMINED. NOT_DETECTED is for a future reference-anchored path.
-enum class DamageConfidence { DETECTED, NOT_DETECTED, UNDETERMINED };
+enum class DamageConfidence { DETECTED, TRACE, NOT_DETECTED, UNDETERMINED, ANCIENT_CPG };
+
+// Bilateral CpG Δ threshold: min(cpgΔ_5′, cpgΔ_3′GA) ≥ this → ANCIENT_CPG when δ-decay model
+// returns zero (sharp-spike or dilute-signal profiles that evade the exponential fit).
+constexpr double CPG_BILATERAL_ANCIENT_THR = 0.03;
+
+// Shape-LRT threshold for the per-position terminal-decay fit (PiShapeFit): 2·Δloglik ≥ this ⇒ the
+// exponential decay shape is distinguishable from a flat constant-rate null. χ²(df=2) 0.99 quantile
+// = 9.21 (conservative: pi is only emitted when the terminal channel unambiguously decays).
+constexpr double PI_SHAPE_LRT_THR = 9.21;
+
+// Channel-5 strand-symmetry gate (deam_context_spectrum: ct_5prime_excess vs ga_3prime_rc_excess).
+// AUTHENTIC ⇔ amplitude (mean signed excess) > this AND mirror residual < 0.5·amplitude. Genuine
+// ancient deamination is strand-symmetric (5′C→T mirrors 3′G→A under RC); pervasive artifacts are not.
+// ceiling: 0.015 is a placeholder calibrated on n=2 real libraries (FLB03mAds3 authentic amp~+0.027 vs
+// FLB57md artifact amp~-0.017 — the sign cleanly separates; the channel-5 per-context-averaged amp is
+// ~5x smaller-scale than a summed-position excess, so the original 0.03 clipped genuine damage). upgrade:
+// recalibrate via a gargammel damage titration (plan), and fix the amp↔D_MAX_CONSERVED scale for the pi value.
+constexpr double PI_CH5_AMP_THR = 0.015;
 
 // Gated ancient-fraction estimate: point + 95% interval + state. point/lo/hi == -1 ⇒ not set.
 // For profile.tau, point/lo/hi carry τ̂ and its 95% χ²-profile CI; the floor-model decomposition
@@ -37,6 +55,23 @@ struct DamageEstimate {
     double overhang_fraction = -1.0;  // A/(A+f0); 1.0 = pure overhang, 0.0 = pure pervasive
     double overhang_lo       = -1.0;  // 95% CI lower (delta method; −1 when projected to boundary)
     double overhang_hi       = -1.0;  // 95% CI upper
+};
+
+// Per-position terminal-decay Briggs fit of the 5′ C→T channel from the pi_pos_5prime counts:
+// r(p) = baseline + (1−baseline)·A·exp(−λ·p), p = 0..P_PI−1. Fit by Briggs/Zhao-2025 closed-form
+// linearisation (WLS on logit-detrended per-position rates with binomial weights); NOT an EM. The
+// shape LRT (binomial deviance of the decay model vs a flat constant-rate null, df = 2) gives the
+// DETECTED/ABSTAIN verdict that finalize_pi requires before it may emit a pi range. A is the BULK
+// terminal amplitude (averaged over modern+ancient reads); pi = A / D_MAX_CONSERVED is formed in
+// finalize_pi. All −1 / false when too few eligible sites or the fit did not converge.
+struct PiShapeFit {
+    double A         = -1.0;  // bulk terminal C→T amplitude at p=0 above baseline (∈[0,1])
+    double A_se      = -1.0;  // SE of A (binomial delta-method through the WLS)
+    double lambda    = -1.0;  // per-position decay constant (bp⁻¹ along terminal window)
+    double baseline  = -1.0;  // background mismatch rate b (interior/asymptotic)
+    double lrt       = -1.0;  // 2·(loglik_decay − loglik_flat); χ²(df=2)
+    bool   detected  = false; // lrt ≥ shape LRT threshold (decay shape distinguishable from flat)
+    bool   fitted    = false; // closed-form fit produced a finite {A,λ,baseline}
 };
 
 // Reference-free length-decay constant τ (bp): the e-folding length of the overhang component of

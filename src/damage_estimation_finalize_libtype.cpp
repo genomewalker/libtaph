@@ -764,13 +764,24 @@ void finalize_libtype(SampleDamageProfile& profile, const FinalCtx& ctx) {
                         profile.library_bic_second_model = cands[sec_i].name;
                         profile.library_bic_margin = cands[sec_i].bic - cands[win_i].bic;
                         // MED: raw margin scales with read depth (ΔBIC ≈ n·2·ΔLLR/read)
-                        // and is not comparable across libraries. Emit a coverage-
-                        // normalised companion (bg_denominator_5prime is the winning
-                        // model's 5' trial count, set earlier in finalize).
-                        profile.library_bic_margin_per_read =
-                            (profile.bg_denominator_5prime > 0.0)
-                                ? profile.library_bic_margin / profile.bg_denominator_5prime
-                                : 0.0;
+                        // and is not comparable across libraries. Emit a per-observation
+                        // companion normalised by the background base-trial count (the
+                        // tail T+C / A+G denominator set earlier in finalize). Use the
+                        // larger of the 5'/3' denominators so the field stays non-null
+                        // whenever either end carried background coverage.
+                        const double bg_denom = std::max(profile.bg_denominator_5prime,
+                                                         profile.bg_denominator_3prime);
+                        profile.library_bic_margin_per_obs =
+                            (bg_denom > 0.0)
+                                ? profile.library_bic_margin / bg_denom
+                                : std::numeric_limits<double>::quiet_NaN();
+                        // MED: saturation flag — re-tied to the softmax log-weight clamp.
+                        // The per-class softmax floors half=(bmin-bic)*0.5 at -80, so the
+                        // loser weight underflows (p_winner pinned ~1.0) once the raw
+                        // margin (bic_loser - bic_winner) exceeds 2*80 = 160. That is the
+                        // numerically-dominated regime, distinct from a genuinely small margin.
+                        profile.library_bic_saturated =
+                            profile.library_bic_margin > 160.0;
                     }
                 }
                 // Class-min softmax: best-BIC representative per class only.

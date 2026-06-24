@@ -178,8 +178,8 @@ mixture on the log-length histogram and selects the number of components by
 BIC, with `detect_quantile_length_edges` as a deterministic fallback. On the
 finalized `LengthBinStats`, `fit_length_gc_joint_mixture` runs a shared
 2-Gaussian mixture over the length × GC cell grid and returns a single
-`d_ancient` plus per-cell posterior ancient weights, giving a per-length-bin
-ancient fraction inside each GC column rather than a single global number.
+`d_ancient` plus per-cell posterior damaged weights, giving a per-length-bin
+damaged fraction inside each GC column rather than a single global number.
 
 ## What it classifies
 
@@ -270,9 +270,9 @@ auto-detection or supply parameters manually.
 
 `fqdup profile` also runs a per-read LLR scorer fused into the oxoG pass
 and writes an `ancient_fraction` block to the JSON. This estimates the
-fraction of reads that are ancient (`pi`), and fits independent exponential
-decay profiles (`d_max_5prime_fit`, `lambda_5prime`, ...) for the ancient and
-modern read pools separately — giving unmixed damage estimates that are
+fraction of reads that are damaged (`pi`), and fits independent exponential
+decay profiles (`d_max_5prime_fit`, `lambda_5prime`, ...) for the damaged and
+non-damaged read pools separately — giving unmixed damage estimates that are
 comparable to reference-based tools (mapDamage, metaDMG) without requiring
 alignment.
 

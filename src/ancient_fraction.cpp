@@ -58,16 +58,16 @@ AncientFractionResult compute_ancient_fraction(
         }
     }
 
-    // Pos-0 peak estimate for modern
+    // Pos-0 peak estimate for non-damaged
     if (mod_tc5[0] >= 50) {
-        dp.modern_fraction_d5 = static_cast<float>(
+        dp.nondamaged_fraction_d5 = static_cast<float>(
             std::max(0.0, static_cast<double>(mod_t5[0]) / mod_tc5[0] - bg5));
-        dp.modern_fraction_d5_computed = true;
+        dp.nondamaged_fraction_d5_computed = true;
     }
     if (mod_n3[0] >= 50) {
-        dp.modern_fraction_d3 = static_cast<float>(
+        dp.nondamaged_fraction_d3 = static_cast<float>(
             std::max(0.0, static_cast<double>(mod_h3[0]) / mod_n3[0] - bg3));
-        dp.modern_fraction_d3_computed = true;
+        dp.nondamaged_fraction_d3_computed = true;
     }
 
     auto mod_bg5 = pool_interior_bg(mod_t5, mod_tc5, NP, bg5);
@@ -99,10 +99,10 @@ AncientFractionResult compute_ancient_fraction(
     dp.damaged_fraction_lambda5 = static_cast<float>(al5);
     dp.damaged_fraction_d3_fit  = static_cast<float>(ad3);
     dp.damaged_fraction_lambda3 = static_cast<float>(al3);
-    dp.modern_fraction_d5_fit   = static_cast<float>(md5);
-    dp.modern_fraction_lambda5  = static_cast<float>(ml5);
-    dp.modern_fraction_d3_fit   = static_cast<float>(md3);
-    dp.modern_fraction_lambda3  = static_cast<float>(ml3);
+    dp.nondamaged_fraction_d5_fit   = static_cast<float>(md5);
+    dp.nondamaged_fraction_lambda5  = static_cast<float>(ml5);
+    dp.nondamaged_fraction_d3_fit   = static_cast<float>(md3);
+    dp.nondamaged_fraction_lambda3  = static_cast<float>(ml3);
 
     // π from mixture identity (breaks the circular soft prior)
     {
@@ -128,14 +128,14 @@ AncientFractionResult compute_ancient_fraction(
     // Leakage detection
     constexpr float LEAKAGE_THRESH = 0.5f;
     constexpr float MIN_ANC_SIGNAL = 0.01f;
-    dp.modern_fraction_leakage_5prime =
+    dp.nondamaged_fraction_leakage_5prime =
         dp.damaged_fraction_d5_fit > MIN_ANC_SIGNAL &&
-        dp.modern_fraction_d5_fit >= LEAKAGE_THRESH * dp.damaged_fraction_d5_fit;
-    dp.modern_fraction_leakage_3prime =
+        dp.nondamaged_fraction_d5_fit >= LEAKAGE_THRESH * dp.damaged_fraction_d5_fit;
+    dp.nondamaged_fraction_leakage_3prime =
         dp.damaged_fraction_d3_fit > MIN_ANC_SIGNAL &&
-        dp.modern_fraction_d3_fit >= LEAKAGE_THRESH * dp.damaged_fraction_d3_fit;
+        dp.nondamaged_fraction_d3_fit >= LEAKAGE_THRESH * dp.damaged_fraction_d3_fit;
 
-    if (dp.modern_fraction_leakage_5prime || dp.modern_fraction_leakage_3prime)
+    if (dp.nondamaged_fraction_leakage_5prime || dp.nondamaged_fraction_leakage_3prime)
         dp.damaged_fraction_valid = false;
 
     // Per-position rates for HTML fraction curves
@@ -147,20 +147,20 @@ AncientFractionResult compute_ancient_fraction(
             dp.damaged_fraction_rate3[p] = static_cast<float>(
                 static_cast<double>(anc_h3[p]) / anc_n3[p]);
         if (mod_tc5[p] >= 10)
-            dp.modern_fraction_rate5[p] = static_cast<float>(
+            dp.nondamaged_fraction_rate5[p] = static_cast<float>(
                 static_cast<double>(mod_t5[p]) / mod_tc5[p]);
         if (mod_n3[p] >= 10)
-            dp.modern_fraction_rate3[p] = static_cast<float>(
+            dp.nondamaged_fraction_rate3[p] = static_cast<float>(
                 static_cast<double>(mod_h3[p]) / mod_n3[p]);
     }
 
     result.valid          = dp.damaged_fraction_valid;
-    result.leakage_5prime = dp.modern_fraction_leakage_5prime;
-    result.leakage_3prime = dp.modern_fraction_leakage_3prime;
+    result.leakage_5prime = dp.nondamaged_fraction_leakage_5prime;
+    result.leakage_3prime = dp.nondamaged_fraction_leakage_3prime;
     result.d_anc5 = dp.damaged_fraction_d5_fit;
     result.d_anc3 = dp.damaged_fraction_d3_fit;
-    result.d_mod5 = dp.modern_fraction_d5_fit;
-    result.d_mod3 = dp.modern_fraction_d3_fit;
+    result.d_mod5 = dp.nondamaged_fraction_d5_fit;
+    result.d_mod3 = dp.nondamaged_fraction_d3_fit;
     return result;
 }
 

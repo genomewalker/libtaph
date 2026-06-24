@@ -2,7 +2,7 @@
 
 // length_gc_joint_mixture — shared-component 2-Gaussian mixture fit over
 // length × GC cells of a finalized taph::LengthBinStats. Produces one
-// d_ancient (shared across all cells) plus per-cell posterior ancient-weight.
+// d_damaged (shared across all cells) plus per-cell posterior damaged-weight.
 
 #include "taph/joint_damage_model.hpp"
 #include "taph/length_stratified_profile.hpp"
@@ -19,22 +19,22 @@ namespace taph {
 struct LengthGcJointMixtureResult {
     static constexpr int N_GC_BINS = SampleDamageProfile::N_GC_BINS;
 
-    double d_ancient    = 0.0;
-    double pi_ancient   = 0.0;
+    double d_damaged    = 0.0;
+    double pi_damaged   = 0.0;
     double d_population = 0.0;  // c_sites-weighted mean over all cells
     bool   converged    = false;
     bool   separated    = false;
 
-    // Per-cell posterior ancient-weight w_anc(b,g) = P(damaged | cell).
+    // Per-cell posterior damaged-weight w_dmg(b,g) = P(damaged | cell).
     // Empty if the fit did not produce a separated damaged component.
     // rows = length bins (size == stats.n_bins), cols = N_GC_BINS.
     // -1.0 marks cells that were invalid / had insufficient C-sites.
-    std::vector<std::array<double, N_GC_BINS>> cell_w_ancient;
+    std::vector<std::array<double, N_GC_BINS>> cell_w_damaged;
 };
 
-// Fit a 2-component mixture (undamaged μ=0 vs damaged μ=d_ancient) over the
+// Fit a 2-component mixture (undamaged μ=0 vs damaged μ=d_damaged) over the
 // flat length × GC cell grid of `stats`. Each cell contributes its d_max and
-// c_sites. Returns a single shared d_ancient / pi_ancient plus per-cell
+// c_sites. Returns a single shared d_damaged / pi_damaged plus per-cell
 // posterior weights. Call after stats.finalize_all().
 inline LengthGcJointMixtureResult fit_length_gc_joint_mixture(const LengthBinStats& stats) {
     LengthGcJointMixtureResult out;
@@ -67,15 +67,15 @@ inline LengthGcJointMixtureResult fit_length_gc_joint_mixture(const LengthBinSta
     }
 
     auto jr = DamageMixtureModel::fit(cells);
-    out.d_ancient    = jr.d_ancient;
-    out.pi_ancient   = jr.pi_ancient;
+    out.d_damaged    = jr.d_ancient;
+    out.pi_damaged   = jr.pi_ancient;
     out.d_population = jr.d_mean;
     out.converged    = jr.converged;
     out.separated    = jr.separated;
 
     if (!jr.separated) return out;
 
-    // Per-cell posterior ancient-weight from the fitted 2-component Gaussian.
+    // Per-cell posterior damaged-weight from the fitted 2-component Gaussian.
     // Shared fixed parameters track DamageMixtureModel's constants.
     constexpr double MU_0    = 0.0;
     constexpr double TAU_0   = 0.01;
@@ -84,9 +84,9 @@ inline LengthGcJointMixtureResult fit_length_gc_joint_mixture(const LengthBinSta
 
     const double mu_1 = jr.d_ancient;
     const double pi_1 = jr.pi_ancient;
-    out.cell_w_ancient.assign(n_bins, {});
+    out.cell_w_damaged.assign(n_bins, {});
     for (int b = 0; b < n_bins; ++b) {
-        auto& row = out.cell_w_ancient[b];
+        auto& row = out.cell_w_damaged[b];
         for (int g = 0; g < G; ++g) {
             std::size_t idx = static_cast<std::size_t>(b) * G + g;
             const auto& c = cells[idx];

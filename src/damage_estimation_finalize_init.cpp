@@ -23,11 +23,6 @@ void finalize_init(SampleDamageProfile& profile, FinalCtx& ctx) {
     // GG-G count, so the 3' channel mixes the endpoint-context contrast with deamination/preservation.
     // This is an empirical proxy, not direct oxidative lesion identification.
     profile.oxidative_scission_delta = profile.oxidative_scission_delta_5prime;
-    for (int b = 0; b < SampleDamageProfile::N_OX_DEAM_STRATA; ++b) {
-        profile.oxidative_scission_delta_by_deam[b] =
-            compute_oxscission_delta(profile.tri_5prime_terminal_by_deam[b],
-                                     profile.tri_5prime_interior_by_deam[b]);
-    }
 
     // Capture raw counts before normalization for statistical tests
     double base_tc_total = profile.baseline_t_freq + profile.baseline_c_freq;

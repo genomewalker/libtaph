@@ -24,9 +24,9 @@ struct MixtureDamageResult {
 
     // Summary statistics
     float d_population = 0.0f;   // E[δ] = Σ_k π_k · δ_max,k
-    float d_ancient = 0.0f;      // E[δ | δ > τ] (ancient tail, τ=5%)
+    float d_damaged = 0.0f;      // E[δ | δ > τ] (damaged tail, τ=5%)
     float d_population_highgc = 0.0f;  // E[δ | GC >= 50%] — high-GC-weighted mean (diagnostic only, NOT a reference comparator)
-    float pi_ancient = 0.0f;     // P(class with δ > τ)
+    float pi_damaged = 0.0f;     // P(class with δ > τ)
 
     // Model fit
     float log_likelihood = 0.0f;
@@ -61,7 +61,7 @@ struct SuperRead {
 
 class MixtureDamageModel {
 public:
-    static constexpr float ANCIENT_THRESHOLD = 0.05f;  // τ for d_ancient
+    static constexpr float ANCIENT_THRESHOLD = 0.05f;  // τ for d_damaged
     static constexpr int HIGH_GC_MIN = 5;              // first GC bin counted as high GC (>= 50%)
     static constexpr int MAX_ITER = 100;
     static constexpr float CONVERGENCE_TOL = 1e-6f;
@@ -385,23 +385,23 @@ inline MixtureDamageResult MixtureDamageModel::fit_k(
 
     // Compute summary statistics
     result.d_population = 0.0f;
-    result.pi_ancient = 0.0f;
-    float ancient_weighted_sum = 0.0f;
+    result.pi_damaged = 0.0f;
+    float damaged_weighted_sum = 0.0f;
 
     for (int k = 0; k < K; ++k) {
         result.d_population += result.pi[k] * result.delta_max[k];
         if (result.delta_max[k] > ANCIENT_THRESHOLD) {
-            result.pi_ancient += result.pi[k];
-            ancient_weighted_sum += result.pi[k] * result.delta_max[k];
+            result.pi_damaged += result.pi[k];
+            damaged_weighted_sum += result.pi[k] * result.delta_max[k];
         }
     }
 
-    result.d_ancient = result.pi_ancient > 0.01f ? ancient_weighted_sum / result.pi_ancient : 0.0f;
+    result.d_damaged = result.pi_damaged > 0.01f ? damaged_weighted_sum / result.pi_damaged : 0.0f;
 
     // d_population_highgc = E[δ | GC >= 50%] — a high-GC-weighted mean of the
     // per-class δ. It is a population summary, NOT an independent "reference"
-    // damage comparator: it reuses the same δ that produce d_ancient, so the old
-    // d_ancient − d_reference contrast was structurally uninformative. Diagnostic only.
+    // damage comparator: it reuses the same δ that produce d_damaged, so the old
+    // d_damaged − d_reference contrast was structurally uninformative. Diagnostic only.
     float ref_num = 0.0f, ref_den = 0.0f;
     for (int k = 0; k < K; ++k) {
         float p_gc_high = 0.0f;
@@ -415,25 +415,25 @@ inline MixtureDamageResult MixtureDamageModel::fit_k(
 
     // Identifiability gate. The old π∈(0.02,0.98) bound round-defaulted onto the
     // 0.01 δ-grid. Standard errors are not tracked in this EM, so identifiability
-    // is a structural check on resolvable ancient/modern structure: there must be
-    // at least one weight-bearing MODERN class (δ ≤ ANCIENT_THRESHOLD) AND one
-    // weight-bearing ANCIENT class (δ > ANCIENT_THRESHOLD), δ-separated by at least
+    // is a structural check on resolvable damaged/non-damaged structure: there must be
+    // at least one weight-bearing NON-DAMAGED class (δ ≤ ANCIENT_THRESHOLD) AND one
+    // weight-bearing DAMAGED class (δ > ANCIENT_THRESHOLD), δ-separated by at least
     // IDENTIFIABLE_MIN_DELTA_SEPARATION. "Weight-bearing" = π ≥ IDENTIFIABLE_MIN_PI.
-    // This rejects the all-ancient collapse (pi_ancient → 1, d_ancient == d_population):
-    // with no modern reference class there is no separation to identify.
+    // This rejects the all-damaged collapse (pi_damaged → 1, d_damaged == d_population):
+    // with no non-damaged reference class there is no separation to identify.
     result.identifiable = false;
     if (result.converged && K >= 2) {
-        bool has_modern = false, has_ancient = false;
+        bool has_nondamaged = false, has_damaged = false;
         float dmax_hi = -1.0f;
         float dmax_lo = std::numeric_limits<float>::infinity();
         for (int k = 0; k < K; ++k) {
             if (result.pi[k] < IDENTIFIABLE_MIN_PI) continue;
-            if (result.delta_max[k] > ANCIENT_THRESHOLD) has_ancient = true;
-            else                                         has_modern  = true;
+            if (result.delta_max[k] > ANCIENT_THRESHOLD) has_damaged = true;
+            else                                         has_nondamaged  = true;
             if (result.delta_max[k] > dmax_hi) dmax_hi = result.delta_max[k];
             if (result.delta_max[k] < dmax_lo) dmax_lo = result.delta_max[k];
         }
-        result.identifiable = has_modern && has_ancient &&
+        result.identifiable = has_nondamaged && has_damaged &&
                               (dmax_hi - dmax_lo) >= IDENTIFIABLE_MIN_DELTA_SEPARATION;
     }
 

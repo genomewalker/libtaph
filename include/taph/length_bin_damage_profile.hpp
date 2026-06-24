@@ -109,12 +109,12 @@ struct LengthStratifiedDamageProfile {
     int     max_length    = 0;
 
     // Joint length × GC 2-component mixture
-    double  d_joint_ancient    = 0.0;
-    double  pi_joint_ancient   = 0.0;
+    double  d_joint_damaged    = 0.0;
+    double  pi_joint_damaged   = 0.0;
     double  d_joint_population = 0.0;
     bool    joint_converged    = false;
     bool    joint_separated    = false;
-    std::vector<std::array<double, LengthBinDamageProfile::N_GC_BINS>> cell_w_ancient;
+    std::vector<std::array<double, LengthBinDamageProfile::N_GC_BINS>> cell_w_damaged;
 };
 
 } // namespace taph

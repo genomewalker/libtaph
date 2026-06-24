@@ -207,11 +207,11 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"d_max_3prime\": " << (dmax_detected ? std::to_string(dp.d_max_3prime) : "null") << ",\n";
     j << "    \"d_max_combined\": " << d_max_combined_out << ",\n";
     // Math-panel relabel (Corrections 1 & 2): Channel A's d_max = A/(1-b) divides out composition, so it
-    // estimates the PRODUCT π_dmg·A_b, NOT per-ancient A_b (unidentifiable reference-free). The amp below
-    // is byte-identical to d_max_combined; the estimand metadata states what it truly measures. Per-ancient
-    // amplitude is reported ONLY as a LOWER BOUND (amp); the upper bound is unidentified — never amp/w_ancient.
+    // estimates the PRODUCT π_dmg·A_b, NOT per-damaged A_b (unidentifiable reference-free). The amp below
+    // is byte-identical to d_max_combined; the estimand metadata states what it truly measures. Per-damaged
+    // amplitude is reported ONLY as a LOWER BOUND (amp); the upper bound is unidentified — never amp/w_damaged.
     // Track the EMITTED d_max_combined (CircLigase override applied) so the relabel is byte-identical
-    // to the legacy d_max_combined key; the per-ancient lower bound is the same value.
+    // to the legacy d_max_combined key; the per-damaged lower bound is the same value.
     const float amp_out = d_max_combined_out;
     j << "    \"terminal_ct_mixture_amp\": " << amp_out << ",\n";
     j << "    \"terminal_ct_mixture_amp_valid_as_point\": " << (dp.terminal_ct_mixture_amp_valid_as_point ? "true" : "false") << ",\n";
@@ -222,13 +222,13 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"not_comparable_to\": \"mapped_metaDMG_Dmax\",\n";
     j << "      \"assumptions\": [\"stable_terminal_vs_interior_CT_composition\",\"no_interior_deamination\",\"non_selecting_source_mixture\"]\n";
     j << "    },\n";
-    j << "    \"w_ancient\": " << (dp.mixture_converged ? std::to_string(dp.mixture_pi_ancient) : "null") << ",\n";
-    j << "    \"w_ancient_gate_status\": \"" << dp.w_ancient_gate_str() << "\",\n";
-    // Audit-corrected: per-ancient A_b is a LOWER BOUND only. A_b_true = amp / π_dmg with π_dmg ∈ (0,1]
+    j << "    \"w_damaged\": " << (dp.mixture_converged ? std::to_string(dp.mixture_pi_damaged) : "null") << ",\n";
+    j << "    \"w_damaged_gate_status\": \"" << dp.w_damaged_gate_str() << "\",\n";
+    // Audit-corrected: per-damaged A_b is a LOWER BOUND only. A_b_true = amp / π_dmg with π_dmg ∈ (0,1]
     // ⇒ A_b_true ∈ [amp, ∞). A finite upper bound is unidentified reference-free (a ceiling would assert
     // a hidden π_dmg ≥ threshold prior), so the upper bound is emitted as null.
-    j << "    \"per_ancient_A_b_lower\": " << amp_out << ",\n";
-    j << "    \"per_ancient_A_b_note\": \"upper bound unidentified reference-free (= amp/pi_dmg, pi_dmg unknown)\",\n";
+    j << "    \"per_damaged_A_b_lower\": " << amp_out << ",\n";
+    j << "    \"per_damaged_A_b_note\": \"upper bound unidentified reference-free (= amp/pi_dmg, pi_dmg unknown)\",\n";
     j << "    \"d_metamatch\": " << d_metamatch_out << ",\n";
     j << "    \"source\": \"" << source_str_out << "\",\n";
     j << "    \"lambda_5prime\": " << (dp.lambda_5prime_fitted ? std::to_string(dp.lambda_5prime) : "null") << ",\n";
@@ -426,19 +426,19 @@ void profile_to_json(const SampleDamageProfile& dp,
             const bool mix_lb_identified = lb.mixture_identifiable && lb.mixture_converged;
             j << ",\"mixture\":{\"status\":\"" << (mix_lb_identified ? "identified" : "undetermined") << "\"";
             if (mix_lb_identified) {
-                j << ",\"d_ancient\":" << std::setprecision(6) << lb.mixture_d_damaged
+                j << ",\"d_damaged\":" << std::setprecision(6) << lb.mixture_d_damaged
                   << ",\"d_population_highgc\":" << lb.mixture_d_population_highgc
                   << ",\"d_population\":" << lb.mixture_d_population
-                  << ",\"pi_ancient\":" << lb.mixture_pi_damaged;
+                  << ",\"pi_damaged\":" << lb.mixture_pi_damaged;
             } else {
-                j << ",\"d_ancient\":null,\"d_population_highgc\":null,\"d_population\":null,\"pi_ancient\":null";
+                j << ",\"d_damaged\":null,\"d_population_highgc\":null,\"d_population\":null,\"pi_damaged\":null";
             }
             j << ",\"n_components\":" << lb.mixture_n_components
               << ",\"converged\":" << (lb.mixture_converged ? "true" : "false")
               << ",\"identifiable\":" << (lb.mixture_identifiable ? "true" : "false")
               << ",\"applicable\":" << (lb.mixture_identifiable ? "true" : "false")
               << ",\"coverage_fraction\":null"
-              << ",\"conditions\":\"GC-partitioned mixture; valid only when ancient and modern GC distributions separable\""
+              << ",\"conditions\":\"GC-partitioned mixture; valid only when damaged and non-damaged GC distributions separable\""
               << "}";
             j << ",\"gc_d_max\":[";
             for (int g = 0; g < LengthBinDamageProfile::N_GC_BINS; ++g) {
@@ -519,21 +519,21 @@ void profile_to_json(const SampleDamageProfile& dp,
         if (!lsd.bins.empty()) j << "\n    ";
         j << "],\n";
         j << "    \"by_length_joint\": {\n";
-        j << "      \"d_ancient\": "   << std::setprecision(6) << lsd.d_joint_ancient << ",\n";
-        j << "      \"pi_ancient\": "  << lsd.pi_joint_ancient << ",\n";
+        j << "      \"d_damaged\": "   << std::setprecision(6) << lsd.d_joint_damaged << ",\n";
+        j << "      \"pi_damaged\": "  << lsd.pi_joint_damaged << ",\n";
         j << "      \"d_population\": " << lsd.d_joint_population << ",\n";
         j << "      \"converged\": "   << (lsd.joint_converged ? "true" : "false") << ",\n";
         j << "      \"separated\": "   << (lsd.joint_separated ? "true" : "false") << ",\n";
         j << "      \"applicable\": "  << ((lsd.joint_converged && lsd.joint_separated) ? "true" : "false") << ",\n";
         j << "      \"coverage_fraction\": -1.0,\n";
-        j << "      \"conditions\": \"length x damage joint mixture; identifies ancient fraction from fragment-length prior\",\n";
-        j << "      \"cell_w_ancient\": [";
-        for (size_t b = 0; b < lsd.cell_w_ancient.size(); ++b) {
+        j << "      \"conditions\": \"length x damage joint mixture; identifies damaged fraction from fragment-length prior\",\n";
+        j << "      \"cell_w_damaged\": [";
+        for (size_t b = 0; b < lsd.cell_w_damaged.size(); ++b) {
             if (b > 0) j << ",";
             j << "[";
-            const auto& row = lsd.cell_w_ancient[b];
+            const auto& row = lsd.cell_w_damaged[b];
             for (int g = 0; g < LengthBinDamageProfile::N_GC_BINS; ++g) {
-                // C1: -1.0 is the insufficient-coverage sentinel; w_ancient in [0,1] → null.
+                // C1: -1.0 is the insufficient-coverage sentinel; w_damaged in [0,1] → null.
                 if (row[g] < 0.0) j << "null";
                 else j << std::setprecision(6) << row[g];
                 if (g + 1 < LengthBinDamageProfile::N_GC_BINS) j << ",";
@@ -676,8 +676,8 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"has_oxog_score\": " << (in.has_oxog_score ? "true" : "false") << ",\n";
     j << "    \"s_oxog\": ";        emit_oxog(in.s_oxog);    j << ",\n";
     j << "    \"se_s_oxog\": ";     emit_oxog(in.se_s_oxog); j << ",\n";
-    // C→A co-movement: positive when ancient reads carry excess C→A alongside G→T.
-    // Oxidation predicts s_oxog>0 AND s_ca>0 (both co-move with ancient CT-damage weight).
+    // C→A co-movement: positive when damaged reads carry excess C→A alongside G→T.
+    // Oxidation predicts s_oxog>0 AND s_ca>0 (both co-move with damaged-weighted CT signal).
     j << "    \"s_ca\": ";          emit_oxog(in.s_ca);      j << ",\n";
     j << "    \"log_ox_d_oriented\": "; emit_oxog(in.d_oriented); j << ",\n";  // log(T·A/G·C) ilr contrast
     j << "    \"s_oxog_16ctx\": [";
@@ -816,11 +816,11 @@ void profile_to_json(const SampleDamageProfile& dp,
       << "\"\n";
     j << "  },\n";
 
-    // ── Oxidation-like: ancient-vs-modern oxidation, internal deam-stratified split ──
-    // Reads are binned by per-read terminal-deamination excess (deam_bin 0=modern..4=ancient)
-    // within length x GC cells; `excess` = high-deam (ancient) minus low-deam (modern) oxidation
+    // ── Oxidation-like: damaged-vs-non-damaged oxidation, internal deam-stratified split ──
+    // Reads are binned by per-read terminal-deamination excess (deam_bin 0=non-damaged..4=damaged)
+    // within length x GC cells; `excess` = high-deam (damaged) minus low-deam (non-damaged) oxidation
     // strand-asymmetry, calibrated within each cell. This is the composition-controlled
-    // ancient-vs-modern oxidation contrast (excess>0 => 8-oxoG rides the deaminated/ancient reads).
+    // damaged-vs-non-damaged oxidation contrast (excess>0 => 8-oxoG rides the deaminated/damaged reads).
     j << "  \"oxidation_like\": {\n";
     j << "    \"excess\": " << nan_or(dp.oxidation_like_excess) << ",\n";
     j << "    \"se\": " << nan_or(dp.oxidation_like_se) << ",\n";
@@ -863,7 +863,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         // C2: signed-root G-test on aggregate (correlated) pair counts O/E — scales ~sqrt(pairs),
         // not a calibrated p-value. Clamp the emitted z to ±kZCap and floor p at DBL_MIN so it
         // never underflows to a literal 0.0 (which happened for every >50M-read library, damaged
-        // or modern alike). short_log2oe (emitted above) is the primary interpretable effect size.
+        // or non-damaged alike). short_log2oe (emitted above) is the primary interpretable effect size.
         double O = dp.interior_ct_cluster_short_obs;
         double E = dp.interior_ct_cluster_short_exp;
         double sz = 0.0, sp = 1.0;
@@ -1261,9 +1261,9 @@ void profile_to_json(const SampleDamageProfile& dp,
         // Coupled balance: donor_depletion(FROM) / acceptor_enrichment(TO)
         // over terminal zone [0, min(3,plat-1)] vs interior zone [plat,15).
         auto coupled_bal = [](const std::array<std::array<uint64_t,64>,15>& arr,
-                              int F, int T, int plat) -> double {
+                              int F, int T, int plat, int skip_t) -> double {
             uint64_t tc[4]{}, ic[4]{};
-            for (int p = 0; p <= std::min(3, plat-1); ++p)
+            for (int p = skip_t; p <= std::min(skip_t+3, plat-1); ++p)
                 for (int b = 0; b < 4; ++b)
                     for (int pv = 0; pv < 4; ++pv)
                         for (int nx = 0; nx < 4; ++nx)
@@ -1282,7 +1282,8 @@ void profile_to_json(const SampleDamageProfile& dp,
         };
 
         auto emit_dcs_end = [&](const char* end_key,
-                                const std::array<std::array<uint64_t,64>,15>& arr) {
+                                const std::array<std::array<uint64_t,64>,15>& arr,
+                                int skip_pos) {
             std::array<double,15> ct_r;
             pos_rates(arr, 1, 3, ct_r);
             int   plat   = find_plateau(ct_r);
@@ -1291,6 +1292,7 @@ void profile_to_json(const SampleDamageProfile& dp,
 
             j << "    \"" << end_key << "\": {\n";
             j << "      \"interior_start_pos\": " << plat << ",\n";
+            j << "      \"terminal_skip_pos\": "  << skip_pos << ",\n";
             j << "      \"ct_interior_fraction\": " << nan_or(ct_bg) << ",\n";
             // ct_interior_fraction = f_T/(f_C+f_T) at interior positions; null=0.5 (Chargaff/undamaged ds).
             // Complementary pair invariant: XY_fraction + YX_fraction = 1.0 exactly (all 12 channels sum to 6).
@@ -1302,10 +1304,11 @@ void profile_to_json(const SampleDamageProfile& dp,
                 std::array<double,15> r;
                 pos_rates(arr, F, T, r);
                 double bg  = interior_mean(r, plat);
-                double tex = (r[1] >= 0 && std::isfinite(bg)) ? r[1] - bg : std::numeric_limits<double>::quiet_NaN();
+                int    tp  = std::max(1, skip_pos);  // p=0 never accumulated; skip past G-artifact zone
+                double tex = (r[tp] >= 0 && std::isfinite(bg)) ? r[tp] - bg : std::numeric_limits<double>::quiet_NaN();
                 double lam = std::isfinite(bg) ? fit_lambda(r, plat, bg) : std::numeric_limits<double>::quiet_NaN();
                 double lr  = (std::isfinite(lam) && lam > 0 && std::isfinite(ct_lam) && ct_lam > 0) ? lam / ct_lam : std::numeric_limits<double>::quiet_NaN();
-                double bal = coupled_bal(arr, F, T, plat);
+                double bal = coupled_bal(arr, F, T, plat, skip_pos);
                 if (!first) j << ",";
                 first = false;
                 // interior_fraction = f_Y/(f_X+f_Y) at interior positions.
@@ -1324,10 +1327,84 @@ void profile_to_json(const SampleDamageProfile& dp,
             j << "\n      }\n    }";
         };
 
+        // NovaSeq 2-colour G-artifact inflates X→G at positions 0-3 of every read.
+        // p=0 is never accumulated; skip p=1-3 by anchoring terminal_excess at p=4.
+        constexpr int dcs_skip = 4;
         j << "  \"damage_channel_stats\": {\n";
-        emit_dcs_end("5prime", dp.tri_5prime_pos);
+        emit_dcs_end("5prime", dp.tri_5prime_pos, dcs_skip);
         j << ",\n";
-        emit_dcs_end("3prime", dp.tri_3prime_pos);
+        emit_dcs_end("3prime", dp.tri_3prime_pos, dcs_skip);
+        j << ",\n    \"deam_strata\": [\n";
+        for (int s = 0; s < SampleDamageProfile::N_OX_DEAM_STRATA; ++s) {
+            if (s > 0) j << ",\n";
+            j << "      {\"stratum\":" << s << ",\n";
+            emit_dcs_end("5prime", dp.tri_5prime_pos_by_deam[s], dcs_skip);
+            j << ",\n";
+            emit_dcs_end("3prime", dp.tri_3prime_pos_by_deam[s], dcs_skip);
+            j << "}";
+        }
+        j << "\n    ]";
+        j << ",\n    \"deam_strata_note\": \"circular_diagnostic: strata keyed and read on the same 3' terminus; gradient is partly tautological. Use decirc for the de-circularized, gated readout.\"";
+
+        // ── De-circularized strata ──────
+        // Held-out cross-fit readout: stratum keyed on one 3' position-fold, rate
+        // read from the other. Compared to a damage-independent permuted-key null and
+        // gated on length-conditioned composition (interior GC) before it is trusted.
+        {
+            const bool is_ss = (dp.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED);
+            const auto& cf = is_ss ? dp.cf_ct3 : dp.cf_ga3;
+            constexpr int NS = SampleDamageProfile::N_OX_DEAM_STRATA;
+            auto rate = [](uint64_t k, uint64_t n) -> double {
+                return n > 0 ? static_cast<double>(k) / static_cast<double>(n) : std::nan("");
+            };
+            std::array<double, NS> te{}, nute{}, igc{}, mlen{};
+            std::array<bool, NS>   pop{};
+            for (int s = 0; s < NS; ++s) {
+                te[s]   = rate(cf.term_k[s], cf.term_n[s]) - rate(cf.intr_k[s], cf.intr_n[s]);
+                nute[s] = rate(cf.null_term_k[s], cf.null_term_n[s]) - rate(cf.null_intr_k[s], cf.null_intr_n[s]);
+                igc[s]  = dp.cf_igc_den[s] > 0 ? double(dp.cf_igc_num[s]) / double(dp.cf_igc_den[s]) : std::nan("");
+                mlen[s] = dp.cf_reads[s] > 0 ? double(dp.cf_len_sum[s]) / double(dp.cf_reads[s]) : std::nan("");
+                pop[s]  = cf.term_n[s] >= 100;
+            }
+            int lo = -1, hi = -1;
+            for (int s = 0; s < NS; ++s) if (pop[s]) { if (lo < 0) lo = s; hi = s; }
+            double grad = std::nan(""), null_grad = std::nan("");
+            bool g_monotone = false, g_exceeds_null = false, pass = false;
+            if (lo >= 0 && hi > lo) {
+                grad = te[hi] - te[lo];
+                null_grad = nute[hi] - nute[lo];
+                g_monotone = true;
+                for (int s = lo, prev = lo; s <= hi; ++s) if (pop[s] && s != lo) {
+                    if ((te[s] - te[prev]) * grad < 0.0) g_monotone = false;
+                    prev = s;
+                }
+                g_exceeds_null = grad > std::fabs(null_grad);
+                pass = g_monotone && g_exceeds_null && grad > 0.0;
+            }
+            uint64_t n_eff = 0; for (int s = 0; s < NS; ++s) n_eff += cf.term_n[s];
+            j << ",\n    \"decirc\": {\n";
+            j << "      \"method\": \"crossfit_position_thinning\",\n";
+            j << "      \"axis\": \"" << (is_ss ? "ct3" : "ga3") << "\",\n";
+            j << "      \"n_heldout_trials\": " << n_eff << ",\n";
+            j << "      \"strata\": [\n";
+            for (int s = 0; s < NS; ++s) {
+                if (s > 0) j << ",\n";
+                j << "        {\"stratum\":" << s
+                  << ",\"heldout_te\":"   << nan_or(te[s])
+                  << ",\"null_te\":"      << nan_or(nute[s])
+                  << ",\"interior_gc\":"  << nan_or(igc[s])
+                  << ",\"mean_len\":"     << nan_or(mlen[s])
+                  << ",\"n_reads\":"      << dp.cf_reads[s]
+                  << ",\"term_n\":"       << cf.term_n[s] << "}";
+            }
+            j << "\n      ],\n";
+            j << "      \"heldout_gradient\": " << nan_or(grad) << ",\n";
+            j << "      \"null_gradient\": "    << nan_or(null_grad) << ",\n";
+            j << "      \"gate_monotone\": "            << (g_monotone ? "true" : "false") << ",\n";
+            j << "      \"gate_exceeds_null\": "        << (g_exceeds_null ? "true" : "false") << ",\n";
+            j << "      \"pass\": " << (pass ? "true" : "false") << "\n";
+            j << "    }";
+        }
         j << "\n  },\n";
     }
 
@@ -1336,6 +1413,44 @@ void profile_to_json(const SampleDamageProfile& dp,
     // terminal_rate = observed rate at read positions 1-4 from end
     // interior_rate = baseline at positions 10-14
     // excess = terminal_rate - interior_rate  (-1 = insufficient data)
+    // DEBUG: per-position terminal pi counts (non-empty (L,C) cells only) for offline estimator validation.
+    // Each entry: [L,C,p, n_elig, n_deam] for terminal position p. Plus the both-end co-occurrence scalar.
+    {
+        j << "  \"pi_joint_debug\": {\n";
+        auto emit_pos = [&](const char* key, const SampleDamageProfile::PiPosCube& cube) {
+            j << "    \"" << key << "\": [";
+            bool first = true;
+            for (int L = 0; L < SampleDamageProfile::N_PI_LEN; ++L)
+              for (int C = 0; C < SampleDamageProfile::N_PI_C; ++C)
+                for (int p = 0; p < SampleDamageProfile::P_PI; ++p) {
+                    const auto& m = cube[L][C][p];
+                    if (m.n_elig == 0) continue;
+                    if (!first) j << ",";
+                    first = false;
+                    j << "[" << L << "," << C << "," << p << ","
+                      << m.n_elig << "," << m.n_deam << "]";
+                }
+            j << "]";
+        };
+        emit_pos("p5", dp.pi_pos_5prime);
+        j << ",\n";
+        emit_pos("p3_ds", dp.pi_pos_3prime_ds);
+        j << ",\n";
+        emit_pos("p3_ss", dp.pi_pos_3prime_ss);
+        j << ",\n";
+        j << "    \"cooc\": [";
+        bool cfirst = true;
+        for (int L = 0; L < SampleDamageProfile::N_PI_LEN; ++L)
+          for (int C = 0; C < SampleDamageProfile::N_PI_C; ++C) {
+            const auto& cc = dp.pi_cooc[L][C];
+            if (cc.n == 0) continue;
+            if (!cfirst) j << ",";
+            cfirst = false;
+            j << "[" << L << "," << C << "," << cc.n << "," << cc.sum_k5k3 << "]";
+          }
+        j << "]\n  },\n";
+    }
+
     {
         static constexpr char B[4] = {'A','C','G','T'};
         // encoding: prev*16 + mid*4 + next  (A=0,C=1,G=2,T=3)
@@ -1501,8 +1616,8 @@ void profile_to_json(const SampleDamageProfile& dp,
 
     // ── Stop-codon excess: continuous reference-free deamination estimator ────
     // Mean terminal-vs-interior C→T excess for CAA, CAG, CGA codon contexts from
-    // the 4-mer ct_5prime accumulator. Range: ~-0.015 (modern/anti-damage) to
-    // +0.05 (strongly damaged ancient). Crosses zero at ~9% KapK ancient fraction
+    // the 4-mer ct_5prime accumulator. Range: ~-0.015 (non-damaged/anti-damage) to
+    // +0.05 (strongly damaged reads). Crosses zero at ~9% KapK damaged fraction
     // in FLB/KapK mixtures. -999 = insufficient data.
     // Encoding: index = p*64 + mid*16 + n1*4 + n2  (A=0,C=1,G=2,T=3)
     //   CAA → ir_base=16, id_base=48 | CAG → ir_base=18, id_base=50 | CGA → ir_base=24, id_base=56
@@ -1646,11 +1761,20 @@ void profile_to_json(const SampleDamageProfile& dp,
             if (std::isfinite(v) && v >= 0.0) j << std::setprecision(6) << v;
             else                               j << "null";
         };
+        // π is a GATED RANGE+STATE, never a bare point. The point is honest only when it is
+        // finite and lies inside its own 95% CI; otherwise the estimate is not identifiable
+        // (e.g. CI excludes the point) → null the point and abstain, but always keep the range.
+        const bool pi_range_ok = std::isfinite(pi.lo) && std::isfinite(pi.hi) &&
+                                 pi.lo >= 0.0 && pi.hi >= pi.lo;
+        const bool pi_identifiable = std::isfinite(pi.point) && pi.point >= 0.0 &&
+                                     pi_range_ok && pi.point >= pi.lo && pi.point <= pi.hi;
+        const char* pi_state_out = pi_identifiable ? pi_state_str : "ABSTAIN";
         j << "  \"pi_estimate\": {\n";
-        j << "    \"point\": ";  jn(pi.point); j << ",\n";
+        j << "    \"point\": ";  if (pi_identifiable) jn(pi.point); else j << "null"; j << ",\n";
         j << "    \"ci_lo\": ";  jn(pi.lo);    j << ",\n";
         j << "    \"ci_hi\": ";  jn(pi.hi);    j << ",\n";
-        j << "    \"state\": \"" << pi_state_str << "\",\n";
+        j << "    \"identifiable\": " << (pi_identifiable ? "true" : "false") << ",\n";
+        j << "    \"state\": \"" << pi_state_out << "\",\n";
         j << "    \"cpg_delta_bilateral\": ";
         if (!std::isnan(dp.cpg_delta_bilateral)) j << std::setprecision(6) << dp.cpg_delta_bilateral;
         else                                      j << "null";
@@ -1658,12 +1782,23 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"cpg_authenticated\": "
           << ((!std::isnan(dp.cpg_delta_bilateral) &&
                (double)dp.cpg_delta_bilateral >= CPG_BILATERAL_ANCIENT_THR) ? "true" : "false")
-          << "\n";
+          << ",\n";
+        // Per-position terminal-decay fit (PiShapeFit) that gates the range above.
+        const auto& sh = dp.pi_shape;
+        j << "    \"shape_fit\": {\n";
+        j << "      \"fitted\": "   << (sh.fitted   ? "true" : "false") << ",\n";
+        j << "      \"detected\": " << (sh.detected ? "true" : "false") << ",\n";
+        j << "      \"amplitude\": "; jn(sh.A);        j << ",\n";
+        j << "      \"amplitude_se\": "; jn(sh.A_se);  j << ",\n";
+        j << "      \"lambda\": ";    jn(sh.lambda);   j << ",\n";
+        j << "      \"baseline\": ";  jn(sh.baseline); j << ",\n";
+        j << "      \"shape_lrt\": "; jn(sh.lrt);      j << "\n";
+        j << "    }\n";
         j << "  },\n";
     }
 
-    // ── Ancient-fraction d_max ─────────────────────────────────────────────────
-    // d_max estimated only from reads classified as ancient by the per-read LLR
+    // ── Damaged-fraction d_max ─────────────────────────────────────────────────
+    // d_max estimated only from reads classified as damaged by the per-read LLR
     // scorer (fused into the oxoG pass). Comparable to metaDMG "damaged fraction".
     j << "  \"mixture_model\": {\n";
     j << "    \"valid\": " << (dp.damaged_fraction_valid ? "true" : "false") << ",\n";
@@ -1674,7 +1809,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         dp.damaged_fraction_pi > 0.0f && dp.damaged_fraction_pi < 0.1f;
     j << "    \"identity_amplified\": " << (identity_amplified ? "true" : "false") << ",\n";
     j << std::setprecision(6);
-    j << "    \"ancient\": {\n";
+    j << "    \"damaged\": {\n";
     j << "      \"d_max_5prime\": " << (identity_amplified ? std::string("null") : nan_or(dp.damaged_fraction_d5)) << ",\n";
     j << "      \"d_max_3prime\": " << (identity_amplified ? std::string("null") : nan_or(dp.damaged_fraction_d3)) << ",\n";
     j << "      \"d_max_5prime_fit\": " << nan_or(dp.damaged_fraction_d5_fit) << ",\n";
@@ -1690,24 +1825,24 @@ void profile_to_json(const SampleDamageProfile& dp,
     for (int p = 0; p < 15; ++p) { if (p) j << ","; j << dp.damaged_fraction_rate3[p]; }
     j << "]\n";
     j << "    },\n";
-    j << "    \"modern\": {\n";
-    j << "      \"d_max_5prime\": " << (dp.modern_fraction_d5_computed ? std::to_string(dp.modern_fraction_d5) : "null") << ",\n";
-    j << "      \"d_max_3prime\": " << (dp.modern_fraction_d3_computed ? std::to_string(dp.modern_fraction_d3) : "null") << ",\n";
-    j << "      \"d_max_5prime_fit\": " << nan_or(dp.modern_fraction_d5_fit) << ",\n";
-    j << "      \"lambda_5prime\": " << nan_or(dp.modern_fraction_lambda5) << ",\n";
-    j << "      \"d_max_3prime_fit\": " << nan_or(dp.modern_fraction_d3_fit) << ",\n";
-    j << "      \"lambda_3prime\": " << nan_or(dp.modern_fraction_lambda3) << ",\n";
+    j << "    \"non_damaged\": {\n";
+    j << "      \"d_max_5prime\": " << (dp.nondamaged_fraction_d5_computed ? std::to_string(dp.nondamaged_fraction_d5) : "null") << ",\n";
+    j << "      \"d_max_3prime\": " << (dp.nondamaged_fraction_d3_computed ? std::to_string(dp.nondamaged_fraction_d3) : "null") << ",\n";
+    j << "      \"d_max_5prime_fit\": " << nan_or(dp.nondamaged_fraction_d5_fit) << ",\n";
+    j << "      \"lambda_5prime\": " << nan_or(dp.nondamaged_fraction_lambda5) << ",\n";
+    j << "      \"d_max_3prime_fit\": " << nan_or(dp.nondamaged_fraction_d3_fit) << ",\n";
+    j << "      \"lambda_3prime\": " << nan_or(dp.nondamaged_fraction_lambda3) << ",\n";
     j << "      \"rate_5prime\": [";
-    for (int p = 0; p < 15; ++p) { if (p) j << ","; j << dp.modern_fraction_rate5[p]; }
+    for (int p = 0; p < 15; ++p) { if (p) j << ","; j << dp.nondamaged_fraction_rate5[p]; }
     j << "],\n";
     j << "      \"rate_3prime\": [";
-    for (int p = 0; p < 15; ++p) { if (p) j << ","; j << dp.modern_fraction_rate3[p]; }
+    for (int p = 0; p < 15; ++p) { if (p) j << ","; j << dp.nondamaged_fraction_rate3[p]; }
     j << "],\n";
-    j << "      \"leakage_5prime\": " << (dp.modern_fraction_leakage_5prime ? "true" : "false") << ",\n";
-    j << "      \"leakage_3prime\": " << (dp.modern_fraction_leakage_3prime ? "true" : "false") << "\n";
+    j << "      \"leakage_5prime\": " << (dp.nondamaged_fraction_leakage_5prime ? "true" : "false") << ",\n";
+    j << "      \"leakage_3prime\": " << (dp.nondamaged_fraction_leakage_3prime ? "true" : "false") << "\n";
     j << "    },\n";
     {
-        // Cross-estimate sanity: max/min ratio of the non-null pi_ancient estimates.
+        // Cross-estimate sanity: max/min ratio of the non-null pi_damaged estimates.
         double pi_min = std::numeric_limits<double>::infinity();
         double pi_max = 0.0;
         int    pi_cnt = 0;
@@ -1721,7 +1856,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         if (dp.damaged_fraction_valid) note_pi(dp.damaged_fraction_pi);
         if (in.lsd) {
             if (in.lsd->joint_converged && in.lsd->joint_separated)
-                note_pi(in.lsd->pi_joint_ancient);
+                note_pi(in.lsd->pi_joint_damaged);
             for (const auto& lb : in.lsd->bins)
                 if (lb.mixture_identifiable && lb.mixture_converged)
                     note_pi(lb.mixture_pi_damaged);
@@ -1729,7 +1864,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         const bool pi_have = pi_cnt >= 2 && pi_min > 0.0;
         const double pi_spread = pi_have ? (pi_max / pi_min) : -1.0;
         j << "    \"consistency_check\": {\n";
-        j << "      \"pi_ancient_spread\": " << (pi_have ? std::to_string(pi_spread) : "null") << ",\n";
+        j << "      \"pi_damaged_spread\": " << (pi_have ? std::to_string(pi_spread) : "null") << ",\n";
         j << "      \"flagged\": " << ((pi_have && pi_spread > 3.0) ? "true" : "false") << "\n";
         j << "    }\n";
     }
@@ -2242,17 +2377,17 @@ void profile_to_json(const SampleDamageProfile& dp,
         // the absolute view; together they are complementary (each catches libraries the other misses).
         j << "    \"length_coupling\": ";       jn(static_cast<double>(bd.length_coupling)); j << ",\n";
         j << "    \"length_coupling_slope\": "; jn(bd.length_coupling_slope);                j << ",\n";
-        // mixture P2: reference-free per-ancient-read deamination intensity (analog of metaDMG A_b);
+        // mixture P2: reference-free per-damaged-read deamination intensity (analog of metaDMG A_b);
         // −1 ⇒ undetermined (no usable co-occurrence signal or artifact-gated). d_max_se = its SE.
         // C1: gate on the producer's validity flags (bulk_damage_model.hpp). When the mixture
-        // split is not identified d_max_ancient=-1.0 and d_max_se=0.0 are NOT-COMPUTED sentinels
+        // split is not identified d_max_damaged=-1.0 and d_max_se=0.0 are NOT-COMPUTED sentinels
         // (se=0.0 deceptively reads as a zero-width CI) — emit null. d_max_raw>1 is non-physical
         // (railed); emit null and surface the railed flag so the state is machine-readable.
-        if (bd.d_max_ancient_valid) { j << "    \"d_max_ancient\": "; jn(bd.d_max_ancient); j << ",\n";
+        if (bd.d_max_damaged_valid) { j << "    \"d_max_damaged\": "; jn(bd.d_max_damaged); j << ",\n";
                                       j << "    \"d_max_se\": ";      jn(bd.d_max_se);      j << ",\n"; }
-        else                        { j << "    \"d_max_ancient\": null,\n";
+        else                        { j << "    \"d_max_damaged\": null,\n";
                                       j << "    \"d_max_se\": null,\n"; }
-        j << "    \"d_max_ancient_valid\": " << (bd.d_max_ancient_valid ? "true" : "false") << ",\n";
+        j << "    \"d_max_damaged_valid\": " << (bd.d_max_damaged_valid ? "true" : "false") << ",\n";
         j << "    \"applicable\": false,\n";
         j << "    \"conditions\": \"requires high-coverage near-saturated libraries; not valid for low-damage or mixed libraries\",\n";
         if (bd.d_max_raw_railed) j << "    \"d_max_raw\": null,\n";
@@ -2297,7 +2432,7 @@ void profile_to_json(const SampleDamageProfile& dp,
                 jn(bb.profile_loglik[p]);
                 if (p + 1 < bb.profile_loglik.size()) j << ", ";
             }
-            // mixture P2: eligibility-conditioned ancient/modern split. pi_ancient = δ_l/d_max (ancient
+            // mixture P2: eligibility-conditioned damaged/non-damaged split. pi_damaged = δ_l/d_max (damaged
             // read fraction); [pi_lo,pi_hi] = 95% interval (−1 ⇒ undetermined). joint_cov is the raw
             // (GC-confounded) co-occurrence diagnostic; the verdict uses the conditioned d_max/π.
             j << "], \"joint_n\": " << static_cast<long long>(bb.joint_n);
@@ -2306,11 +2441,11 @@ void profile_to_json(const SampleDamageProfile& dp,
             // C1: gate on the producer's per-bin pi_identified flag. The -1.0 defaults are
             // out-of-range for a probability and would read as a negative fraction; emit null.
             if (bb.pi_identified) {
-                j << ", \"pi_ancient\": "; jn(bb.pi_ancient, 4);
+                j << ", \"pi_damaged\": "; jn(bb.pi_damaged, 4);
                 j << ", \"pi_lo\": ";      jn(bb.pi_lo, 4);
                 j << ", \"pi_hi\": ";      jn(bb.pi_hi, 4);
             } else {
-                j << ", \"pi_ancient\": null, \"pi_lo\": null, \"pi_hi\": null";
+                j << ", \"pi_damaged\": null, \"pi_lo\": null, \"pi_hi\": null";
             }
             j << ", \"pi_identified\": " << (bb.pi_identified ? "true" : "false");
             j << "}";
@@ -2625,7 +2760,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    {\n";
         j << "      \"channel\": \"C\",\n";
         j << "      \"name\": \"8_oxog_top_strand\",\n";
-        j << "      \"description\": \"G to T oxidative stop codons (GAA/GAG/GGA); top-strand 8-oxoguanine. Scope: top-strand G to T stop codons only; an informative null does not exclude interior oxidation (see oxo_two_marker), and the channel is diluted by modern-read admixture.\",\n";
+        j << "      \"description\": \"G to T oxidative stop codons (GAA/GAG/GGA); top-strand 8-oxoguanine. Scope: top-strand G to T stop codons only; an informative null does not exclude interior oxidation (see oxo_two_marker), and the channel is diluted by non-damaged-read admixture.\",\n";
         j << "      \"mechanism\": \"oxidative_guanine_8_oxog\",\n";
         j << "      \"detected\": " << jbool(dp.ox_damage_detected) << ",\n";
         j << "      \"valid\": " << jbool(dp.channel_c_valid) << ",\n";

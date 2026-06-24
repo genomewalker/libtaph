@@ -533,9 +533,9 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s) {
         }
     }
 
-    // ── mixture P2: eligibility-conditioned ancient/modern split ─────────────────────────────────
+    // ── mixture P2: eligibility-conditioned damaged/non-damaged split ─────────────────────────────────
     // Conditioning on the per-read damage-channel SITE counts (S5,S3) — damage-invariant — removes the
-    // GC/composition confound, so Cov(k5,k3 | S5,S3) is pure ancient-mixture covariance. With δ_l pinned
+    // GC/composition confound, so Cov(k5,k3 | S5,S3) is pure damaged-mixture covariance. With δ_l pinned
     // each (bin,stratum) estimates the shared d_max via
     //     Cov_s = S5·S3·(d_max − δ_l)·δ_l·(1−η_l)²·ē² ,   ē = mean_p exp(−λp) over the JP positions,
     // pooled inverse-variance → d_max ± SE (threshold-free). π_l = δ_l/d_max. A pervasive artifact
@@ -605,13 +605,13 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s) {
         if (sum_w > 0.0 && R.w_length > 0.5 && dmax_raw > dmax_floor && dmax_raw < 1.0 - 1e-3) {
             double dmax = dmax_raw;
             double dse  = std::sqrt(1.0 / sum_w);
-            R.d_max_ancient = dmax;
+            R.d_max_damaged = dmax;
             R.d_max_se = dse;
-            R.d_max_ancient_valid = true;   // C1: split identified ⇒ d_max_ancient/d_max_se are real
+            R.d_max_damaged_valid = true;   // C1: split identified ⇒ d_max_damaged/d_max_se are real
             for (int l = 0; l < L; ++l) {
                 double dl = R.bins[l].delta;
                 if (dl <= 1e-4) continue;
-                R.bins[l].pi_ancient = std::min(1.0, dl / dmax);
+                R.bins[l].pi_damaged = std::min(1.0, dl / dmax);
                 double hi = dmax + 1.96 * dse, lo = std::max(dl, dmax - 1.96 * dse);
                 R.bins[l].pi_lo = std::min(1.0, dl / hi);
                 R.bins[l].pi_hi = std::min(1.0, dl / lo);

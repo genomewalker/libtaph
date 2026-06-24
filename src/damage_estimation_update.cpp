@@ -82,6 +82,43 @@ void FrameSelector::update_sample_profile(
         }
     }
 
+    // Per-position terminal counts for identifiable pi (sample_damage_profile.hpp / finalize_tau).
+    // Runs for ALL reads >= 2*P_PI+2 — short, ancient-enriched reads (which interior_safe excludes) included.
+    if (len >= 2 * SampleDamageProfile::P_PI + 2) {
+        constexpr int P = SampleDamageProfile::P_PI;
+        int k5 = 0, cnum = 0;                         // 5' damage-allele count + centroid numerator (for F_class)
+        for (int p = 0; p < P; ++p) {
+            const char b = decoded[p];
+            if (b == 'T') { ++k5; cnum += p; }
+        }
+        int k3a = 0;                                  // 3' ds damage-allele count (for the co-occurrence gate)
+        for (int p = 0; p < P; ++p) {
+            const char b = decoded[len - 1 - p];
+            if (b == 'A') ++k3a;
+        }
+        // F_class = 5' C->T decay centroid (overhang proxy): 0=no event, 1=blunt/terminal, 2=broad overhang.
+        int C = 0;
+        if (k5 > 0)
+            C = (static_cast<double>(cnum) / k5 < 0.5 * (P - 1)) ? 1 : 2;
+        const int L = SampleDamageProfile::pi_len_bin(static_cast<int>(len));
+        auto& a5 = profile.pi_pos_5prime[L][C];
+        auto& a3d = profile.pi_pos_3prime_ds[L][C];
+        auto& a3s = profile.pi_pos_3prime_ss[L][C];
+        for (int p = 0; p < P; ++p) {
+            const char b5 = decoded[p];
+            if      (b5 == 'T') { ++a5[p].n_elig; ++a5[p].n_deam; }
+            else if (b5 == 'C') { ++a5[p].n_elig; }
+            const char b3 = decoded[len - 1 - p];
+            if      (b3 == 'A') { ++a3d[p].n_elig; ++a3d[p].n_deam; }
+            else if (b3 == 'G') { ++a3d[p].n_elig; }
+            if      (b3 == 'T') { ++a3s[p].n_elig; ++a3s[p].n_deam; }
+            else if (b3 == 'C') { ++a3s[p].n_elig; }
+        }
+        auto& cc = profile.pi_cooc[L][C];
+        cc.n += 1;
+        cc.sum_k5k3 += static_cast<uint64_t>(k5) * k3a;
+    }
+
     // Count bases in middle third (undamaged baseline)
     constexpr size_t INTERIOR_TERM_PAD = 15;
     size_t mid_start = len / 3;
@@ -101,13 +138,12 @@ void FrameSelector::update_sample_profile(
     }
 
     // Reference-free oxidation-like contrast. During the streaming pass we do
-    // not assign ancient/background weights directly. Instead, each read is
+    // not assign damaged/background weights directly. Instead, each read is
     // placed into a terminal-deamination-excess stratum using its own interior
     // composition as a null. Finalization calibrates the strata within length
     // x GC bins and only then compares high-deamination to low-deamination
     // strata. This avoids treating raw terminal T-richness as an ancestry score.
-    int read_deam_bin = -1;  // per-read deam stratum (0=modern..4=ancient), hoisted for the
-                             // stratified trinucleotide spectrum accumulation further below.
+    int tetra_deam_bin = -1; // cross-end proxy stratum for 5' tetra (ct_5prime_by_deam). See below.
     if (interior_safe) {
         double term_t5 = 0.0, term_tc5 = 0.0, term_a5 = 0.0, term_ag5 = 0.0;
         for (size_t p = 0; p < std::min<size_t>(5, len); ++p) {
@@ -146,6 +182,13 @@ void FrameSelector::update_sample_profile(
             double score_num = 0.0, score_den = 0.0;
             double ct5_exc = 0.0, ga3_exc = 0.0;
             double ga5_exc = 0.0;
+            // ct3_exc: 3' C→T excess vs interior — strand-discordant control.
+            // Computed before deam_score so it is available for cross-end stratification below.
+            // Genuine ds-aDNA damage links CT5↔GA3 but not CT5↔CT3; artifacts may link both.
+            double ct3_exc = 0.0;
+            if (term_tc3 > 0.0 && mid_tc > 0.0)
+                ct3_exc = std::max(0.0, (term_t3 + 0.5) / (term_tc3 + 1.0)
+                                      - (mid_t  + 0.5) / (mid_tc  + 1.0));
             if (term_tc5 > 0.0 && mid_tc > 0.0) {
                 const double term = (term_t5 + 0.5) / (term_tc5 + 1.0);
                 const double base = (mid_t + 0.5) / (mid_tc + 1.0);
@@ -166,26 +209,93 @@ void FrameSelector::update_sample_profile(
                 score_den += term_ag3;
             }
 
+            // Cross-end stratification for 5' tetra spectrum (ct_5prime_by_deam).
+            // Uses max(ga3_exc, ct3_exc): DS reads score via 3' G→A; SS reads via 3' C→T.
+            // Axis is orthogonal to the 5' C→T values being reported, eliminating the
+            // circular selection bias and fixing SS mis-stratification in one change.
+            // Shared terminal-deamination-excess stratum edges (0=none .. 4=heaviest).
+            // Used for BOTH the cross-end tetra stratum and the 5' deam_score stratum.
+            constexpr double DEAM_BIN_T1 = 0.08, DEAM_BIN_T2 = 0.20, DEAM_BIN_T3 = 0.40;
+            auto deam_stratum = [](double excess) -> int {
+                if      (excess > DEAM_BIN_T3) return 4;
+                else if (excess > DEAM_BIN_T2) return 3;
+                else if (excess > DEAM_BIN_T1) return 2;
+                else if (excess > 0.00)        return 1;
+                return 0;
+            };
+
+            tetra_deam_bin = deam_stratum(std::max(ga3_exc, ct3_exc));
+
+            // ---- Cross-fit de-circularized strata ----
+            // Split the 3' terminus into two position-folds; key the stratum from one fold,
+            // read the misincorporation rate from the held-out fold (both directions pooled).
+            // Decoupled interior baselines per fold stop the GC-sort lockstep from re-coupling
+            // key and readout. _null reads the same fold under a damage-independent uniform key.
+            if (len >= 6) {
+                uint64_t h = 1469598103934665603ull;          // FNV-1a over the read
+                for (size_t i = 0; i < len; ++i) { h ^= static_cast<uint8_t>(decoded[i]); h *= 1099511628211ull; }
+                auto fold = [&](uint64_t x) -> int { return static_cast<int>((h ^ x) & 1ull); };
+
+                // per-fold 3' terminal sums: ga (A success / A+G trial), ct (T / T+C)
+                long ga_a[2]={0,0}, ga_n[2]={0,0}, ct_t[2]={0,0}, ct_n[2]={0,0};
+                for (size_t off = 1; off < std::min<size_t>(5, len); ++off) {
+                    const char b = decoded[len - 1 - off]; const int f = fold(off);
+                    if      (b == 'A') { ++ga_a[f]; ++ga_n[f]; }
+                    else if (b == 'G') { ++ga_n[f]; }
+                    if      (b == 'T') { ++ct_t[f]; ++ct_n[f]; }
+                    else if (b == 'C') { ++ct_n[f]; }
+                }
+                // per-fold interior sums (decoupled baseline) + GC for composition gate
+                long iga_a[2]={0,0}, iga_n[2]={0,0}, ict_t[2]={0,0}, ict_n[2]={0,0};
+                long igc=0, itot=0;
+                for (size_t i = mid_start; i < mid_end; ++i) {
+                    const char b = decoded[i]; const int f = fold(i); ++itot;
+                    if      (b == 'A') { ++iga_a[f]; ++iga_n[f]; }
+                    else if (b == 'G') { ++iga_n[f]; ++igc; }
+                    else if (b == 'T') { ++ict_t[f]; ++ict_n[f]; }
+                    else if (b == 'C') { ++ict_n[f]; ++igc; }
+                }
+                auto exc = [](long k, long n, long ik, long in_) -> double {
+                    if (n <= 0 || in_ <= 0) return 0.0;
+                    return std::max(0.0, (k + 0.5) / (n + 1.0) - (ik + 0.5) / (in_ + 1.0));
+                };
+                int strat_f[2];
+                for (int f = 0; f < 2; ++f)
+                    strat_f[f] = deam_stratum(std::max(
+                        exc(ga_a[f], ga_n[f], iga_a[f], iga_n[f]),
+                        exc(ct_t[f], ct_n[f], ict_t[f], ict_n[f])));
+                // direction d keys on fold d, reads out the held-out fold r=1-d
+                for (int d = 0; d < 2; ++d) {
+                    const int r = 1 - d, S = strat_f[d];
+                    profile.cf_ga3.term_k[S] += ga_a[r];  profile.cf_ga3.term_n[S] += ga_n[r];
+                    profile.cf_ga3.intr_k[S] += iga_a[r]; profile.cf_ga3.intr_n[S] += iga_n[r];
+                    profile.cf_ct3.term_k[S] += ct_t[r];  profile.cf_ct3.term_n[S] += ct_n[r];
+                    profile.cf_ct3.intr_k[S] += ict_t[r]; profile.cf_ct3.intr_n[S] += ict_n[r];
+                }
+                // null: damage-independent uniform key (high bits of h), full readout mass
+                const int Sn = static_cast<int>((h >> 17) % SampleDamageProfile::N_OX_DEAM_STRATA);
+                profile.cf_ga3.null_term_k[Sn] += ga_a[0]+ga_a[1];  profile.cf_ga3.null_term_n[Sn] += ga_n[0]+ga_n[1];
+                profile.cf_ga3.null_intr_k[Sn] += iga_a[0]+iga_a[1]; profile.cf_ga3.null_intr_n[Sn] += iga_n[0]+iga_n[1];
+                profile.cf_ct3.null_term_k[Sn] += ct_t[0]+ct_t[1];  profile.cf_ct3.null_term_n[Sn] += ct_n[0]+ct_n[1];
+                profile.cf_ct3.null_intr_k[Sn] += ict_t[0]+ict_t[1]; profile.cf_ct3.null_intr_n[Sn] += ict_n[0]+ict_n[1];
+                // per-stratum descriptive stats keyed on the full-read stratum
+                if (tetra_deam_bin >= 0) {
+                    profile.cf_reads[tetra_deam_bin]     += 1;
+                    profile.cf_len_sum[tetra_deam_bin]   += len;
+                    profile.cf_len_sumsq[tetra_deam_bin] += static_cast<uint64_t>(len) * len;
+                    profile.cf_igc_num[tetra_deam_bin]   += igc;
+                    profile.cf_igc_den[tetra_deam_bin]   += itot;
+                }
+            }
+
             const double deam_score = score_den > 0.0 ? score_num / score_den : 0.0;
-            int deam_bin = 0;
-            if (deam_score > 0.40) deam_bin = 4;
-            else if (deam_score > 0.20) deam_bin = 3;
-            else if (deam_score > 0.08) deam_bin = 2;
-            else if (deam_score > 0.00) deam_bin = 1;
-            read_deam_bin = deam_bin;                       // hoist for stratified trinuc spectrum
-            ++profile.deam_stratum_reads[deam_bin];
+            int deam_bin = deam_stratum(deam_score);
             if (deam_score > 0.0) {
                 profile.per_read_deam_sum   += deam_score;
                 profile.per_read_deam_sumsq += deam_score * deam_score;
                 ++profile.per_read_deam_n;
             }
             // Cross-cumulant sufficient stats (all reads, not just score>0).
-            // ct3_exc: 3' C→T excess vs interior — strand-discordant control.
-            //   Genuine ds-aDNA damage links CT5↔GA3 but not CT5↔CT3; artifacts may link both.
-            double ct3_exc = 0.0;
-            if (term_tc3 > 0.0 && mid_tc > 0.0)
-                ct3_exc = std::max(0.0, (term_t3 + 0.5) / (term_tc3 + 1.0)
-                                      - (mid_t  + 0.5) / (mid_tc  + 1.0));
             // tpg5: strictly TpG at pos0-1 (decoded[0]='T', decoded[1]='G').
             //   Stratified accumulation — κ₂_TpG / n_TpG vs κ₂ / n tests CpG deamination enrichment.
             //   Using only T (not C) avoids mixing original CpG (undamaged) with deaminated CpG.
@@ -346,32 +456,27 @@ void FrameSelector::update_sample_profile(
             if (i0 < 0 || i1 < 0 || i2 < 0) return;
             ++target[i0 * 16 + i1 * 4 + i2];
         };
-        // Stratified variant: increments the bulk target AND the per-read deam_bin stratum, so the
-        // context-dependent spectrum is split ancient (high-deam) vs modern (low-deam).
         auto add_ctx_s = [&](int prev_pos, int mid_pos, int next_pos,
-                             std::array<uint64_t, SampleDamageProfile::N_TRINUC>& bulk,
-                             std::array<std::array<uint64_t, SampleDamageProfile::N_TRINUC>,
-                                        SampleDamageProfile::N_OX_DEAM_STRATA>& strat) {
+                             std::array<uint64_t, SampleDamageProfile::N_TRINUC>& bulk) {
             if (prev_pos < 0 || next_pos >= static_cast<int>(len)) return;
             int i0 = nuc_idx(decoded[prev_pos]);
             int i1 = nuc_idx(decoded[mid_pos]);
             int i2 = nuc_idx(decoded[next_pos]);
             if (i0 < 0 || i1 < 0 || i2 < 0) return;
-            const int idx = i0 * 16 + i1 * 4 + i2;
-            ++bulk[idx];
-            if (read_deam_bin >= 0) ++strat[read_deam_bin][idx];
+            ++bulk[i0 * 16 + i1 * 4 + i2];
         };
+        // tri gate p+1<len reaches d=1 (the 3′ CpG position tetra's p+2<len cannot).
         for (int p = 1; p <= 4 && p + 1 < static_cast<int>(len); ++p)
-            add_ctx_s(p - 1, p, p + 1, profile.tri_5prime_terminal, profile.tri_5prime_terminal_by_deam);
+            add_ctx_s(p - 1, p, p + 1, profile.tri_5prime_terminal);
         for (int p = 10; p <= 14 && p + 1 < static_cast<int>(len); ++p)
-            add_ctx_s(p - 1, p, p + 1, profile.tri_5prime_interior, profile.tri_5prime_interior_by_deam);
+            add_ctx_s(p - 1, p, p + 1, profile.tri_5prime_interior);
         for (int p = 1; p <= 4; ++p) {
             int mid = static_cast<int>(len) - 1 - p;
-            add_ctx_s(mid - 1, mid, mid + 1, profile.tri_3prime_terminal, profile.tri_3prime_terminal_by_deam);
+            add_ctx_s(mid - 1, mid, mid + 1, profile.tri_3prime_terminal);
         }
         for (int p = 10; p <= 14; ++p) {
             int mid = static_cast<int>(len) - 1 - p;
-            add_ctx_s(mid - 1, mid, mid + 1, profile.tri_3prime_interior, profile.tri_3prime_interior_by_deam);
+            add_ctx_s(mid - 1, mid, mid + 1, profile.tri_3prime_interior);
         }
         // Per-position: all positions 1..N_POS_TRI-1 from each end.
         for (int p = 1; p < SampleDamageProfile::N_POS_TRI && p + 1 < static_cast<int>(len); ++p)
@@ -381,6 +486,17 @@ void FrameSelector::update_sample_profile(
             if (mid - 1 >= 0 && mid + 1 < static_cast<int>(len))
                 add_ctx(mid - 1, mid, mid + 1, profile.tri_3prime_pos[p]);
         }
+        // Stratified per-position tri: same positions, keyed on tetra_deam_bin (cross-end proxy).
+        // Strata 0=non-damaged .. N_OX_DEAM_STRATA-1=damaged. Gate mirrors tetra (bulk==Σstrata).
+        if (tetra_deam_bin >= 0) {
+            for (int p = 1; p < SampleDamageProfile::N_POS_TRI && p + 1 < static_cast<int>(len); ++p)
+                add_ctx(p - 1, p, p + 1, profile.tri_5prime_pos_by_deam[tetra_deam_bin][p]);
+            for (int p = 1; p < SampleDamageProfile::N_POS_TRI; ++p) {
+                int mid = static_cast<int>(len) - 1 - p;
+                if (mid - 1 >= 0 && mid + 1 < static_cast<int>(len))
+                    add_ctx(mid - 1, mid, mid + 1, profile.tri_3prime_pos_by_deam[tetra_deam_bin][p]);
+            }
+        }
 
         // 4-mer (tetranucleotide) counts for CHG/CHH separation.
         // Requires prev(p-1), mid(p), next1(p+1), next2(p+2) — all in bounds.
@@ -389,7 +505,10 @@ void FrameSelector::update_sample_profile(
                             std::array<uint64_t, SampleDamageProfile::N_TETRANUC>& bulk,
                             std::array<std::array<uint64_t, SampleDamageProfile::N_TETRANUC>,
                                        SampleDamageProfile::N_OX_DEAM_STRATA>& strat) {
-            if (p < 1 || p + 2 >= static_cast<int>(len)) return;
+            // Gate on tetra_deam_bin<0: covers both !interior_safe (len==30) and
+            // mid_total==0 (all-N interior), ensuring bulk == Σstrata by construction.
+            // Uses tetra_deam_bin (cross-end proxy) not read_deam_bin (5' proxy).
+            if (tetra_deam_bin < 0 || p < 1 || p + 2 >= static_cast<int>(len)) return;
             int i0 = nuc_idx(decoded[p - 1]);
             int i1 = nuc_idx(decoded[p]);
             int i2 = nuc_idx(decoded[p + 1]);
@@ -397,7 +516,7 @@ void FrameSelector::update_sample_profile(
             if (i0 < 0 || i1 < 0 || i2 < 0 || i3 < 0) return;
             const int idx = i0*64 + i1*16 + i2*4 + i3;
             ++bulk[idx];
-            if (read_deam_bin >= 0) ++strat[read_deam_bin][idx];
+            if (tetra_deam_bin >= 0) ++strat[tetra_deam_bin][idx];
         };
         for (int p = 1; p <= 4; ++p)
             add_ctx4(p, profile.tetra_5prime_terminal, profile.tetra_5prime_terminal_by_deam);
@@ -1345,20 +1464,45 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         dst.tri_5prime_interior[i] += src.tri_5prime_interior[i];
         dst.tri_3prime_terminal[i] += src.tri_3prime_terminal[i];
         dst.tri_3prime_interior[i] += src.tri_3prime_interior[i];
-        for (int s = 0; s < SampleDamageProfile::N_OX_DEAM_STRATA; ++s) {
-            dst.tri_5prime_terminal_by_deam[s][i] += src.tri_5prime_terminal_by_deam[s][i];
-            dst.tri_5prime_interior_by_deam[s][i] += src.tri_5prime_interior_by_deam[s][i];
-            dst.tri_3prime_terminal_by_deam[s][i] += src.tri_3prime_terminal_by_deam[s][i];
-            dst.tri_3prime_interior_by_deam[s][i] += src.tri_3prime_interior_by_deam[s][i];
-        }
     }
-    for (int s = 0; s < SampleDamageProfile::N_OX_DEAM_STRATA; ++s)
-        dst.deam_stratum_reads[s] += src.deam_stratum_reads[s];
     for (int p = 0; p < SampleDamageProfile::N_POS_TRI; ++p)
         for (int i = 0; i < SampleDamageProfile::N_TRINUC; ++i) {
             dst.tri_5prime_pos[p][i] += src.tri_5prime_pos[p][i];
             dst.tri_3prime_pos[p][i] += src.tri_3prime_pos[p][i];
+            for (int s = 0; s < SampleDamageProfile::N_OX_DEAM_STRATA; ++s) {
+                dst.tri_5prime_pos_by_deam[s][p][i] += src.tri_5prime_pos_by_deam[s][p][i];
+                dst.tri_3prime_pos_by_deam[s][p][i] += src.tri_3prime_pos_by_deam[s][p][i];
+            }
         }
+    // Cross-fit de-circularized strata accumulators
+    for (int s = 0; s < SampleDamageProfile::N_OX_DEAM_STRATA; ++s) {
+        auto merge_cf = [&](SampleDamageProfile::CrossFitStrata& a,
+                            const SampleDamageProfile::CrossFitStrata& b) {
+            a.term_k[s] += b.term_k[s]; a.term_n[s] += b.term_n[s];
+            a.intr_k[s] += b.intr_k[s]; a.intr_n[s] += b.intr_n[s];
+            a.null_term_k[s] += b.null_term_k[s]; a.null_term_n[s] += b.null_term_n[s];
+            a.null_intr_k[s] += b.null_intr_k[s]; a.null_intr_n[s] += b.null_intr_n[s];
+        };
+        merge_cf(dst.cf_ga3, src.cf_ga3);
+        merge_cf(dst.cf_ct3, src.cf_ct3);
+        dst.cf_reads[s]     += src.cf_reads[s];
+        dst.cf_len_sum[s]   += src.cf_len_sum[s];
+        dst.cf_len_sumsq[s] += src.cf_len_sumsq[s];
+        dst.cf_igc_num[s]   += src.cf_igc_num[s];
+        dst.cf_igc_den[s]   += src.cf_igc_den[s];
+    }
+    // Per-position terminal pi counts + co-occurrence scalar
+    for (int L = 0; L < SampleDamageProfile::N_PI_LEN; ++L)
+      for (int C = 0; C < SampleDamageProfile::N_PI_C; ++C) {
+        auto mp = [](SampleDamageProfile::PiPosArr& d, const SampleDamageProfile::PiPosArr& s) {
+            for (int p = 0; p < SampleDamageProfile::P_PI; ++p) {
+                d[p].n_elig += s[p].n_elig; d[p].n_deam += s[p].n_deam; } };
+        mp(dst.pi_pos_5prime[L][C],    src.pi_pos_5prime[L][C]);
+        mp(dst.pi_pos_3prime_ds[L][C], src.pi_pos_3prime_ds[L][C]);
+        mp(dst.pi_pos_3prime_ss[L][C], src.pi_pos_3prime_ss[L][C]);
+        dst.pi_cooc[L][C].n        += src.pi_cooc[L][C].n;
+        dst.pi_cooc[L][C].sum_k5k3 += src.pi_cooc[L][C].sum_k5k3;
+      }
     // Merge upstream-context-aware accumulators
     for (int uctx = 0; uctx < SampleDamageProfile::N_UPSTREAM_CTX; ++uctx) {
         for (int p = 0; p < SampleDamageProfile::N_POS; ++p) {
@@ -2059,13 +2203,18 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.tri_5prime_interior.fill(0.0);
     profile.tri_3prime_terminal.fill(0.0);
     profile.tri_3prime_interior.fill(0.0);
-    for (auto& a : profile.tri_5prime_terminal_by_deam) a.fill(0);
-    for (auto& a : profile.tri_5prime_interior_by_deam) a.fill(0);
-    for (auto& a : profile.tri_3prime_terminal_by_deam) a.fill(0);
-    for (auto& a : profile.tri_3prime_interior_by_deam) a.fill(0);
-    profile.deam_stratum_reads.fill(0);
     for (auto& a : profile.tri_5prime_pos) a.fill(0);
     for (auto& a : profile.tri_3prime_pos) a.fill(0);
+    for (auto& strat : profile.tri_5prime_pos_by_deam) for (auto& a : strat) a.fill(0);
+    for (auto& strat : profile.tri_3prime_pos_by_deam) for (auto& a : strat) a.fill(0);
+    profile.cf_ga3 = {};
+    profile.cf_ct3 = {};
+    profile.cf_reads.fill(0); profile.cf_len_sum.fill(0); profile.cf_len_sumsq.fill(0);
+    profile.cf_igc_num.fill(0); profile.cf_igc_den.fill(0);
+    profile.pi_pos_5prime = {};
+    profile.pi_pos_3prime_ds = {};
+    profile.pi_pos_3prime_ss = {};
+    profile.pi_cooc = {};
 
     profile.max_damage_5prime = 0.0f;
     profile.max_damage_3prime = 0.0f;
@@ -2134,9 +2283,9 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
 
     profile.mixture_n_components = 0;
     profile.mixture_d_population = 0.0f;
-    profile.mixture_d_ancient = 0.0f;
+    profile.mixture_d_damaged = 0.0f;
     profile.mixture_d_population_highgc = 0.0f;
-    profile.mixture_pi_ancient = 0.0f;
+    profile.mixture_pi_damaged = 0.0f;
     profile.mixture_bic = 0.0f;
     profile.mixture_converged = false;
     profile.mixture_identifiable = false;
@@ -2151,7 +2300,7 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.gc_peak_bin = -1;
     profile.gc_stratified_valid = false;
     profile.pi_damaged = 0.0f;
-    profile.d_ancient = 0.0f;
+    profile.d_damaged = 0.0f;
     profile.d_population = 0.0f;
     profile.n_damaged_bins = 0;
     profile.n_reads_gc_filtered = 0;

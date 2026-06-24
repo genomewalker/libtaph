@@ -45,8 +45,8 @@ namespace taph {
 
 // Eligibility-stratified per-read damage co-occurrence moments (mixture P2). Conditioning on the
 // per-read damage-channel SITE counts (S5,S3) — which are damage-INVARIANT (C→T preserves T+C) —
-// removes the GC/composition confound, so Cov(k5,k3 | S5,S3) is pure ancient-mixture covariance and
-// the ancient fraction π separates from d_max. JP=5 terminal positions per end; k = #damaged sites.
+// removes the GC/composition confound, so Cov(k5,k3 | S5,S3) is pure damaged-mixture covariance and
+// the damaged fraction π separates from d_max. JP=5 terminal positions per end; k = #damaged sites.
 struct JStrat {
     static constexpr int JP = 5;
     std::array<std::array<uint64_t, JP + 1>, JP + 1> n{};     // [S5][S3] reads
@@ -125,13 +125,13 @@ struct BulkDamagePerBin {
     std::vector<double> profile_delta;    // grid
     std::vector<double> profile_loglik;   // ℓ(δ_l=grid) − ℓ̂  (≤ 0, peak 0 at δ̂_l)
 
-    // mixture P2 — eligibility-conditioned ancient/modern split (per-read two-end co-occurrence)
+    // mixture P2 — eligibility-conditioned damaged/non-damaged split (per-read two-end co-occurrence)
     uint64_t joint_n = 0;                       // reads contributing to the co-occurrence moments
     std::array<double, 2> joint_mean = {0.0, 0.0};  // marginal E[k5], E[k3] (diagnostic)
     double joint_cov = 0.0;                     // marginal Cov(k5,k3) (diagnostic; GC-confounded)
-    double pi_ancient = -1.0;                   // ancient read fraction π_l = δ_l/d_max (−1 = undetermined)
+    double pi_damaged = -1.0;                   // damaged read fraction π_l = δ_l/d_max (−1 = undetermined)
     double pi_lo = -1.0, pi_hi = -1.0;          // π_l 95% interval (threshold-free; spans → undetermined)
-    // C1 cross-file flag: true ONLY when the mixture split was identified for this bin and pi_ancient/
+    // C1 cross-file flag: true ONLY when the mixture split was identified for this bin and pi_damaged/
     // pi_lo/pi_hi hold real probabilities in [0,1]. The −1.0 sentinels are internal-only; profile_json.cpp
     // gates on this flag to emit JSON null instead of −1.0. Default false (reset in fit()).
     bool   pi_identified = false;
@@ -162,7 +162,7 @@ struct BulkDamageResult {
     // BEHAVIORAL CHANGE (C5): default 0.5 (undetermined), not 1.0. The slope-based update below is
     // gated on n>=2 live bins; with exactly 1 live bin the whole block is skipped and w_length must
     // read as undetermined (w≈0.5), NOT full authenticity (1.0). 1.0 over-certified headline_delta_auth
-    // and let the pi_ancient gate (w_length>0.5) pass on a single bin where the slope is undefined.
+    // and let the pi_damaged gate (w_length>0.5) pass on a single bin where the slope is undefined.
     double w_length = 0.5;
 
     // Length-coupling DIAGNOSTIC (post-fit, NOT used in the fit). Sign of the slope of the recovered δ_l
@@ -171,21 +171,21 @@ struct BulkDamageResult {
     double length_coupling_slope = 0.0;   // OLS slope of δ_l vs median_len over live bins
     int    length_coupling = 0;           // sign(slope): −1 decreasing, +1 increasing, 0 flat
 
-    // mixture P2 — shared per-ancient-read deamination intensity d_max (reference-free analog of
+    // mixture P2 — shared per-damaged-read deamination intensity d_max (reference-free analog of
     // metaDMG A_b), estimated from the eligibility-conditioned two-end co-occurrence with δ_l pinned
     // (π_l = δ_l/d_max). d_max = −1 ⇒ undetermined (no length bin carried a usable co-occurrence signal,
     // e.g. δ≈0 everywhere or the artifact gate fired). Threshold-free: d_max_se carries the data's own
     // uncertainty; the per-bin π interval spans → undetermined where the signal can't fix the split.
-    double d_max_ancient = -1.0;
+    double d_max_damaged = -1.0;
     double d_max_se      = 0.0;
     double d_max_raw     = -1.0;   // pre-gate pooled estimate; >1 (non-physical) ⇒ railed ⇒ unidentified
     // C1 cross-file flags (profile_json.cpp reads these to emit JSON null instead of the sentinels):
-    //   d_max_ancient_valid: true ONLY when the split was identified; then d_max_ancient∈(δmax,1) and
-    //     d_max_se is a real SE. When false, d_max_ancient=−1.0 and d_max_se=0.0 are NOT-COMPUTED
+    //   d_max_damaged_valid: true ONLY when the split was identified; then d_max_damaged∈(δmax,1) and
+    //     d_max_se is a real SE. When false, d_max_damaged=−1.0 and d_max_se=0.0 are NOT-COMPUTED
     //     sentinels (se=0.0 must NOT read as zero uncertainty). Default false (reset in fit()).
     //   d_max_raw_railed: true when d_max_raw is non-physical (<0 unset, or >1 railed). When true the
     //     raw value must not be emitted as a rate. Default false (reset in fit()).
-    bool   d_max_ancient_valid = false;
+    bool   d_max_damaged_valid = false;
     bool   d_max_raw_railed    = false;
     bool   lambda_at_boundary  = false;  // C4: true when lambda == LAMBDA_MAX (decay rate unidentifiable)
     bool   ss_overhang_modeled = false;  // Wave-3: ss 5' terminal overhang included in the kernel (r(0)=1);

@@ -33,7 +33,7 @@ struct AncientFractionResult {
     float d_anc5, d_anc3, d_mod5, d_mod3;
 };
 
-// Compute the ancient/modern fraction decomposition from pre-merged bin data.
+// Compute the damaged/non-damaged fraction decomposition from pre-merged bin data.
 //
 // bins[0..n_bins-1]: sorted by a stable key for reproducible float sums.
 // bg5/bg3:           interior background rates (from lsd_cls_params or similar).

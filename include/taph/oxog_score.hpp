@@ -1,5 +1,5 @@
 #pragma once
-// Oxidation co-movement score: reference-free G->T + C->A ancient-vs-modern contrast.
+// Oxidation co-movement score: reference-free G->T + C->A damaged-vs-non-damaged contrast.
 //
 // Usage pattern (mirrors ancient_fraction.hpp):
 //   1. Allocate OxBinAcc bins[N_GC_BINS] = {} per worker thread.
@@ -9,7 +9,7 @@
 //
 // Interpretation:
 //   s_oxog > 0 AND s_ca > 0 -> oxidation-consistent co-movement (G->T and its complement
-//   C->A both enriched in ancient-weighted reads vs modern-weighted reads).
+//   C->A both enriched in damaged-weighted reads vs non-damaged-weighted reads).
 //   Neither positive → no reference-free oxidation signal detected.
 #include <cmath>
 #include <cstdint>
@@ -21,27 +21,27 @@ namespace taph {
 // (s_oxog) and C->A (s_ca) channels plus unweighted totals for D_oriented.
 struct OxBinAcc {
     double A=0,B=0,C=0,D=0;        // q-weighted G->T: A=sum(q*T), B=sum(q*(T+G))
-    double AA=0,AB=0,BB=0;          // second moments (ancient G→T)
-    double CC=0,CD=0,DD=0;          // second moments (modern G→T)
+    double AA=0,AB=0,BB=0;          // second moments (damaged-read G→T)
+    double CC=0,CD=0,DD=0;          // second moments (non-damaged-read G→T)
     double AC=0,AD=0,BC=0,BD=0;     // cross moments
     double M_total=0;
     uint64_t reads=0;
     double T_all=0,TG_all=0;        // unweighted T, T+G (for D_oriented)
     double C_all=0,CA_all=0;        // unweighted C, C+A (for D_oriented)
-    double A_ca=0,B_ca=0;           // q-weighted C->A ancient: A_ca=sum(q*Av), B_ca=sum(q*(Cv+Av))
-    double C_ca=0,D_ca=0;           // q-weighted C->A modern
+    double A_ca=0,B_ca=0;           // q-weighted C->A damaged: A_ca=sum(q*Av), B_ca=sum(q*(Cv+Av))
+    double C_ca=0,D_ca=0;           // q-weighted C->A non-damaged
 };
 static_assert(std::is_trivially_copyable_v<OxBinAcc>);
 
 struct OxScoreResult {
-    double s_oxog     = 0.0;  // ancient G->T rate minus modern (co-movement numerator)
+    double s_oxog     = 0.0;  // damaged-read G->T rate minus non-damaged (co-movement numerator)
     double se_s_oxog  = 0.0;  // standard error of s_oxog
-    double s_ca       = 0.0;  // ancient C->A rate minus modern (co-movement complement)
+    double s_ca       = 0.0;  // damaged-read C->A rate minus non-damaged (co-movement complement)
     double d_oriented = 0.0;  // log(T·A/G·C) ilr contrast (log-odds D_oriented)
     bool   has_score  = false;
 };
 
-// Hot per-read update.  q = ancient weight in [0,1].
+// Hot per-read update.  q = damaged weight in [0,1].
 // T,G,Cv,Av = orientation-corrected middle-third base counts (T+G must be > 0).
 inline void update_ox_bins(OxBinAcc& x, double q, int T, int G, int Cv, int Av) {
     double M   = static_cast<double>(T + G);

@@ -189,6 +189,8 @@ struct SampleDamageProfile {
     //   d_gt_ctx[XGY] = T_rate_term(XGY ∪ XTY) - T_rate_int(XGY ∪ XTY)
     // These feed into the damage-context scores in library_interpretation.
     static constexpr int N_TRINUC = 64;
+    // Gate p+1<len (only a right flank needed). Kept alongside tetra: the d=1 3′
+    // CpG event (second-to-last base) is structurally unrepresentable in 4⁴ tetra.
     std::array<uint64_t, N_TRINUC> tri_5prime_terminal = {};
     std::array<uint64_t, N_TRINUC> tri_5prime_interior = {};
     std::array<uint64_t, N_TRINUC> tri_3prime_terminal = {};
@@ -198,24 +200,15 @@ struct SampleDamageProfile {
     // Encoding: prev*64 + mid*16 + next1*4 + next2  (A=0,C=1,G=2,T=3).
     // 5' terminal = positions 1..4; interior = positions 10..14.
     // Only 5' end is tracked (the damage-bearing strand for DS libraries).
-    // Stratified variant mirrors tri_5prime_terminal_by_deam: reads are binned
-    // by per-read deamination score (0=modern .. N_OX_DEAM_STRATA-1=ancient),
-    // enabling ancient-component 4-mer rates without requiring EM convergence.
+    // Stratified variant: reads are binned by the cross-end deamination proxy
+    // tetra_deam_bin (0=non-damaged .. N_OX_DEAM_STRATA-1=damaged), enabling
+    // damaged-component 4-mer rates without requiring EM convergence.
     static constexpr int N_TETRANUC = 256;
     std::array<uint64_t, N_TETRANUC> tetra_5prime_terminal = {};
     std::array<uint64_t, N_TETRANUC> tetra_5prime_interior = {};
     std::array<std::array<uint64_t, N_TETRANUC>, N_OX_DEAM_STRATA> tetra_5prime_terminal_by_deam = {};
     std::array<std::array<uint64_t, N_TETRANUC>, N_OX_DEAM_STRATA> tetra_5prime_interior_by_deam = {};
 
-    // Trinucleotide spectrum stratified by per-read deam_bin (0=modern .. 4=most ancient): the
-    // composition-controlled, internal-split version of the context-dependent damage. Lets the
-    // C->T (5') / G->A (3') context law be read out for ancient vs modern reads separately
-    // (the mechanistic, stratified replacement for de-novo SBS96 signatures).
-    std::array<std::array<uint64_t, N_TRINUC>, N_OX_DEAM_STRATA> tri_5prime_terminal_by_deam = {};
-    std::array<std::array<uint64_t, N_TRINUC>, N_OX_DEAM_STRATA> tri_5prime_interior_by_deam = {};
-    std::array<std::array<uint64_t, N_TRINUC>, N_OX_DEAM_STRATA> tri_3prime_terminal_by_deam = {};
-    std::array<std::array<uint64_t, N_TRINUC>, N_OX_DEAM_STRATA> tri_3prime_interior_by_deam = {};
-    std::array<uint64_t, N_OX_DEAM_STRATA> deam_stratum_reads = {};  // read count per deam_bin
     double per_read_deam_sum   = 0.0;   // Σ deam_score (reads with score>0)
     double per_read_deam_sumsq = 0.0;   // Σ deam_score²
     uint64_t per_read_deam_n   = 0;     // n reads with deam_score>0
@@ -258,7 +251,6 @@ struct SampleDamageProfile {
     float oxidative_scission_delta = 0.0f;          // legacy name: empirical GG-breakpoint delta_5prime
     float oxidative_scission_delta_5prime = 0.0f;   // primary empirical GG-breakpoint readout
     float oxidative_scission_delta_3prime = 0.0f;   // G->A-deamination-contaminated contrast only
-    std::array<float, N_OX_DEAM_STRATA> oxidative_scission_delta_by_deam = {};  // 5' per deam_bin
 
     // Per-position trinucleotide counts (positions 1..N_POS_TRI-1 from each end).
     // p=1 = second base from end (first with a valid left flank).
@@ -268,6 +260,87 @@ struct SampleDamageProfile {
     static constexpr int N_POS_TRI = 15;
     std::array<std::array<uint64_t, N_TRINUC>, N_POS_TRI> tri_5prime_pos = {};
     std::array<std::array<uint64_t, N_TRINUC>, N_POS_TRI> tri_3prime_pos = {};
+    // Stratified by tetra_deam_bin (cross-end proxy; orthogonal to 5' CT channel).
+    // Enables damaged/non-damaged per-fraction damage_channel_stats without a second FASTQ pass.
+    // Stratum 0 = non-damaged (no cross-end excess) .. N_OX_DEAM_STRATA-1 = heaviest damaged (most deaminated).
+    std::array<std::array<std::array<uint64_t, N_TRINUC>, N_POS_TRI>, N_OX_DEAM_STRATA> tri_5prime_pos_by_deam = {};
+    std::array<std::array<std::array<uint64_t, N_TRINUC>, N_POS_TRI>, N_OX_DEAM_STRATA> tri_3prime_pos_by_deam = {};
+
+    // ---- De-circularized strata -------
+    // The tri_*_by_deam readout above is circular: reads are keyed on their own 3'
+    // terminal excess and that same excess is read back. These accumulators break
+    // the loop by cross-fitting WITHIN the 3' terminus: a per-read position-fold
+    // (fold(off)=(read_hash^off)&1) keys the stratum from one fold and reads the
+    // misincorporation rate from the HELD-OUT fold (both directions pooled). The
+    // held-out gradient is ~0 under H0, so a surviving gradient is not a
+    // selection-on-noise artifact. _null arrays read the same held-out fold under a
+    // damage-INDEPENDENT permuted key (uniform hash) — the noise floor the real
+    // gradient must clear. Needs no 5' end, so artifact-dead 5' termini are moot.
+    struct CrossFitStrata {
+        std::array<uint64_t, N_OX_DEAM_STRATA> term_k = {};   // held-out terminal successes (A for ga3, T for ct3)
+        std::array<uint64_t, N_OX_DEAM_STRATA> term_n = {};   // held-out terminal trials (A+G / T+C)
+        std::array<uint64_t, N_OX_DEAM_STRATA> intr_k = {};   // held-out interior successes (decoupled baseline)
+        std::array<uint64_t, N_OX_DEAM_STRATA> intr_n = {};
+        std::array<uint64_t, N_OX_DEAM_STRATA> null_term_k = {};   // permuted-key noise floor
+        std::array<uint64_t, N_OX_DEAM_STRATA> null_term_n = {};
+        std::array<uint64_t, N_OX_DEAM_STRATA> null_intr_k = {};
+        std::array<uint64_t, N_OX_DEAM_STRATA> null_intr_n = {};
+    };
+    CrossFitStrata cf_ga3 = {};   // ds axis: 3' A/(A+G)  (G->A read as A)
+    CrossFitStrata cf_ct3 = {};   // ss axis: 3' T/(T+C)  (C->T read as T)
+    // Per-stratum descriptive stats (keyed on full-read tetra_deam_bin, not cross-fit):
+    // length monotonicity (genuine damage => shorter) and interior GC (composition-sort gate).
+    std::array<uint64_t, N_OX_DEAM_STRATA> cf_reads     = {};
+    std::array<uint64_t, N_OX_DEAM_STRATA> cf_len_sum   = {};
+    std::array<uint64_t, N_OX_DEAM_STRATA> cf_len_sumsq = {};
+    std::array<uint64_t, N_OX_DEAM_STRATA> cf_igc_num   = {};   // interior G+C count
+    std::array<uint64_t, N_OX_DEAM_STRATA> cf_igc_den   = {};   // interior total
+
+    // ---- Two-end joint damage moments for an identifiable damaged-fraction pi --------------
+    // (.scripts/p2_conditioned_realdata.py + dual-c619ee55 room verdict). Per-read terminal damage
+    // CO-OCCURRENCE: 5' window pos 0..P_PI-1: S5=#(T,C) eligible C->T sites, k5=#T; 3' window offsets
+    // 1..P_PI-1 (last base skipped, ss ligation artifact): ds S3=#(A,G)/k3=#A, ss S3=#(T,C)/k3=#T.
+    // Conditioning on the DAMAGE-INVARIANT eligibility (S5,S3) removes the GC/composition covariance
+    // (validated: damage~GC is real chemistry, not a confound — but eligibility-matching neutralizes the
+    // estimator-side GC bias); the within-read k5*k3 covariance identifies pi (the 2nd moment the
+    // first-order len_bins lack). Stratified ALSO by fragmentation source so the modref anchor stays
+    // valid under physical/mineral breakage (marine: short != ancient). F_class (C_bin) = the 5' C->T
+    // decay CENTROID (overhang-length proxy; rides the z~18 deamination channel, NOT the z~1.2 terminal
+    // purine). C_bin 0 = no 5' damage event (uninformative); 1 = blunt/short overhang; 2 = broad overhang.
+    static constexpr int P_PI     = 5;          // terminal window (5': pos 0..4; 3': pos 0..4 from 3' end)
+    static constexpr int N_PI_LEN = 6;          // coarse length bins (edges in pi_len_bin())
+    static constexpr int N_PI_C   = 3;          // F_class: 0=no-event, 1=blunt, 2=broad overhang
+    // PER-POSITION TERMINAL COUNTS that finalize_tau + the per-read LLR consume directly.
+    // For each (L_bin, C_bin, terminal position p) store the damage-eligible site count (n_elig)
+    // and the damage-allele count (n_deam). Eligibility is the DAMAGE-INVARIANT channel:
+    //   5'     elig = T+C, deam = T  (C->T read as T)
+    //   3' ds  elig = A+G, deam = A  (G->A read as A)
+    //   3' ss  elig = T+C, deam = T  (C->T read as T)
+    // Both ds and ss 3' channels are accumulated (library-agnostic at accumulate time; the
+    // library call is made downstream by finalize_tau / read_ancient_llr). Fixed-size and
+    // thread-mergeable by summation. ~360 counts total (vs the old moment cube).
+    struct PiPosCount { uint64_t n_elig = 0, n_deam = 0; };
+    using PiPosArr = std::array<PiPosCount, P_PI>;                       // indexed by terminal position p
+    using PiPosCube = std::array<std::array<PiPosArr, N_PI_C>, N_PI_LEN>; // [L][C][p]
+    PiPosCube pi_pos_5prime = {};   // 5' C->T channel (shared by both libraries)
+    PiPosCube pi_pos_3prime_ds = {}; // 3' G->A channel (ds library)
+    PiPosCube pi_pos_3prime_ss = {}; // 3' C->T channel (ss library)
+
+    // Single scalar both-end co-occurrence feature per (L_bin,C_bin), ONLY for the per-read
+    // artifact-covariance gate (NOT an estimator input). sum_k5k3 = within-read product of 5'
+    // and 3' damage-allele counts; n = reads contributing. ds 3' channel used for k3.
+    struct PiCooc { uint64_t n = 0, sum_k5k3 = 0; };
+    std::array<std::array<PiCooc, N_PI_C>, N_PI_LEN> pi_cooc = {};   // [L][C]
+
+    // Fixed length-bin edges for the pi accumulator (bp). Streaming-safe (no quantiles at accumulate time).
+    static int pi_len_bin(int L) {
+        if (L < 40)  return 0;
+        if (L < 55)  return 1;
+        if (L < 75)  return 2;
+        if (L < 100) return 3;
+        if (L < 140) return 4;
+        return 5;
+    }
 
     // Reference-free oxidation-like composition contrast.
     // Reads are first stratified by read-local terminal deamination excess.
@@ -442,7 +515,11 @@ struct SampleDamageProfile {
     // it is NOT comparable across libraries of different coverage. Use the per-read
     // companion below for cross-library confidence comparison.
     double      library_bic_margin = 0.0;     // second_BIC - winner_BIC (>=0; bigger = more confident, same-library only)
-    double      library_bic_margin_per_read = 0.0;  // margin / bg_denominator_5prime (coverage-normalised; comparable across libraries)
+    double      library_bic_margin_per_obs = 0.0;  // margin / max(bg_denominator_5prime, 3prime) (per background base-trial; comparable across libraries)
+    // True when the raw margin exceeds 160 ⇒ the per-class softmax log-weight clamp
+    // (half = (bmin-bic)*0.5 floored at -80) underflowed the loser weight, pinning
+    // library_p_winner to ~1.0. Marks numerical saturation, not a genuinely small margin.
+    bool        library_bic_saturated = false;
     // C5: top-level winner-model can contradict library_type after a post-hoc veto.
     // These co-locate the resolving signals so the contradiction is machine-visible
     // without reading the nested bic section.
@@ -636,8 +713,8 @@ struct SampleDamageProfile {
     // Per-ancient amplitude LOWER BOUND (Correction 2, audit-corrected). A_b_true = amp / π_dmg with
     // π_dmg ∈ (0,1], so A_b_true ∈ [amp, ∞): the attenuated amp is a rigorous lower bound and the upper
     // bound is UNIDENTIFIED reference-free (a finite ceiling would smuggle in a π_dmg ≥ threshold prior).
-    // terminal_ct_mixture_amp / w_ancient is NEVER emitted as a quotient point.
-    float per_ancient_A_b_lower = 0.0f;  // = terminal_ct_mixture_amp
+    // terminal_ct_mixture_amp / w_damaged is NEVER emitted as a quotient point.
+    float per_damaged_A_b_lower = 0.0f;  // = terminal_ct_mixture_amp
     float asymmetry = 0.0f;  // |D_5p - D_3p| / ((D_5p + D_3p) / 2)
     bool high_asymmetry = false;  // True if asymmetry > 0.5 (possible artifact)
 
@@ -654,35 +731,35 @@ struct SampleDamageProfile {
     // d5 flat while d3 has real decay → 5' overhang blunted before adapter ligation
     bool  d5_blunting_suspected   = false;
 
-    // Ancient-fraction d_max: damage estimated only from reads classified as ancient
+    // Damaged-fraction d_max: damage estimated only from reads classified as damaged
     // by the per-read LLR scorer (fused into the oxoG pass inside fqdup profile).
     // Comparable to metaDMG per-reference "damaged fraction" values.
     bool    damaged_fraction_valid = false;
     float   damaged_fraction_d5    = 0.0f;
     float   damaged_fraction_d3    = 0.0f;
-    float   damaged_fraction_pi    = 0.0f;   // fraction of reads classified as ancient
-    int64_t damaged_fraction_n     = 0;      // count of reads classified as ancient
-    float   modern_fraction_d5     = 0.0f;   // d_max_5prime for reads classified as modern
-    float   modern_fraction_d3     = 0.0f;
+    float   damaged_fraction_pi    = 0.0f;   // fraction of reads classified as damaged
+    int64_t damaged_fraction_n     = 0;      // count of reads classified as damaged
+    float   nondamaged_fraction_d5     = 0.0f;   // d_max_5prime for reads classified as non-damaged
+    float   nondamaged_fraction_d3     = 0.0f;
     // Independently-fitted deamination profiles for each fraction (log-linear regression
     // over all N_POS positions). _fit fields are the fitted d_max; _lambda are decay rates.
     float   damaged_fraction_d5_fit  = 0.0f;
     float   damaged_fraction_lambda5 = 0.0f;
     float   damaged_fraction_d3_fit  = 0.0f;
     float   damaged_fraction_lambda3 = 0.0f;
-    float   modern_fraction_d5_fit   = 0.0f;
-    float   modern_fraction_lambda5  = 0.0f;
-    float   modern_fraction_d3_fit   = 0.0f;
-    float   modern_fraction_lambda3  = 0.0f;
+    float   nondamaged_fraction_d5_fit   = 0.0f;
+    float   nondamaged_fraction_lambda5  = 0.0f;
+    float   nondamaged_fraction_d3_fit   = 0.0f;
+    float   nondamaged_fraction_lambda3  = 0.0f;
     // Per-position raw rates for fraction damage curves (0 = no data / below coverage gate)
-    std::array<float, 15> damaged_fraction_rate5{};  // T/TC(p) for ancient 5'
-    std::array<float, 15> damaged_fraction_rate3{};  // signal/denom for ancient 3'
-    std::array<float, 15> modern_fraction_rate5{};   // T/TC(p) for modern 5'
-    std::array<float, 15> modern_fraction_rate3{};   // signal/denom for modern 3'
-    bool    modern_fraction_leakage_5prime = false;
-    bool    modern_fraction_leakage_3prime = false;
-    bool    modern_fraction_d5_computed = false;  // true only when mod_tc5[0] >= 50
-    bool    modern_fraction_d3_computed = false;  // true only when mod_n3[0]  >= 50
+    std::array<float, 15> damaged_fraction_rate5{};  // T/TC(p) for damaged 5'
+    std::array<float, 15> damaged_fraction_rate3{};  // signal/denom for damaged 3'
+    std::array<float, 15> nondamaged_fraction_rate5{};   // T/TC(p) for non-damaged 5'
+    std::array<float, 15> nondamaged_fraction_rate3{};   // signal/denom for non-damaged 3'
+    bool    nondamaged_fraction_leakage_5prime = false;
+    bool    nondamaged_fraction_leakage_3prime = false;
+    bool    nondamaged_fraction_d5_computed = false;  // true only when mod_tc5[0] >= 50
+    bool    nondamaged_fraction_d3_computed = false;  // true only when mod_n3[0]  >= 50
 
     // Track source of d_max_combined estimate
     enum class DmaxSource { AVERAGE, MIN_ASYMMETRY, MAX_SS_ASYMMETRY,
@@ -1264,7 +1341,7 @@ struct SampleDamageProfile {
     bool gc_stratified_valid = false;            // At least one bin has valid estimate
 
     float pi_damaged = 0.0f;          // Fraction of terminal obs from damaged bins
-    float d_ancient = 0.0f;           // E[δ | damaged bins] - severity among damaged
+    float d_damaged = 0.0f;           // E[δ | damaged bins] - severity among damaged
     float d_population = 0.0f;        // E[δ] over all bins - average across all DNA
     int n_damaged_bins = 0;           // Number of bins classified as damaged
 
@@ -1293,17 +1370,23 @@ struct SampleDamageProfile {
     double bulk_headline_delta = 0.0;  // read-weighted δ̂ over identified length bins
     bool   bulk_attempted = false;     // fit ran (>= 1 valid length bin)
 
-    // Validated reference-free ancient fraction (SOLUTION_pi_delta_dmax.md §6.3): pi_l = clip(δ_0 /
+    // Validated reference-free damaged fraction (SOLUTION_pi_delta_dmax.md §6.3): pi_l = clip(δ_0 /
     // D_MAX_CONSERVED) for the shortest live bin, w_length-gated, with a profile-likelihood CI. First-class
     // contract output (point+CI+3-state); set by finalize_pi. Shadow-mode step 1 — coexists with the
     // legacy mixture path, no consumer wired. The per-bin gradient stays available via bulk_damage.bins.
     DamageEstimate pi;
+    float cpg_delta_bilateral = std::numeric_limits<float>::quiet_NaN(); // bilateral min(5′,3′GA) CpG Δ
 
     // Reference-free length-decay constant τ (bp) of δ(L)≈A·exp(−L/τ), set by finalize_tau before
     // finalize_pi. point/lo/hi are τ̂ and its 95% χ²-profile interval; state gates the pi consumer
     // (DETECTED ⇒ fast terminal decay; pervasive artifact ⇒ τ→∞ ⇒ NOT_DETECTED). Shadow-mode contract
     // output alongside pi; correct-axis replacement for the per-position Briggs λ on the ref-free path.
     DamageEstimate tau;
+
+    // Per-position terminal-decay Briggs fit of the 5′ C→T channel from pi_pos_5prime. Set by
+    // finalize_tau (alongside tau); its shape LRT (decay vs flat null) is the DETECTED/ABSTAIN
+    // precondition finalize_pi gates on before forming a pi range from the fitted amplitude A.
+    PiShapeFit pi_shape;
 
     // Reference-free scission rate γ (bp⁻¹) from the fine fragment-length histogram.
     // Set by finalize_scission; models the right tail as exp(−γ·(L−L_mode)).
@@ -1329,21 +1412,21 @@ struct SampleDamageProfile {
     // Mixture model results (K-component EM over GC-stratified bins)
     int mixture_n_components = 0;      // Number of classes selected by BIC
     float mixture_d_population = 0.0f; // E[δ] over all C-sites
-    float mixture_d_ancient = 0.0f;    // E[δ | δ > 5%] (ancient tail)
+    float mixture_d_damaged = 0.0f;    // E[δ | δ > 5%] (damaged tail)
     float mixture_d_population_highgc = 0.0f;  // E[δ | GC >= 50%] — high-GC-weighted mean (diagnostic only)
-    float mixture_pi_ancient = 0.0f;   // Fraction of C-sites in high-damage classes
+    float mixture_pi_damaged = 0.0f;   // Fraction of C-sites in high-damage classes
     float mixture_bic = 0.0f;          // BIC for model selection
     bool mixture_converged = false;    // Did EM converge?
     bool mixture_identifiable = false; // Are non-trivial classes well-separated?
-    // Correction 2: EM ancient-component weight surfaced beside terminal_ct_mixture_amp. This is the
-    // w_ancient (= mixture_pi_ancient) used only to document the attenuation; it is NEVER divided into
-    // the amplitude to form a per-ancient point estimate (that quotient is unidentifiable reference-free).
-    enum class WAncientGate { UNAVAILABLE, UNDETERMINED, IDENTIFIED };
-    WAncientGate w_ancient_gate = WAncientGate::UNAVAILABLE;
-    const char* w_ancient_gate_str() const {
-        switch (w_ancient_gate) {
-            case WAncientGate::IDENTIFIED:   return "identified";
-            case WAncientGate::UNDETERMINED: return "undetermined";
+    // Correction 2: EM damaged-component weight surfaced beside terminal_ct_mixture_amp. This is the
+    // w_damaged (= mixture_pi_damaged) used only to document the attenuation; it is NEVER divided into
+    // the amplitude to form a per-damaged-read point estimate (that quotient is unidentifiable reference-free).
+    enum class WDamagedGate { UNAVAILABLE, UNDETERMINED, IDENTIFIED };
+    WDamagedGate w_damaged_gate = WDamagedGate::UNAVAILABLE;
+    const char* w_damaged_gate_str() const {
+        switch (w_damaged_gate) {
+            case WDamagedGate::IDENTIFIED:   return "identified";
+            case WDamagedGate::UNDETERMINED: return "undetermined";
             default:                         return "unavailable";
         }
     }
