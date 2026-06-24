@@ -3,6 +3,8 @@
 // Validated reference-free ancient-fraction contract types (SOLUTION_pi_delta_dmax.md §6).
 // Additive shadow-mode step 1: these coexist with the legacy mixture path; no consumer is wired yet.
 
+#include <cmath>
+
 namespace taph {
 
 // Cohort-conserved per-ancient terminal C→T amplitude (mapping A_b cohort mean; SOLUTION §2).
@@ -58,13 +60,15 @@ constexpr double PI_CH5_AMP_THR = 0.015;
 constexpr double PI_SS_RESID_MAX = 0.15;
 
 // Terminal ->G overcall artifact threshold (low-abundance cascade degeneracy guard). The raw G-fraction
-// (full base composition) must exceed the interior baseline by at least this much BOTH at the terminus
-// (pos0-1) AND sustained into the inner window (pos2-4) to register a dead-end ->G overcall. The empirical
-// overcall (FLB57md 5', VALIDATED) is a SUSTAINED plateau: raw G ~0.43-0.73 vs interior ~0.23 from pos0
-// through pos4 (peak excess ~+0.50, inner-window excess ~+0.31), NOT a sharp pos0-1 spike. The flag is
-// artifact-specific BY CONSTRUCTION: a positive raw-G excess cannot arise from terminal deamination (5'
-// C->T leaves G untouched; 3' G->A DEPLETES G), so it never gates out a genuine G-enriched live (G->A)
-// end. ceiling: 0.05 placeholder calibrated on FLB57md's dead 5' plateau; recalibrate via gargammel titration.
+// (full ACGT composition) at BOTH terminal positions p0 AND p1 must exceed the interior baseline by at
+// least this much to register a dead-end ->G overcall (the dead test is min(g_p0,g_p1)-g_int >= THR).
+// Measured on correct units (raw ACGT snapshots, commit 91de2f7), the empirical overcall (FLB57md 5',
+// VALIDATED) is a SHARP 2-cycle spike: raw G ~0.48/0.43 at p0/p1 then decays to interior (~0.27) by p2 --
+// NOT the sustained plateau the old unit-mixed denominator (G/(A+G), excluding T+C) implied. Requiring
+// BOTH terminal positions elevated rejects a single-position noise blip. The flag is artifact-specific BY
+// CONSTRUCTION: a positive raw-G excess cannot arise from terminal deamination (5' C->T leaves G untouched;
+// 3' G->A DEPLETES G), so it never gates out a genuine G-enriched live (G->A) end. ceiling: 0.05
+// placeholder calibrated on FLB57md's dead 5' spike; recalibrate via gargammel titration.
 constexpr double ARTIFACT_G_SPIKE_THR = 0.05;
 
 // Detection-floor minimum: the live-end terminal window must carry at least this many eligible (C-bearing,
@@ -98,6 +102,44 @@ struct DamageEstimate {
     double overhang_lo       = -1.0;  // 95% CI lower (delta method; −1 when projected to boundary)
     double overhang_hi       = -1.0;  // 95% CI upper
 };
+
+// ── Reference-free read-split decision policy (shared: fqdup split, dart, fastst) ─────────────
+// Maps the validated pi estimate to a per-read LLR threshold shift. The per-read damage LLR is
+// Bayes-thresholded at posterior 0.5 ⇔ llr ≥ −log(pi/(1−pi)); shifting the base cut by the prior
+// log-odds is the statistically correct operating point (a low-pi library is not flooded with reads
+// that barely cross llr=0). NOTE: the split is ENRICHMENT, not a clean partition — reference-free
+// per-read AUC ≈ 0.59, so the damaged set is pi-calibrated IN EXPECTATION, never molecularly pure.
+struct SplitPolicy {
+    bool   splittable     = false;  // false ⇒ no damaged stratum (blank/ABSTAIN/BELOW_FLOOR): route all undamaged
+    double pi             = -1.0;   // operating-point prior (point estimate)
+    double pi_lo          = -1.0;
+    double pi_hi          = -1.0;
+    double log_prior_odds = 0.0;    // effective cut = base_llr_cut − log_prior_odds
+    DamageConfidence state = DamageConfidence::UNDETERMINED;
+};
+
+// Split-eligible only when pi is a positive, identifiable point: DETECTED / LOW_ABUNDANCE / TRACE /
+// ANCIENT_CPG. ABSTAIN-equivalents (NOT_DETECTED, UNDETERMINED) and the upper-bound-only BELOW_FLOOR
+// carry no point ⇒ no damaged stratum, so all reads route undamaged.
+inline SplitPolicy split_policy(const DamageEstimate& est) {
+    SplitPolicy p;
+    p.state = est.state;
+    p.pi_lo = est.lo;
+    p.pi_hi = est.hi;
+    const bool eligible_state =
+        est.state == DamageConfidence::DETECTED      ||
+        est.state == DamageConfidence::LOW_ABUNDANCE ||
+        est.state == DamageConfidence::TRACE         ||
+        est.state == DamageConfidence::ANCIENT_CPG;
+    if (eligible_state && est.point > 0.0) {
+        double pi = est.point;
+        if (pi < 1e-6) pi = 1e-6; else if (pi > 1.0 - 1e-6) pi = 1.0 - 1e-6;
+        p.splittable     = true;
+        p.pi             = pi;
+        p.log_prior_odds = std::log(pi / (1.0 - pi));
+    }
+    return p;
+}
 
 // Per-position terminal-decay Briggs fit of the 5′ C→T channel from the pi_pos_5prime counts:
 // r(p) = baseline + (1−baseline)·A·exp(−λ·p), p = 0..P_PI−1. Fit by Briggs/Zhao-2025 closed-form
