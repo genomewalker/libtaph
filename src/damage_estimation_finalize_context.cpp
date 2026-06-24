@@ -446,17 +446,32 @@ void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
         // (finalize_pi gates on tau.state), but the per-read decay constant still does; nulling λ here
         // would silently change every legacy path. Removing it requires migrating read_ancient_llr to a
         // τ-derived per-read decay first — out of scope for the additive τ step.
+        // estimate_briggs_params re-fits the per-position λ and overwrites lambda_*prime by reference.
+        // For terminal-artifact libraries (NovaSeq pos0 ->G suppression -> non-monotonic per-position
+        // decay, e.g. FLB) this per-position fit FAILS and writes fitted=false + a default λ, clobbering
+        // the VALID read-length-decay λ already set above from finalize_decay's fit (ctx.fit_lambda_5p).
+        // That silently disabled the ref-free per-read LLR (read_ancient_llr.cpp gate on *_fitted) and
+        // emitted null λ. Both are per-position decay estimators on the same axis, so when the Briggs fit
+        // fails we keep the finalize_decay λ rather than letting a failed fit null a valid constant.
+        const float  ld5 = profile.lambda_5prime; const bool lf5 = profile.lambda_5prime_fitted;
+        const float  ld3 = profile.lambda_3prime; const bool lf3 = profile.lambda_3prime_fitted;
         estimate_briggs_params(profile.damage_rate_5prime, profile.max_damage_5prime,
                                start5, fb5,
                                profile.delta_s_5prime, profile.delta_d_5prime,
                                profile.lambda_5prime, profile.r_squared_5prime,
                                profile.lambda_5prime_fitted);
+        if (!profile.lambda_5prime_fitted && lf5) {
+            profile.lambda_5prime = ld5; profile.lambda_5prime_fitted = true;
+        }
 
         estimate_briggs_params(profile.damage_rate_3prime, profile.max_damage_3prime,
                                start3, fb3,
                                profile.delta_s_3prime, profile.delta_d_3prime,
                                profile.lambda_3prime, profile.r_squared_3prime,
                                profile.lambda_3prime_fitted);
+        if (!profile.lambda_3prime_fitted && lf3) {
+            profile.lambda_3prime = ld3; profile.lambda_3prime_fitted = true;
+        }
 
         // Headline area-excess + LR companion vs bg-only null over k..14.
         // Uses RAW per-position T/(T+C) rates (t_freq_5prime / a_freq_3prime,
