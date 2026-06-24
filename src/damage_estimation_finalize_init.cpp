@@ -305,6 +305,19 @@ void finalize_init(SampleDamageProfile& profile, FinalCtx& ctx) {
         }
     }
 
+    // Snapshot raw ACGT terminal counts BEFORE the in-place normalization below
+    // (the artifact_g_excess ->G-overcall flag needs G over the full ACGT total).
+    for (int i = 0; i < 15; ++i) {
+        profile.a_freq_5prime_raw[i] = profile.a_freq_5prime[i];
+        profile.g_freq_5prime_raw[i] = profile.g_freq_5prime[i];
+        profile.t_freq_5prime_raw[i] = profile.t_freq_5prime[i];
+        profile.c_freq_5prime_raw[i] = profile.c_freq_5prime[i];
+        profile.a_freq_3prime_raw[i] = profile.a_freq_3prime[i];
+        profile.g_freq_3prime_raw[i] = profile.g_freq_3prime[i];
+        profile.t_freq_3prime_raw[i] = profile.t_freq_3prime[i];
+        profile.c_freq_3prime_raw[i] = profile.c_freq_3prime[i];
+    }
+
     // Step 1: Normalize position-specific frequencies (but don't compute damage rates yet)
     for (int i = 0; i < 15; ++i) {
         double tc_total = profile.t_freq_5prime[i] + profile.c_freq_5prime[i];

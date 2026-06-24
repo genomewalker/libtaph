@@ -59,6 +59,20 @@ struct SampleDamageProfile {
     std::array<double, 15> t_freq_3prime = {};  // T count at each position (control)
     std::array<double, 15> c_freq_3prime = {};  // C count at each position (control)
 
+    // Raw ACGT terminal counts, snapshotted in finalize_init BEFORE the in-place
+    // count->fraction normalization (5' t/c and 3' a/g get overwritten with fractions
+    // while their partners stay raw counts). The artifact_g_excess ->G-overcall flag
+    // must divide G by the FULL ACGT total per position; reading the live arrays mixed
+    // units (zeroed the 3' flag, biased the 5' flag high). g_excess_spike uses these.
+    std::array<double, 15> a_freq_5prime_raw = {};
+    std::array<double, 15> g_freq_5prime_raw = {};
+    std::array<double, 15> t_freq_5prime_raw = {};
+    std::array<double, 15> c_freq_5prime_raw = {};
+    std::array<double, 15> a_freq_3prime_raw = {};
+    std::array<double, 15> g_freq_3prime_raw = {};
+    std::array<double, 15> t_freq_3prime_raw = {};
+    std::array<double, 15> c_freq_3prime_raw = {};
+
     // TERMINAL RAW G-CALL RATE for the low-abundance artifact flag (degeneracy guard).
     // The per-position raw G-fraction over the FULL base composition is:
     //   G_frac_3prime(p) = g_freq_3prime[p] / (a_freq_3prime[p]+g_freq_3prime[p]+t_freq_3prime[p]+c_freq_3prime[p])

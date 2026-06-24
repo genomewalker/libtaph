@@ -468,27 +468,27 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
                 const double tot = a[p] + g[p] + t[p] + c[p];
                 return tot > 0.0 ? g[p] / tot : 0.0;
             };
-            // Peak raw-G excess over interior at the terminus (pos0-1).
-            const double peak = std::max(gfrac(0), gfrac(1)) - g_int;
             // ARTIFACT-SPECIFICITY BY CONSTRUCTION: genuine terminal deamination NEVER raises raw G at
             // either end — 5' C->T leaves G untouched, 3' G->A DEPLETES G — so a POSITIVE raw-G excess
             // cannot be a real decaying channel and never gates out a genuine G-enriched (G->A) live end.
-            // The empirical ->G overcall (FLB57md 5') is a SUSTAINED plateau, not a sharp pos0-1 spike:
-            // it stays well above interior through pos2-4 (raw-G ~0.43 vs interior ~0.23 at p4). We require
-            // the excess to be both LARGE at the terminus AND SUSTAINED into the inner window — a sustained
-            // positive raw-G excess is the dead-end signature; a one-position blip is rejected. The
-            // decay-shaped vs spike discrimination is carried by live_end_decay_lrt on the OPPOSITE
-            // (eligible-channel) end; this raw-G flag only marks WHICH end is artifact-dead.
-            double inner = 0.0;
-            for (int p = 2; p <= 4; ++p) inner = std::max(inner, gfrac(p) - g_int);
-            const bool dead = (peak >= ARTIFACT_G_SPIKE_THR) && (inner >= ARTIFACT_G_SPIKE_THR);
-            return {dead, static_cast<float>(std::max(0.0, peak))};
+            // Measured over the FULL ACGT composition (raw snapshots), the ->G overcall is a SHARP 2-cycle
+            // terminal spike: FLB57md 5' raw-G is 0.48/0.43 at p0/p1 then decays to interior (~0.27) by p2.
+            // (The old "sustained plateau" was an artifact of a unit-mixed denominator that excluded T+C.)
+            // Require BOTH terminal positions p0 AND p1 elevated >= THR over interior: that is the genuine
+            // 2-color overcall shape and rejects a single-position noise blip (e.g. a lone elevated p0).
+            // The decay-shaped vs spike discrimination on the OPPOSITE (eligible) end is carried separately
+            // by live_end_decay_lrt; this raw-G flag only marks WHICH end is artifact-dead.
+            const double spike = std::min(gfrac(0), gfrac(1)) - g_int;  // both terminal positions elevated
+            const bool dead = spike >= ARTIFACT_G_SPIKE_THR;
+            return {dead, static_cast<float>(std::max(0.0, spike))};
         };
 
-        auto [sp5, ex5] = g_excess_spike(profile.a_freq_5prime, profile.g_freq_5prime,
-                                         profile.t_freq_5prime, profile.c_freq_5prime);
-        auto [sp3, ex3] = g_excess_spike(profile.a_freq_3prime, profile.g_freq_3prime,
-                                         profile.t_freq_3prime, profile.c_freq_3prime);
+        // Use the raw ACGT snapshots (finalize_init captures them before normalizing
+        // 5' t/c and 3' a/g in place); the live arrays mix counts and fractions here.
+        auto [sp5, ex5] = g_excess_spike(profile.a_freq_5prime_raw, profile.g_freq_5prime_raw,
+                                         profile.t_freq_5prime_raw, profile.c_freq_5prime_raw);
+        auto [sp3, ex3] = g_excess_spike(profile.a_freq_3prime_raw, profile.g_freq_3prime_raw,
+                                         profile.t_freq_3prime_raw, profile.c_freq_3prime_raw);
         profile.artifact_overcall_5p = sp5;
         profile.artifact_overcall_3p = sp3;
         profile.artifact_g_excess_5p = ex5;
