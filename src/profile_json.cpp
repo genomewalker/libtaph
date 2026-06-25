@@ -211,6 +211,59 @@ void profile_to_json(const SampleDamageProfile& dp,
         (dp.damage_status == SP::DamageStatus::WEAK)    ? "weak"    : "absent";
     j << "  \"damage_status\": \"" << ds_str << "\",\n";
 
+    // ── Canonical multi-axis verdict (schema v3.1) ────────────────────────────
+    // ONE place for the per-axis call + a `source` pointer to its AUTHORITATIVE readout, so a reader
+    // never has to guess which of the scattered fields is primary (the error gc_depletion/d_max_combined/
+    // ox_like_excess all caused). These are not new computations — they reference the canonical fields.
+    {
+        auto conf_str = [](DamageConfidence s) -> const char* {
+            switch (s) {
+                case DamageConfidence::DETECTED:      return "DETECTED";
+                case DamageConfidence::TRACE:         return "TRACE";
+                case DamageConfidence::ANCIENT_CPG:   return "ANCIENT_CPG";
+                case DamageConfidence::LOW_ABUNDANCE: return "LOW_ABUNDANCE";
+                case DamageConfidence::BELOW_FLOOR:   return "BELOW_FLOOR";
+                case DamageConfidence::NOT_DETECTED:  return "NOT_DETECTED";
+                default:                              return "UNDETERMINED";
+            }
+        };
+        const auto& otmv = dp.oxidation_comovement;  // the computed two-marker struct (emitted as "oxo_two_marker")
+        // Oxidation call keys on beta1 (G->T): the manuscript's environmental oxidation signal, elevated
+        // in BOTH ds and ss ancient (delta_beta=beta1-beta2 collapses for ss where C->A is also up).
+        // markers_consistent=false flags the ss-blank composition artifact. Threshold from FLB blanks:
+        // clean ds extraction blanks beta1~0.0035, real samples beta1 0.017-0.030.
+        const char* ox_call = !otmv.valid              ? "na"
+                            : !otmv.markers_consistent ? "artifact"
+                            : (otmv.beta1 >= 0.01)     ? "present"
+                                                       : "none";
+        auto jn = [&](double v) { if (std::isfinite(v) && v >= 0.0) j << std::setprecision(6) << v; else j << "null"; };
+        // Match pi_estimate's gated state EXACTLY (identifiable point inside its own CI, else ABSTAIN /
+        // upper-bound-only BELOW_FLOOR) so the canonical verdict never disagrees with the detail block.
+        const bool pi_ident = std::isfinite(dp.pi.point) && dp.pi.point >= 0.0 &&
+                              std::isfinite(dp.pi.lo) && std::isfinite(dp.pi.hi) &&
+                              dp.pi.hi >= dp.pi.lo && dp.pi.point >= dp.pi.lo && dp.pi.point <= dp.pi.hi;
+        const bool pi_ub_only = dp.pi.state == DamageConfidence::BELOW_FLOOR &&
+                                std::isfinite(dp.pi.hi) && dp.pi.hi >= 0.0;
+        const char* frac_state = pi_ident ? conf_str(dp.pi.state) : (pi_ub_only ? "BELOW_FLOOR" : "ABSTAIN");
+        j << "  \"verdict\": {\n";
+        j << "    \"deamination\":      {\"call\": \"" << ds_str
+          << "\", \"source\": \"damage_status / deamination.d_max_5prime\", \"d_max_5prime\": ";
+        jn(dp.d_max_5prime); j << "},\n";
+        j << "    \"damaged_fraction\": {\"state\": \"" << frac_state
+          << "\", \"source\": \"pi_estimate\", \"pi\": "; if (pi_ident) jn(dp.pi.point); else j << "null"; j << "},\n";
+        j << "    \"oxidation\":        {\"call\": \"" << ox_call
+          << "\", \"source\": \"oxo_two_marker (G->T beta1)\", \"g_to_t_beta\": " << std::setprecision(6) << otmv.beta1
+          << ", \"markers_consistent\": " << (otmv.markers_consistent ? "true" : "false")
+          << ", \"is_ancient_specific\": false},\n";
+        j << "    \"preservation\":     {\"tier\": \"" << dp.preservation_label_str()
+          << "\", \"source\": \"preservation.score\", \"score\": " << std::setprecision(6) << dp.preservation_score << "},\n";
+        j << "    \"note\": \"Canonical per-axis calls; each `source` points to the authoritative readout. "
+             "deamination = age-bearing terminal C->T (the only ancient-vs-modern discriminator). "
+             "damaged_fraction = pi (deamination-defined strata). oxidation = oxo_two_marker G->T, REAL but "
+             "NOT ancient-specific (also from sample prep). preservation = aggregate index.\"\n";
+        j << "  },\n";
+    }
+
     // ── Deamination ───────────────────────────────────────────────────────────
     j << "  \"deamination\": {\n";
     // An undetectable fit (lower-boundary collapse / artifact) sets d_max_source=NONE and zeroes
