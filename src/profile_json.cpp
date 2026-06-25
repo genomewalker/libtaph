@@ -1689,6 +1689,46 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "\n  },\n";
     }
 
+    // ── Per-stratum damage summary (schema v3.2) ───────────────────────────────
+    // FULL per-stratum readout: the pooled terminal-vs-interior rate for each process WITHIN each
+    // deamination stratum (deam_bin 0=non-damaged .. 4=most-damaged, cross-end proxy). NO contrast is
+    // pre-computed — per-stratum values are provided so the consumer forms whatever comparison it wants
+    // (e.g. damaged-minus-non-damaged G->T = the manuscript's environmental-oxidation isolation). CAVEAT:
+    // per-read deam binning is a weak classifier (cross-end proxy, not a clean ancient/modern split), so a
+    // flat profile across strata does not exclude a process — it bounds its co-localization with damage.
+    {
+        const auto& T = dp.tetra_5prime_terminal_by_deam;
+        const auto& I = dp.tetra_5prime_interior_by_deam;
+        auto emit_proc = [&](const char* name, int s, int mr, int md) {
+            uint64_t t_id=0,t_tot=0,i_id=0,i_tot=0;
+            for (int p=0;p<4;++p) for (int n1=0;n1<4;++n1) for (int n2=0;n2<4;++n2) {
+                int a=p*64+mr*16+n1*4+n2, b=p*64+md*16+n1*4+n2;
+                t_id+=T[s][b]; t_tot+=T[s][a]+T[s][b];
+                i_id+=I[s][b]; i_tot+=I[s][a]+I[s][b];
+            }
+            double tr = t_tot ? (double)t_id/t_tot : -1.0;
+            double ir = i_tot ? (double)i_id/i_tot : -1.0;
+            double ex = (tr>=0 && ir>=0) ? tr-ir : -1.0;
+            j << "\"" << name << "\":{\"terminal_rate\":" << std::fixed << std::setprecision(6) << tr
+              << ",\"interior_rate\":" << ir << ",\"excess\":" << ex << ",\"terminal_n\":" << t_tot << "}";
+        };
+        j << "  \"strata_summary\": {\n";
+        j << "    \"axis\":\"cross_end_deamination_bin\",\n";
+        j << "    \"note\":\"Pooled terminal-vs-interior rate per process within each deam stratum "
+             "(0=non-damaged..4=most-damaged). FULL per-stratum info; contrasts left to the consumer. "
+             "Per-read deam binning is a weak cross-end proxy, NOT a clean ancient/modern split.\",\n";
+        j << "    \"bins\":[";
+        for (int s=0; s<SampleDamageProfile::N_OX_DEAM_STRATA; ++s) {
+            if (s) j << ",";
+            j << "{\"deam_bin\":" << s << ",";
+            emit_proc("deamination_ct", s, 1, 3); j << ",";   // C->T deamination
+            emit_proc("oxidation_gt",   s, 2, 3); j << ",";   // G->T (8-oxoG)
+            emit_proc("oxidation_ca",   s, 1, 0);             // C->A (complementary oxidation)
+            j << "}";
+        }
+        j << "]\n  },\n";
+    }
+
     // ── Stop-codon excess: continuous reference-free deamination estimator ────
     // Mean terminal-vs-interior C→T excess for CAA, CAG, CGA codon contexts from
     // the 4-mer ct_5prime accumulator. Range: ~-0.015 (non-damaged/anti-damage) to
