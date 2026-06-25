@@ -51,6 +51,21 @@ static std::string json_escape(const std::string& s) {
     for (char c : s) {
         if (c == '"')  out += "\\\"";
         else if (c == '\\') out += "\\\\";
+        else if (static_cast<unsigned char>(c) < 0x20) {
+            // RFC 8259 §7: control chars U+0000–U+001F MUST be escaped, else invalid JSON.
+            switch (c) {
+                case '\n': out += "\\n"; break;
+                case '\r': out += "\\r"; break;
+                case '\t': out += "\\t"; break;
+                case '\b': out += "\\b"; break;
+                case '\f': out += "\\f"; break;
+                default: {
+                    char buf[7];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
+                    out += buf;
+                }
+            }
+        }
         else out += c;
     }
     return out;
@@ -124,7 +139,7 @@ void profile_to_json(const SampleDamageProfile& dp,
 
     // ── Top-level ─────────────────────────────────────────────────────────────
     j << "{\n";
-    j << "  \"schema_version\": 2,\n";
+    j << "  \"schema_version\": 3,\n";
     j << "  \"input\": \"" << json_escape(in.sample_name) << "\",\n";
     j << "  \"n_reads\": " << in.n_reads << ",\n";
     j << "  \"library_type\": \"" << dp.library_type_str() << "\",\n";
@@ -205,7 +220,11 @@ void profile_to_json(const SampleDamageProfile& dp,
     const bool dmax_detected = (dp.d_max_source != SampleDamageProfile::DmaxSource::NONE);
     j << "    \"d_max_5prime\": " << (dmax_detected ? std::to_string(dp.d_max_5prime) : "null") << ",\n";
     j << "    \"d_max_3prime\": " << (dmax_detected ? std::to_string(dp.d_max_3prime) : "null") << ",\n";
-    j << "    \"d_max_combined\": " << d_max_combined_out << ",\n";
+    // schema v3: removed the misnamed "d_max_combined" key. It was byte-identical to
+    // terminal_ct_mixture_amp below but its name implied a metaDMG-style terminal Dmax (~0.2) when it
+    // actually carries pi_dmg*A_b (~3 orders of magnitude smaller) -> silent wrong-number reads. The
+    // value lives on as terminal_ct_mixture_amp with its estimand metadata. (The C++ struct member
+    // dp.d_max_combined is unchanged; only this JSON key is dropped.)
     // Math-panel relabel (Corrections 1 & 2): Channel A's d_max = A/(1-b) divides out composition, so it
     // estimates the PRODUCT π_dmg·A_b, NOT per-damaged A_b (unidentifiable reference-free). The amp below
     // is byte-identical to d_max_combined; the estimand metadata states what it truly measures. Per-damaged
@@ -505,13 +524,13 @@ void profile_to_json(const SampleDamageProfile& dp,
             j << "],\"per_pos_5prime_gt_undamaged\":[";
             write_dnan_arr(lb.per_pos_5prime_gt_undamaged);
             j << "]}";
-            j << ",\"4mer\":{\"4mer_5prime_terminal\":[";
+            j << ",\"trinuc\":{\"trinuc_5prime_terminal\":[";
             for (int i = 0; i < 64; ++i) { j << lb.tri_5prime_terminal[i]; if (i < 63) j << ","; }
-            j << "],\"4mer_5prime_interior\":[";
+            j << "],\"trinuc_5prime_interior\":[";
             for (int i = 0; i < 64; ++i) { j << lb.tri_5prime_interior[i]; if (i < 63) j << ","; }
-            j << "],\"4mer_3prime_terminal\":[";
+            j << "],\"trinuc_3prime_terminal\":[";
             for (int i = 0; i < 64; ++i) { j << lb.tri_3prime_terminal[i]; if (i < 63) j << ","; }
-            j << "],\"4mer_3prime_interior\":[";
+            j << "],\"trinuc_3prime_interior\":[";
             for (int i = 0; i < 64; ++i) { j << lb.tri_3prime_interior[i]; if (i < 63) j << ","; }
             j << "]}";
             j << "}";
@@ -925,11 +944,14 @@ void profile_to_json(const SampleDamageProfile& dp,
             for (int i = 0; i < 64; ++i) { j << v[i]; if (i < 63) j << ","; }
             j << "]" << (trailing ? "," : "") << "\n";
         };
-        j << "  \"4mer_spectrum\": {\n";
-        emit_arr("4mer_5prime_terminal", dp.tri_5prime_terminal, true);
-        emit_arr("4mer_5prime_interior", dp.tri_5prime_interior, true);
-        emit_arr("4mer_3prime_terminal", dp.tri_3prime_terminal, true);
-        emit_arr("4mer_3prime_interior", dp.tri_3prime_interior, false);
+        // schema v3: was "4mer_spectrum" but these are 64-entry (4^3) arrays = TRINUCLEOTIDE, not
+        // tetranucleotide. The real tetranucleotide rates are in "tetranuc_damage_rates". Also drops the
+        // leading-digit key (4mer_*) that broke JSONPath/jq/dataclass consumers.
+        j << "  \"trinuc_spectrum\": {\n";
+        emit_arr("trinuc_5prime_terminal", dp.tri_5prime_terminal, true);
+        emit_arr("trinuc_5prime_interior", dp.tri_5prime_interior, true);
+        emit_arr("trinuc_3prime_terminal", dp.tri_3prime_terminal, true);
+        emit_arr("trinuc_3prime_interior", dp.tri_3prime_interior, false);
         j << "  },\n";
     }
 
@@ -2546,7 +2568,10 @@ void profile_to_json(const SampleDamageProfile& dp,
         };
         auto jnu = [&](uint64_t v) { j << v; };
         const auto& ox = dp.gc_depletion;
-        j << "  \"oxidation\": {\n";
+        // schema v3: was mislabeled top-level "oxidation"; this block is the GC-depletion channel
+        // (sigma0 = composition+deamination+oxidation combined), NOT an oxidation estimator. The
+        // oxidation readout is oxidation.primary (oxo_two_marker).
+        j << "  \"gc_depletion\": {\n";
         j << "    \"fitted\": "           << (ox.fitted ? "true" : "false") << ",\n";
         j << "    \"sigma0\": ";           jn(ox.sigma0);          j << ",\n";
         j << "    \"sigma0_se\": ";        jn(ox.sigma0_se);       j << ",\n";
