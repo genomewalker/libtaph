@@ -222,7 +222,9 @@ void finalize_pi(SampleDamageProfile& profile) {
         // blanks d_max3~0.64 vs metaDMG per-taxon max ~0.08) that the live-end test cannot separate from
         // real damage, so recovery on ss would emit inflated garbage. Honest scope: ds recovers, ss ABSTAINs
         // (its 3'-prep artifact is unresolved). TODO: model/subtract the ss 3'-prep artifact, then enable ss.
-        const bool ds_lib = profile.library_type != SampleDamageProfile::LibraryType::SINGLE_STRANDED;
+        // Require CONFIRMED ds: != SINGLE_STRANDED also admitted UNKNOWN (unresolved library type), letting
+        // an UNKNOWN-but-actually-ss library run ds recovery over the ds-built 3' G->A accumulator -> garbage.
+        const bool ds_lib = profile.library_type == SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
         if (denom > 0.0 && ds_lib) {
             const bool a5 = profile.artifact_overcall_5p, a3 = profile.artifact_overcall_3p;
             if (a5 != a3) {  // exactly one end dead

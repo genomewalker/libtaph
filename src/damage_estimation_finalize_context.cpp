@@ -506,8 +506,11 @@ void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
                          profile.damage_3prime_area_excess, profile.damage_3prime_lr);
     }
 
-    profile.lambda_5prime = std::clamp(profile.lambda_5prime, 0.1f, 1.0f);
-    profile.lambda_3prime = std::clamp(profile.lambda_3prime, 0.1f, 1.0f);
+    // Clamp floor matches the fit-acceptance gate [0.05,0.5] above (was 0.1, which silently steepened
+    // valid slow decays in [0.05,0.1) AFTER they were flagged fitted=true, and desynced the emitted/
+    // downstream-scored lambda from the pre-clamp lambda the amplitude fits consumed).
+    profile.lambda_5prime = std::clamp(profile.lambda_5prime, 0.05f, 1.0f);
+    profile.lambda_3prime = std::clamp(profile.lambda_3prime, 0.05f, 1.0f);
 
     // Library type: handled below after composition-bias flags are set
 
