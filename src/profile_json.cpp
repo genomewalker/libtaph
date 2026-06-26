@@ -1757,6 +1757,20 @@ void profile_to_json(const SampleDamageProfile& dp,
           << (valid > 0 ? sc_exc/valid : -999.0) << ",\n";
     }
 
+    // Channel B (stop-codon conversion) internals — the composition-immune deamination
+    // validator (dart Methods-and-Model §"Two-channel damage validation"). Exposed so the
+    // null can be calibrated (blanks) and the low-abundance regime (A-silent, B-fires) used.
+    // inverted=true means terminal stops BELOW interior baseline = terminal artifact, not damage.
+    j << "  \"channel_b\": {\n"
+      << "    \"valid\": "        << (dp.channel_b_valid ? "true" : "false") << ",\n"
+      << "    \"quantifiable\": " << (dp.channel_b_quantifiable ? "true" : "false") << ",\n"
+      << "    \"inverted\": "     << (dp.channel_b_inverted ? "true" : "false") << ",\n"
+      << "    \"d_max\": "        << std::fixed << std::setprecision(6) << dp.d_max_from_channel_b << ",\n"
+      << "    \"stop_baseline\": " << dp.stop_conversion_rate_baseline << ",\n"
+      << "    \"d_max_3prime\": "  << dp.d_max_from_channel_b3 << ",\n"
+      << "    \"stop_baseline_3prime\": " << dp.stop_conversion_rate_baseline_3prime << "\n"
+      << "  },\n";
+
     // ── Context-modulated deamination profile ─────────────────────────────────
     // Reference-free per-NXN terminal deamination excess (terminal_rate −
     // interior_rate). Interior positions are the self-normalising background.
