@@ -190,6 +190,83 @@ EndDecayLRT live_end_decay_lrt(const SampleDamageProfile::PiPosCube& cube) {
 // D_MAX_CONSERVED (damage_estimate.hpp:12) is the cohort-conserved per-ancient terminal amplitude;
 // A_obs/D_MAX_CONSERVED rescales the bulk amplitude to a damaged-read fraction. η held at 0
 // (no attenuation subtracted) — the lo edge already carries the conservative band via A_se.
+// Pure byte-identical copy of finalize_pi's body that returns a PiVerdict from a DamageEvidence view
+// instead of mutating profile.pi. NOT called yet — added as the consolidation seam so finalize_pi can
+// later delegate to it. Control flow / arithmetic mirror finalize_pi line-for-line: the only changes are
+// profile.<field> -> ev.<field>, profile.bulk_damage.<f> -> ev.bulk_d_max_<f>, channel5_eval(profile)
+// -> the precomputed channel5_* scalars, profile.pi_pos_* -> *ev.pi_pos_*, and profile.pi -> the
+// returned PiVerdict v.
+PiVerdict combine(const DamageEvidence& ev) {
+    PiVerdict v;
+    if (!ev.bulk_attempted) return v;
+    constexpr double PI_THR = 0.005;  // π-floor shared by DETECTED, TRACE, and LOW_ABUNDANCE gates
+
+    const auto try_ancient_cpg = [&]() {
+        if (!std::isnan(ev.cpg_delta_bilateral) &&
+            (double)ev.cpg_delta_bilateral >= CPG_BILATERAL_ANCIENT_THR) {
+            v.state = DamageConfidence::ANCIENT_CPG;
+        }
+    };
+
+    const auto clip01 = [](double x) { return std::clamp(x, 0.0, 1.0); };
+    const double denom = D_MAX_CONSERVED;
+
+    const Channel5 c5 = { ev.channel5_authentic, ev.channel5_amp, ev.channel5_resid, ev.channel5_amp_se };
+    if (!c5.authentic) {
+        const bool ds_lib = ev.library_type == SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+        if (denom > 0.0 && ds_lib) {
+            const bool a5 = ev.artifact_overcall_5p, a3 = ev.artifact_overcall_3p;
+            if (a5 != a3) {  // exactly one end dead
+                const bool live_is_3p = a5;  // 5' dead ⇒ 3' is the live end (FLB57md), and vice versa
+                const EndDecayLRT le = live_end_decay_lrt(
+                    live_is_3p ? *ev.pi_pos_3prime_ds : *ev.pi_pos_5prime);
+                const double A = live_is_3p ? ev.d_max_3prime : ev.d_max_5prime;
+                if (A > 0.0) {
+                    const double A_se = (ev.bulk_d_max_damaged_valid &&
+                                         ev.bulk_d_max_se > 0.0)
+                                            ? ev.bulk_d_max_se
+                                            : (le.A_se > 0.0 ? le.A_se : 0.2 * A);
+                    constexpr double DENOM_SD = 0.035;
+                    const double rel = std::sqrt((A_se * A_se) / (A * A) +
+                                                 (DENOM_SD * DENOM_SD) / (denom * denom));
+                    const double pt = A / denom;
+                    const double lo = clip01(pt * (1.0 - 1.96 * rel));
+                    const double hi = clip01(pt * (1.0 + 1.96 * rel));
+                    const double A_MIN = TauConfig{}.a_min;
+                    if (lo > PI_THR && A >= A_MIN && le.n_elig_total >= PI_FLOOR_MIN_ELIG) {
+                        v.point = clip01(pt);
+                        v.lo    = lo;
+                        v.hi    = hi;
+                        v.state = DamageConfidence::LOW_ABUNDANCE;
+                    } else {
+                        v.point = -1.0;
+                        v.lo    = -1.0;
+                        v.hi    = hi;
+                        v.state = DamageConfidence::BELOW_FLOOR;
+                    }
+                    return v;
+                }
+            }
+        }
+        try_ancient_cpg();
+        return v;
+    }
+
+    if (denom <= 0.0) { try_ancient_cpg(); return v; }
+
+    const double A    = std::max(ev.d_max_5prime, ev.d_max_3prime);
+    const double A_se = (ev.bulk_d_max_damaged_valid && ev.bulk_d_max_se > 0.0)
+                            ? ev.bulk_d_max_se : 0.2 * A;
+    v.lo    = clip01((A - 1.96 * A_se) / denom);
+    v.hi    = clip01((A + 1.96 * A_se) / denom);
+    v.point = clip01(A / denom);  // range midpoint; JSON nulls it unless lo≤point≤hi
+
+    if (v.lo > PI_THR)       v.state = DamageConfidence::DETECTED;
+    else if (v.hi >= PI_THR) v.state = DamageConfidence::TRACE;
+    else                     try_ancient_cpg();
+    return v;
+}
+
 void finalize_pi(SampleDamageProfile& profile) {
     profile.pi = DamageEstimate{};
     if (!profile.bulk_attempted) return;

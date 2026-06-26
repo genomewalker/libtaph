@@ -4,6 +4,7 @@
 #include <optional>
 
 #include "taph/damage_estimate.hpp"
+#include "taph/sample_damage_profile.hpp"
 
 // Per-read damaged/non-damaged scoring primitive (SOLUTION_pi_delta_dmax.md §6.2). The library owns the
 // likelihood; the consumer owns the prior (π) and the split threshold. Additive shadow-mode step 1.
@@ -30,6 +31,43 @@ struct ReadDamageObs {
     const TerminalMismatch* three   = nullptr;
     std::uint32_t           n_three = 0;
 };
+
+// Pure data view of EXACTLY the inputs finalize_pi (src/read_ancient_llr.cpp) reads to set the per-sample
+// verdict (pi.state + pi.{point,lo,hi}). No call site uses it yet — added as the consolidation seam so the
+// verdict writer can later take this struct instead of reaching into the whole SampleDamageProfile. Holds
+// non-owning refs to the two pi_pos cubes (channel-5 gate + end-asymmetric live-end LRT); everything else is
+// copied scalars. Mirrors the Channel5 helper (authentic/amp/resid/amp_se) and the two BulkDamageResult
+// fields (d_max_se, d_max_damaged_valid) finalize_pi consumes.
+struct DamageEvidence {
+    bool                              bulk_attempted        = false;
+    float                             d_max_5prime          = 0.0f;
+    float                             d_max_3prime          = 0.0f;
+    bool                              channel5_authentic    = false;
+    double                            channel5_amp          = 0.0;
+    double                            channel5_resid        = 0.0;
+    double                            channel5_amp_se       = 0.0;
+    float                             cpg_delta_bilateral   = 0.0f;
+    bool                              artifact_overcall_5p  = false;
+    bool                              artifact_overcall_3p  = false;
+    SampleDamageProfile::LibraryType  library_type          = SampleDamageProfile::LibraryType::DOUBLE_STRANDED;
+    double                            bulk_d_max_se         = 0.0;
+    bool                              bulk_d_max_damaged_valid = false;
+    const SampleDamageProfile::PiPosCube* pi_pos_5prime     = nullptr;
+    const SampleDamageProfile::PiPosCube* pi_pos_3prime_ds  = nullptr;
+};
+
+// The per-sample verdict finalize_pi writes: the four fields that serialize to JSON pi_estimate
+// (state + point/lo/hi). combine() is a pure (no-side-effect) byte-identical copy of finalize_pi's
+// body that returns this instead of mutating profile.pi. Added as the consolidation seam; NOT called
+// yet — finalize_pi remains the single live writer of profile.pi.
+struct PiVerdict {
+    DamageConfidence state = DamageConfidence::UNDETERMINED;
+    double           point = -1.0;
+    double           lo    = -1.0;
+    double           hi    = -1.0;
+};
+
+PiVerdict combine(const DamageEvidence& ev);
 
 // PRIOR-FREE per-read both-end, position-resolved log-likelihood-ratio: log P(obs | damaged) − log P(obs |
 // non-damaged) under the VALIDATED δ/c model — amplitude A = D_MAX_CONSERVED imported (not estimated),

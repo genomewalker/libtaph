@@ -133,4 +133,12 @@ if(TAPH_BUILD_TESTS)
     add_test(NAME registry_field_readers
              COMMAND ${CMAKE_COMMAND} -E env bash
                      ${CMAKE_CURRENT_SOURCE_DIR}/tests/registry_field_readers.sh)
+
+    # Behavior-preservation oracle: re-profiles the deterministic fixture and diffs the 8
+    # verdict-critical JSON fields (pi_estimate.{state,point}, deamination.d_max_{5,3}prime,
+    # deamination.lambda_5prime, channel_b.{d_max,valid,inverted}) against baseline.json (tol 1e-6).
+    # This is the golden gate every refactor stage verifies with `ctest -R golden_verdict_regression`.
+    add_test(NAME golden_verdict_regression
+             COMMAND ${CMAKE_COMMAND} -E env bash
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/oracle.sh)
 endif()
