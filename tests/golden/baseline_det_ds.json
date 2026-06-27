@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "input": "/path/to/libtaph/tests/golden/fixture_ds.fq.gz",
+  "input": "/path/to/libtaph/tests/golden/fixture_det_ds.fq.gz",
   "n_reads": 883033,
   "library_type": "double-stranded",
   "library_bic_call": "DOUBLE_STRANDED",
@@ -43,7 +43,7 @@
   "verdict": {
     "deamination":      {"call": "present", "source": "damage_status / deamination.d_max_5prime", "d_max_5prime": 0.203110},
     "damaged_fraction": {"state": "DETECTED", "source": "pi_estimate", "pi": 0.520796},
-    "oxidation":        {"call": "present", "source": "oxo_two_marker (G->T beta1)", "g_to_t_beta": 0.016345, "markers_consistent": true, "is_ancient_specific": false},
+    "oxidation":        {"call": "present", "present": true, "source": "oxo_two_marker delta_beta (paired G->T - C->A, B1 SE gate)", "g_to_t_beta": 0.016345, "delta_beta": 0.032982, "delta_beta_se": 0.001053, "markers_consistent": true, "is_ancient_specific": false},
     "preservation":     {"tier": "weak", "source": "preservation.score", "score": 0.167295},
     "note": "Canonical per-axis calls; each `source` points to the authoritative readout. deamination = age-bearing terminal C->T (the only ancient-vs-modern discriminator). damaged_fraction = pi (deamination-defined strata). oxidation = oxo_two_marker G->T, REAL but NOT ancient-specific (also from sample prep). preservation = aggregate index."
   },
@@ -69,6 +69,17 @@
     "lambda_3prime": 0.301185,
     "bg_5prime": 0.440321,
     "bg_3prime": 0.441366,
+    "decay_llr_5prime": 2295.322998,
+    "decay_llr_3prime": 3994.373535,
+    "ctrl_decay_llr_5prime": -1704.321289,
+    "ctrl_decay_llr_3prime": -3244.411377,
+    "delta_llr_5prime": 3999.644287,
+    "delta_llr_3prime": 7238.785156,
+    "did_5prime": 0.053258,
+    "did_3prime": 0.052927,
+    "did_5prime_se": 0.000688,
+    "did_3prime_se": 0.000688,
+    "did_valid": true,
     "validated": true,
     "artifact": false,
     "joint": {
@@ -278,6 +289,7 @@
     "alpha": -0.000553,
     "sigma2": 0.495073,
     "delta_beta": 0.032982,
+    "delta_beta_se": 0.001053,
     "markers_consistent": true,
     "consistency_basis": "ds_strand_symmetry"
   },
@@ -706,6 +718,7 @@
     "quantifiable": false,
     "inverted": true,
     "d_max": 0.000000,
+    "d_max_se": 0.000000,
     "stop_baseline": 0.340828,
     "d_max_3prime": 0.000000,
     "stop_baseline_3prime": 0.000000

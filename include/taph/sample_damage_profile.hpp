@@ -900,6 +900,20 @@ struct SampleDamageProfile {
     float channel_divergence_5prime = 0.0f;  // |damage_shift - control_shift| at 5'
     float channel_divergence_3prime = 0.0f;  // |damage_shift - control_shift| at 3'
 
+    // Codon difference-in-differences (DiD): composition-immune reference-free damage validator.
+    // Per flanking context XY (16), signal = pyrimidine ratio T/(T+C) [C→T], control = purine
+    // mirror A/(A+G) [damage-immune at 5']; DiD = (signal_term - signal_int) - (ctrl_term - ctrl_int),
+    // inverse-variance pooled over the 16 contexts. Terminal POSITIONAL composition skew (end-repair,
+    // unlike the genomic skew Channel B cancels) lifts pyrimidine AND purine together → cancels; real
+    // one-sided C→T deamination survives. 3' uses the purine ratio as signal (ds: 3' G→A) or pyrimidine
+    // (ss: 3' C→T). Strand-paired: ds damage requires 5' C→T AND 3' G→A. did_*_z divides by pooled SE
+    // (overpowered at high N — gate on did_* effect size + sign, not z). See dart wiki Channel A/B.
+    float did_5prime = 0.0f;      // pooled DiD effect size at 5' (C→T signal − purine control)
+    float did_3prime = 0.0f;      // pooled DiD at 3' (ds: G→A purine signal; ss: C→T)
+    float did_5prime_se = 0.0f;
+    float did_3prime_se = 0.0f;
+    bool  did_valid = false;      // both ends had ≥1 context with sufficient convertible coverage
+
     // Channel B: convertible stop codon counts at 5' end by nucleotide position (0-14)
     // Position = nucleotide position of the C/T in the codon (from read start)
     // For CAA/TAA: position of the first base (C or T)
@@ -952,6 +966,11 @@ struct SampleDamageProfile {
     // Channel B structural d_max from multi-position stop codon conversion
     // WLS model: r_p = b0 + (1-b0) * d_max * exp(-λp)
     float d_max_from_channel_b = 0.0f;   // Structural d_max estimate from stop codons
+    // B1: WLS-propagated SE of d_max_from_channel_b. SE(c)=sqrt(sigma2*S_w/denom) on the slope c,
+    // scaled by 1/(1-b0) to the d_max = c/(1-b0) reparametrization. Lets a downstream gate ask
+    // "does d_max significantly exclude the no-damage null" (d_max/SE > z) instead of a raw threshold.
+    // 0 when not quantifiable (no fit / inverted / degenerate denom). Additive; no verdict effect.
+    float d_max_from_channel_b_se = 0.0f;
     float channel_b_weight = 0.0f;       // Exposure weight W_B for joint likelihood
     float channel_b_slope = 0.0f;        // Raw WLS slope (positive = damage, negative = inverted)
     bool channel_b_quantifiable = false; // True if Channel B can provide d_max estimate
@@ -1421,6 +1440,15 @@ struct SampleDamageProfile {
     // contract output (point+CI+3-state); set by finalize_pi. Shadow-mode step 1 — coexists with the
     // legacy mixture path, no consumer wired. The per-bin gradient stays available via bulk_damage.bins.
     DamageEstimate pi;
+
+    // C2: oxidation as an INDEPENDENT damage axis (orthogonal to the pi deamination verdict).
+    // Set by finalize_pi from the oxo_two_marker δβ PAIRED contrast (beta1 G→T minus beta2 C→A),
+    // gated by markers_consistent (paired validity — modern blanks fail it) AND the B1 SE significance
+    // (delta_beta − 1.96·delta_beta_se > 0). This is NOT a DamageConfidence state and never overrides
+    // pi.state: a sample can be oxidation-present and deamination-ABSTAIN (FLB45m) or both (real aDNA).
+    // Raw beta1/stop-rate thresholds fire on blanks; the paired δβ + consistency gate keeps modern null.
+    bool oxidation_present = false;
+
     float cpg_delta_bilateral = std::numeric_limits<float>::quiet_NaN(); // bilateral min(5′,3′GA) CpG Δ
 
     // Reference-free length-decay constant τ (bp) of δ(L)≈A·exp(−L/τ), set by finalize_tau before

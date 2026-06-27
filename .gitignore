@@ -3,4 +3,4 @@ build-local/
 build-tests/
 *.o
 *.a
-tests/golden/fixture_ds.fq.gz
+tests/golden/fixture_*.fq.gz

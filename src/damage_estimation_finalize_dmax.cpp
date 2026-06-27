@@ -300,14 +300,12 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
             profile.d_max_combined = 0.0f;
             profile.d_max_source = SampleDamageProfile::DmaxSource::NONE;
         } else if (profile.damage_validated) {
-            bool channel_a_unreliable = (profile.inverted_pattern_5prime && profile.inverted_pattern_3prime)
-                                      || profile.position_0_artifact_5prime
-                                      || profile.position_0_artifact_3prime;
-
-            if (channel_a_unreliable && profile.channel_b_quantifiable && profile.d_max_from_channel_b > 0.01f) {
-                profile.d_max_combined = profile.d_max_from_channel_b;
-                profile.d_max_source = SampleDamageProfile::DmaxSource::CHANNEL_B_STRUCTURAL;
-            } else if (profile.inverted_pattern_3prime && !profile.inverted_pattern_5prime) {
+            // Channel B is NOT verdict-bearing: its terminal-vs-interior stop-codon rate is not
+            // composition-immune (modern metagenomes floor at d_max≈0.05, max 0.247 > real ROCS 0.115),
+            // so it cannot authenticate. Authenticate on strand-symmetric Channel A only. A position-0
+            // artifact no longer diverts to Channel B; samples with genuine symmetric decay (d5≈d3)
+            // fall through to joint_bilateral exactly like FLB03mAds3.
+            if (profile.inverted_pattern_3prime && !profile.inverted_pattern_5prime) {
                 profile.d_max_combined = raw_d_max_5prime;
                 profile.d_max_source = SampleDamageProfile::DmaxSource::FIVE_PRIME_ONLY;
             } else if (profile.inverted_pattern_5prime && !profile.inverted_pattern_3prime) {
@@ -364,11 +362,6 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
                     profile.d_max_source = SampleDamageProfile::DmaxSource::NONE;
                 }
             }
-        } else if (profile.channel_b_quantifiable) {
-            profile.d_max_5prime = raw_d_max_5prime;
-            profile.d_max_3prime = raw_d_max_3prime;
-            profile.d_max_combined = profile.d_max_from_channel_b;
-            profile.d_max_source = SampleDamageProfile::DmaxSource::CHANNEL_B_STRUCTURAL;
         } else {
             profile.d_max_5prime = raw_d_max_5prime;
             profile.d_max_3prime = raw_d_max_3prime;

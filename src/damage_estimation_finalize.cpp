@@ -32,6 +32,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     // finalize_context (damage_rate_5/3prime), none of which oxidation produces.
     finalize_context(profile, ctx);
     finalize_libtype(profile, ctx);
+    compute_codon_did(profile);   // composition-immune codon DiD; needs library_type from finalize_libtype
     finalize_oxidation(profile, ctx);
     finalize_bulk(profile);
     profile.tau                   = finalize_tau(profile);

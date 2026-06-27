@@ -241,8 +241,9 @@ void finalize_decay(SampleDamageProfile& profile, FinalCtx& ctx) {
                 const double lambda = std::clamp(static_cast<double>(ctx.fit_lambda_5p), 0.1, 0.5);
                 const int N_POSITIONS = 15;
 
-                double S_w = 0, S_x = 0, S_xx = 0, S_y = 0, S_xy = 0;
+                double S_w = 0, S_x = 0, S_xx = 0, S_y = 0, S_xy = 0, S_yy = 0;
                 double total_exposure = 0;
+                int    n_fit_pos = 0;
 
                 for (int p = 0; p < N_POSITIONS; ++p) {
                     double x_p = std::exp(-lambda * p);
@@ -265,7 +266,9 @@ void finalize_decay(SampleDamageProfile& profile, FinalCtx& ctx) {
                     S_xx += w_p * x_p * x_p;
                     S_y  += w_p * y_p;
                     S_xy += w_p * x_p * y_p;
+                    S_yy += w_p * y_p * y_p;
                     total_exposure += exposure_p;
+                    ++n_fit_pos;
                 }
 
                 double denom = S_w * S_xx - S_x * S_x;
@@ -280,6 +283,16 @@ void finalize_decay(SampleDamageProfile& profile, FinalCtx& ctx) {
                         double b0 = std::clamp(a, 0.01, 0.99);
                         double d_max_b = std::clamp(c / (1.0 - b0), 0.0, 1.0);
 
+                        // B1: WLS slope SE. Weighted SSE = S_yy - a*S_y - c*S_xy (normal-equation
+                        // identity); sigma2 = SSE/(n-2); Var(c) = sigma2*S_w/denom. d_max = c/(1-b0)
+                        // so SE(d_max) = SE(c)/(1-b0) (delta method, b0 held). Additive only.
+                        double sse    = std::max(0.0, S_yy - a * S_y - c * S_xy);
+                        double sigma2 = (n_fit_pos > 2) ? sse / (n_fit_pos - 2) : 0.0;
+                        double var_c  = sigma2 * S_w / denom;
+                        double se_c   = (var_c > 0.0) ? std::sqrt(var_c) : 0.0;
+                        profile.d_max_from_channel_b_se =
+                            static_cast<float>(se_c / (1.0 - b0));
+
                         profile.d_max_from_channel_b = static_cast<float>(d_max_b);
                         profile.channel_b_weight = static_cast<float>(S_w);
                         profile.channel_b_quantifiable = true;
@@ -287,12 +300,14 @@ void finalize_decay(SampleDamageProfile& profile, FinalCtx& ctx) {
                     } else {
                         // Inverted pattern: terminal stops LOWER than baseline
                         profile.d_max_from_channel_b = 0.0f;
+                        profile.d_max_from_channel_b_se = 0.0f;
                         profile.channel_b_weight = 0.0f;
                         profile.channel_b_quantifiable = false;
                         profile.channel_b_inverted = true;
                     }
                 } else {
                     profile.d_max_from_channel_b = 0.0f;
+                    profile.d_max_from_channel_b_se = 0.0f;
                     profile.channel_b_weight = 0.0f;
                     profile.channel_b_quantifiable = false;
                     profile.channel_b_slope = 0.0f;
@@ -305,6 +320,61 @@ void finalize_decay(SampleDamageProfile& profile, FinalCtx& ctx) {
     }
 
 
+}
+
+namespace {
+// Pooled difference-in-differences over 16 flanking contexts for one read end.
+// signal_is_pyr: signal = T/(T+C) (C→T), control = A/(A+G) (purine mirror).  Otherwise swapped
+// (3' of a ds library, where damage is G→A and the purine ratio is the signal).
+// Returns false if no context had >=MIN_CONV convertible coverage on both signal and control.
+bool pooled_did(const std::array<uint64_t, 64>& term,
+                const std::array<uint64_t, 64>& inte,
+                bool signal_is_pyr, float& did_out, float& se_out) {
+    constexpr uint64_t MIN_CONV = 50;
+    // base codes A=0,C=1,G=2,T=3; trinuc index = prev*16 + mid*4 + next
+    const int s_a = signal_is_pyr ? 3 : 0;  // signal "ancient" base: T (pyr) or A (pur)
+    const int s_b = signal_is_pyr ? 1 : 2;  // signal "modern" base: C (pyr) or G (pur)
+    const int c_a = signal_is_pyr ? 0 : 3;  // control bases (the opposite pair)
+    const int c_b = signal_is_pyr ? 2 : 1;
+    double num = 0.0, vinv = 0.0;
+    auto ratio = [](uint64_t a, uint64_t b, double& p, uint64_t& n) {
+        n = a + b; p = n ? static_cast<double>(a) / n : 0.0;
+    };
+    for (int prev = 0; prev < 4; ++prev) {
+        for (int next = 0; next < 4; ++next) {
+            const int base = prev * 16 + next;
+            auto idx = [&](int mid) { return base + mid * 4; };
+            double sp_t, sp_i, cp_t, cp_i; uint64_t nst, nsi, nct, nci;
+            ratio(term[idx(s_a)], term[idx(s_b)], sp_t, nst);
+            ratio(inte[idx(s_a)], inte[idx(s_b)], sp_i, nsi);
+            ratio(term[idx(c_a)], term[idx(c_b)], cp_t, nct);
+            ratio(inte[idx(c_a)], inte[idx(c_b)], cp_i, nci);
+            if (nst < MIN_CONV || nsi < MIN_CONV || nct < MIN_CONV || nci < MIN_CONV) continue;
+            const double did = (sp_t - sp_i) - (cp_t - cp_i);
+            const double var = sp_t * (1 - sp_t) / nst + sp_i * (1 - sp_i) / nsi
+                             + cp_t * (1 - cp_t) / nct + cp_i * (1 - cp_i) / nci;
+            if (var <= 0.0) continue;
+            num += did / var; vinv += 1.0 / var;
+        }
+    }
+    if (vinv <= 0.0) return false;
+    did_out = static_cast<float>(num / vinv);
+    se_out  = static_cast<float>(std::sqrt(1.0 / vinv));
+    return true;
+}
+}  // namespace
+
+void compute_codon_did(SampleDamageProfile& profile) {
+    const bool is_ss = (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED);
+    float d5 = 0.0f, se5 = 0.0f, d3 = 0.0f, se3 = 0.0f;
+    const bool ok5 = pooled_did(profile.tri_5prime_terminal, profile.tri_5prime_interior,
+                                /*signal_is_pyr=*/true, d5, se5);
+    // 3' damage is G->A for ds (purine signal) but C->T for ss (pyrimidine signal).
+    const bool ok3 = pooled_did(profile.tri_3prime_terminal, profile.tri_3prime_interior,
+                                /*signal_is_pyr=*/is_ss, d3, se3);
+    profile.did_5prime = d5; profile.did_5prime_se = se5;
+    profile.did_3prime = d3; profile.did_3prime_se = se3;
+    profile.did_valid = ok5 && ok3;
 }
 
 } // namespace taph

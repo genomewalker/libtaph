@@ -579,6 +579,10 @@ OxoTwoMarkerResult compute_oxo_two_marker(const SampleDamageProfile& dp, bool is
     }
 
     r.delta_beta = r.beta1 - r.beta2;
+    // B1: propagated SE of delta_beta (independent-fit approximation). Same quantity the DS
+    // consistency test below already forms inline; surfaced as a field for the downstream gate.
+    double se_delta = std::sqrt(r.beta1_se * r.beta1_se + r.beta2_se * r.beta2_se);
+    r.delta_beta_se = se_delta;
     // Library-appropriate consistency test:
     //   DS: magnitude equality ||beta1|-|beta2|| < 2*se_delta.
     //       beta2 is structurally negative (G→A couples with opposite sign), so the
@@ -588,7 +592,6 @@ OxoTwoMarkerResult compute_oxo_two_marker(const SampleDamageProfile& dp, bool is
     //       so magnitude equality is the wrong criterion; independent significance of
     //       both deamination channels is the physically meaningful check.
     if (!is_ss) {
-        double se_delta = std::sqrt(r.beta1_se * r.beta1_se + r.beta2_se * r.beta2_se);
         r.markers_consistent =
             (se_delta > 0 &&
              std::abs(std::abs(r.beta1) - std::abs(r.beta2)) < 2.0 * se_delta);

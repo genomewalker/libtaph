@@ -244,6 +244,11 @@ struct OxoTwoMarkerResult {
     bool   markers_consistent = false;
     OxoConsistencyBasis consistency_basis = OxoConsistencyBasis::DS_STRAND_SYMMETRY;
     double delta_beta        = 0.0;  // beta1 - beta2 (≈0 when consistent)
+    // B1: propagated SE of delta_beta = sqrt(beta1_se^2 + beta2_se^2) (beta1,beta2 from a shared
+    // 5x5 WLS fit; treated as independent — the cross-covariance is a small same-fit term and the
+    // existing DS markers_consistent test already uses this same se_delta). Lets a downstream gate
+    // ask "does the oxidation contrast significantly exclude null" via |delta_beta|/delta_beta_se.
+    double delta_beta_se     = 0.0;
     int    n_cells_used      = 0;
     bool   valid             = false;
 };

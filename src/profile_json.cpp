@@ -5,11 +5,30 @@
 #include <cmath>
 #include <iomanip>
 #include <limits>
+#include <locale>
 #include <ostream>
 #include <sstream>
 #include <string>
 
 namespace taph {
+
+// A1: JSON has no nan/inf literals, but operator<<(double) emits bare `nan`/`inf` tokens that
+// corrupt the whole document (e.g. low-CpG/modern samples broke on "f_cpg": nan). The dozens of
+// bare float emitters here use heterogeneous precision/flags, so wrapping each in a helper would
+// silently change finite formatting and break byte-identity. Instead imbue the stream with a
+// num_put facet that emits `null` for any non-finite double/long double and defers to the default
+// formatter (honouring every fixed/setprecision flag) for finite values — one guard, zero format
+// drift. operator<<(float) promotes to double, so the double overload covers floats too.
+struct NonfiniteNumPut : std::num_put<char> {
+    iter_type do_put(iter_type out, std::ios_base& str, char_type fill, double v) const override {
+        if (!std::isfinite(v)) { for (char c : {'n','u','l','l'}) *out++ = c; return out; }
+        return std::num_put<char>::do_put(out, str, fill, v);
+    }
+    iter_type do_put(iter_type out, std::ios_base& str, char_type fill, long double v) const override {
+        if (!std::isfinite(v)) { for (char c : {'n','u','l','l'}) *out++ = c; return out; }
+        return std::num_put<char>::do_put(out, str, fill, v);
+    }
+};
 
 static constexpr double kMinCov          = 100.0;
 static constexpr float  kOxChannelZDetect = 3.0f;
@@ -135,6 +154,8 @@ void profile_to_json(const SampleDamageProfile& dp,
     if (dp.inverted_pattern_3prime)
         artifact_reasons.push_back("inverted_pattern_3prime");
 
+    // A1: route every double/long double through the non-finite-safe num_put facet (NaN/Inf -> null).
+    j.imbue(std::locale(j.getloc(), new NonfiniteNumPut));
     j << std::fixed;
 
     // ── Top-level ─────────────────────────────────────────────────────────────
@@ -228,13 +249,13 @@ void profile_to_json(const SampleDamageProfile& dp,
             }
         };
         const auto& otmv = dp.oxidation_comovement;  // the computed two-marker struct (emitted as "oxo_two_marker")
-        // Oxidation call keys on beta1 (G->T): the manuscript's environmental oxidation signal, elevated
-        // in BOTH ds and ss ancient (delta_beta=beta1-beta2 collapses for ss where C->A is also up).
-        // markers_consistent=false flags the ss-blank composition artifact. Threshold from FLB blanks:
-        // clean ds extraction blanks beta1~0.0035, real samples beta1 0.017-0.030.
+        // C2: oxidation is an INDEPENDENT damage axis surfaced from finalize_pi's oxidation_present flag.
+        // The call keys on the δβ PAIRED contrast with its B1 SE gate (delta_beta − 1.96·delta_beta_se > 0)
+        // AND markers_consistent (paired validity), NOT a raw beta1 threshold: raw G→T fires on blanks
+        // (modern delta_beta_z≈24 but markers_consistent=false ⇒ artifact). "present" ⇔ oxidation_present.
         const char* ox_call = !otmv.valid              ? "na"
                             : !otmv.markers_consistent ? "artifact"
-                            : (otmv.beta1 >= 0.01)     ? "present"
+                            : dp.oxidation_present      ? "present"
                                                        : "none";
         auto jn = [&](double v) { if (std::isfinite(v) && v >= 0.0) j << std::setprecision(6) << v; else j << "null"; };
         // Match pi_estimate's gated state EXACTLY (identifiable point inside its own CI, else ABSTAIN /
@@ -252,7 +273,10 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"damaged_fraction\": {\"state\": \"" << frac_state
           << "\", \"source\": \"pi_estimate\", \"pi\": "; if (pi_ident) jn(dp.pi.point); else j << "null"; j << "},\n";
         j << "    \"oxidation\":        {\"call\": \"" << ox_call
-          << "\", \"source\": \"oxo_two_marker (G->T beta1)\", \"g_to_t_beta\": " << std::setprecision(6) << otmv.beta1
+          << "\", \"present\": " << (dp.oxidation_present ? "true" : "false")
+          << ", \"source\": \"oxo_two_marker delta_beta (paired G->T - C->A, B1 SE gate)\", \"g_to_t_beta\": "
+          << std::setprecision(6) << otmv.beta1
+          << ", \"delta_beta\": " << otmv.delta_beta << ", \"delta_beta_se\": " << otmv.delta_beta_se
           << ", \"markers_consistent\": " << (otmv.markers_consistent ? "true" : "false")
           << ", \"is_ancient_specific\": false},\n";
         j << "    \"preservation\":     {\"tier\": \"" << dp.preservation_label_str()
@@ -307,6 +331,17 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"lambda_3prime\": " << (dp.lambda_3prime_fitted ? std::to_string(dp.lambda_3prime) : "null") << ",\n";
     j << "    \"bg_5prime\": " << nan_or(dp.fit_baseline_5prime) << ",\n";
     j << "    \"bg_3prime\": " << nan_or(dp.fit_baseline_3prime) << ",\n";
+    j << "    \"decay_llr_5prime\": " << nan_or(dp.decay_llr_5prime) << ",\n";
+    j << "    \"decay_llr_3prime\": " << nan_or(dp.decay_llr_3prime) << ",\n";
+    j << "    \"ctrl_decay_llr_5prime\": " << nan_or(dp.ctrl_decay_llr_5prime) << ",\n";
+    j << "    \"ctrl_decay_llr_3prime\": " << nan_or(dp.ctrl_decay_llr_3prime) << ",\n";
+    j << "    \"delta_llr_5prime\": " << nan_or(dp.delta_llr_5prime) << ",\n";
+    j << "    \"delta_llr_3prime\": " << nan_or(dp.delta_llr_3prime) << ",\n";
+    j << "    \"did_5prime\": " << nan_or(dp.did_5prime) << ",\n";
+    j << "    \"did_3prime\": " << nan_or(dp.did_3prime) << ",\n";
+    j << "    \"did_5prime_se\": " << nan_or(dp.did_5prime_se) << ",\n";
+    j << "    \"did_3prime_se\": " << nan_or(dp.did_3prime_se) << ",\n";
+    j << "    \"did_valid\": " << (dp.did_valid ? "true" : "false") << ",\n";
     j << "    \"validated\": " << (dp.damage_validated ? "true" : "false") << ",\n";
     j << "    \"artifact\": " << (dp.damage_artifact ? "true" : "false") << ",\n";
     j << "    \"joint\": {\n";
@@ -881,6 +916,7 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"alpha\": " << otm.alpha << ",\n";
     j << "    \"sigma2\": " << otm.sigma2 << ",\n";   // residual variance — makes the SEs auditable
     j << "    \"delta_beta\": " << otm.delta_beta << ",\n";
+    j << "    \"delta_beta_se\": " << otm.delta_beta_se << ",\n";  // sqrt(beta1_se^2+beta2_se^2); gate |delta_beta|/se
     j << "    \"markers_consistent\": " << (otm.markers_consistent ? "true" : "false") << ",\n";
     j << "    \"consistency_basis\": \""
       << (otm.consistency_basis == OxoConsistencyBasis::SS_END_SYMMETRY
@@ -1766,6 +1802,7 @@ void profile_to_json(const SampleDamageProfile& dp,
       << "    \"quantifiable\": " << (dp.channel_b_quantifiable ? "true" : "false") << ",\n"
       << "    \"inverted\": "     << (dp.channel_b_inverted ? "true" : "false") << ",\n"
       << "    \"d_max\": "        << std::fixed << std::setprecision(6) << dp.d_max_from_channel_b << ",\n"
+      << "    \"d_max_se\": "     << dp.d_max_from_channel_b_se << ",\n"
       << "    \"stop_baseline\": " << dp.stop_conversion_rate_baseline << ",\n"
       << "    \"d_max_3prime\": "  << dp.d_max_from_channel_b3 << ",\n"
       << "    \"stop_baseline_3prime\": " << dp.stop_conversion_rate_baseline_3prime << "\n"

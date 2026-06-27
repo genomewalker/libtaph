@@ -269,8 +269,43 @@ PiVerdict combine(const DamageEvidence& ev) {
 
 void finalize_pi(SampleDamageProfile& profile) {
     profile.pi = DamageEstimate{};
+    profile.oxidation_present = false;
+
+    // C2: OXIDATION as an INDEPENDENT damage axis — computed unconditionally here (not nested in the
+    // deamination control flow) because it never overrides pi.state. Source: oxo_two_marker δβ PAIRED
+    // contrast (delta_beta = beta1 G→T − beta2 C→A), populated by finalize_oxidation_comovement BEFORE
+    // finalize_pi. Gate = paired-contrast validity (markers_consistent — a strand-asymmetric prep artifact
+    // FAILS it, keeping modern blanks null) AND B1 SE significance (delta_beta − 1.96·delta_beta_se > 0,
+    // the contrast significantly excludes the no-oxidation null). Raw beta1/stop-rate thresholds fire on
+    // blanks (the modern fixture has delta_beta_z≈24 yet is a clean negative — caught by markers_consistent
+    // =false); the paired δβ + consistency gate fires on the oxidised-but-deam-barren FLB45m (consistent,
+    // delta_beta−1.96·se > 0) while staying null on modern. Validated against the extended-oracle fixtures.
+    {
+        const auto& otm = profile.oxidation_comovement;
+        profile.oxidation_present =
+            otm.valid && otm.markers_consistent &&
+            otm.delta_beta_se > 0.0 &&
+            (otm.delta_beta - 1.96 * otm.delta_beta_se) > 0.0;
+    }
+
     if (!profile.bulk_attempted) return;
     constexpr double PI_THR = 0.005;  // π-floor shared by DETECTED, TRACE, and LOW_ABUNDANCE gates
+
+    // Composition-immune codon DiD (compute_codon_did): strand-paired effect size min(5',3'). The
+    // purine-mirror control cancels TERMINAL positional composition skew (end-repair) that Channel A
+    // amplitude and the stop-codon channel both mistake for damage; real one-sided C→T/G→A deamination
+    // survives. Calibrated on a 132-lib modern panel + 13-sample FLB cohort: floor +0.010 gives ~2%
+    // fresh-modern FP while recovering ROCS (+0.018) and deep FLB (FLB10m/13m/16m/57m). VETO: a clearly
+    // NEGATIVE paired DiD means the symmetric terminal amplitude is composition, not damage (coastal
+    // water −0.04) → reject. CONFIRM: a positive paired DiD authenticates faint damage channel-5 missed.
+    // ds: strand-paired min(5' C→T, 3' G→A) — both ends must agree (composition skew fails this).
+    // ss: 5' ONLY — the ss 3' terminus carries a library-prep artifact (a clean-looking C→T decay,
+    // did_3prime≈−0.12 on a real ss ancient), so it must NOT gate; the 5' C→T is the reliable end.
+    constexpr float DID_FLOOR = 0.010f;
+    const bool did_is_ss = (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED);
+    const float did_signal = did_is_ss ? profile.did_5prime
+                                       : std::min(profile.did_5prime, profile.did_3prime);
+    const bool  did_confirms = profile.did_valid && did_signal >= DID_FLOOR;
 
     const auto try_ancient_cpg = [&]() {
         if (!std::isnan(profile.cpg_delta_bilateral) &&
@@ -349,6 +384,15 @@ void finalize_pi(SampleDamageProfile& profile) {
                         profile.pi.lo    = lo;
                         profile.pi.hi    = hi;
                         profile.pi.state = DamageConfidence::LOW_ABUNDANCE;
+                    } else if (did_confirms) {
+                        // The amplitude test put this deep faint ancient below floor, but the
+                        // composition-immune DiD positively confirms one-sided deamination (FLB10m/FLB57md:
+                        // did +0.05/+0.035 with sub-floor live-end amplitude at low depth). DiD is the
+                        // stronger, artifact-robust evidence here — promote to LOW_ABUNDANCE.
+                        profile.pi.point = clip01(pt);
+                        profile.pi.lo    = 0.0;
+                        profile.pi.hi    = hi;
+                        profile.pi.state = DamageConfidence::LOW_ABUNDANCE;
                     } else {
                         profile.pi.point = -1.0;
                         profile.pi.lo    = -1.0;
@@ -359,11 +403,35 @@ void finalize_pi(SampleDamageProfile& profile) {
                 }
             }
         }
+        // DiD RECOVERY (replaces the retired Channel-B amplitude admission): channel-5 strand-symmetry
+        // did not authenticate, but the composition-immune codon DiD positively confirms one-sided
+        // deamination. This is the faint/low-endogenous regime (ROCS marine, deep FLB). Safe where the
+        // old stop-codon path was NOT: the DiD's purine-mirror control nulls the terminal composition
+        // skew (coastal water → did_paired<0 → did_confirms=false), so this cannot re-admit the modern
+        // composition artifacts that the amplitude-based C1 falsely authenticated. pi value from the faint
+        // Channel-A d_max that exists but did not clear the symmetric gate.
+        if (denom > 0.0 && did_confirms) {
+            const double A = std::max(profile.d_max_5prime, profile.d_max_3prime);
+            profile.pi.point = clip01(A / denom);
+            profile.pi.lo    = 0.0;
+            profile.pi.hi    = clip01((A + 1.96 * 0.2 * A) / denom);
+            profile.pi.state = DamageConfidence::LOW_ABUNDANCE;
+            return;
+        }
         try_ancient_cpg();
         return;
     }
 
     if (denom <= 0.0) { try_ancient_cpg(); return; }
+
+    // dart A∧B joint table: channel-5 authenticated on SYMMETRIC terminal AMPLITUDE, but the
+    // composition-immune codon DiD must CONFIRM real one-sided deamination. did flat (≈0 — e.g.
+    // agricultural-soil/gut metagenomes with N-inflated ΔLLR but no net pyrimidine-over-purine excess)
+    // OR negative (coastal water, did≈−0.04) → "A fires, B flat/negative → compositional artifact",
+    // d_max=0 → ABSTAIN. Only bypass when the DiD is underpowered (did_valid=false, low convertible
+    // coverage), where the table's B=n/a falls back to Channel A. Real damage has did ≥ +DID_FLOOR
+    // (FLB ancients +0.05, ROCS +0.018, estuary relic +0.01–0.03), so this keeps them.
+    if (profile.did_valid && !did_confirms) { profile.pi = DamageEstimate{}; try_ancient_cpg(); return; }
 
     // pi VALUE from the Briggs per-end d_max (position-peak amplitude, COMMENSURATE with D_MAX_CONSERVED).
     // channel-5 above is the authenticity GATE ONLY — its context-scale amp (~0.03) is NOT used for the pi
