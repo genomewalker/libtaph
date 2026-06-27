@@ -2384,7 +2384,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         emit_score("cpg_context_score",           dcp.cpg_context_score,           true);
         emit_score("dipyrimidine_context_score",  dcp.dipyrimidine_context_score,  true);
         emit_score("oxidative_context_score",     dcp.oxidative_context_score,     true);
-        emit_score("purine_endpoint_context_score", dcp.fragmentation_context_score, true);
+        emit_score("purine_endpoint_context_score", dcp.purine_endpoint_context_score, true);
         emit_score("fragmentation_context_score", dcp.fragmentation_context_score, true);
         emit_score("library_artifact_score",      dcp.library_artifact_score,      true);
         j << "    \"evidence\": {\n";

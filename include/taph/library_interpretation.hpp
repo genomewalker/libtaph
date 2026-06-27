@@ -261,13 +261,14 @@ struct DamageContextProfile {
     bool reference_required = false;
     bool alignment_required = false;
 
-    // Six normalized scores in [0, 1]. NaN when the underlying signal is not
+    // Seven normalized scores in [0, 1]. NaN when the underlying signal is not
     // evaluable (e.g. missing coverage). Consumers should treat NaN as "unknown".
     float terminal_deamination_score = std::numeric_limits<float>::quiet_NaN();
     float cpg_context_score          = std::numeric_limits<float>::quiet_NaN();
     float dipyrimidine_context_score = std::numeric_limits<float>::quiet_NaN();
     float oxidative_context_score    = std::numeric_limits<float>::quiet_NaN();
-    float fragmentation_context_score= std::numeric_limits<float>::quiet_NaN();
+    float fragmentation_context_score= std::numeric_limits<float>::quiet_NaN();  // 5' purine enrichment at read starts
+    float purine_endpoint_context_score = std::numeric_limits<float>::quiet_NaN();  // 3' purine enrichment at fragment endpoints (depurination)
     float library_artifact_score     = std::numeric_limits<float>::quiet_NaN();
 
     DominantProcess dominant_process = DominantProcess::None;

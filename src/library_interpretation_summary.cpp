@@ -350,10 +350,16 @@ DamageContextProfile compute_damage_context_profile(
         ? NaN
         : clamp01f(ox_signed / kOxidativeNorm);
 
-    // Fragmentation context: purine enrichment at read starts vs interior.
+    // Fragmentation context: purine enrichment at read STARTS (5') vs interior.
     r.fragmentation_context_score = !std::isfinite(dp.purine_enrichment_5prime)
         ? NaN
         : clamp01f(dp.purine_enrichment_5prime / kFragNorm);
+    // Purine endpoint context: purine enrichment at fragment ENDS (3') vs interior — the
+    // depurination endpoint signal, distinct from the 5' start. 5'/3' asymmetry is taphonomically
+    // informative (different break chemistry at the two termini). Same normalization as the 5' score.
+    r.purine_endpoint_context_score = !std::isfinite(dp.purine_enrichment_3prime)
+        ? NaN
+        : clamp01f(dp.purine_enrichment_3prime / kFragNorm);
 
     // Library artifact: continuous sigmoid on the composition shift z. The
     // previous `any_art_flag ? 1.0f` floor saturated the score at 1.0 for nearly
