@@ -632,8 +632,19 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"converged\": "   << (lsd.joint_converged ? "true" : "false") << ",\n";
         j << "      \"separated\": "   << (lsd.joint_separated ? "true" : "false") << ",\n";
         j << "      \"applicable\": "  << ((lsd.joint_converged && lsd.joint_separated) ? "true" : "false") << ",\n";
-        j << "      \"coverage_fraction\": -1.0,\n";
         j << "      \"conditions\": \"length x damage joint mixture; identifies damaged fraction from fragment-length prior\",\n";
+        // coverage_fraction: fraction of length×GC cells with enough coverage to estimate w_damaged
+        // (cell ≥ 0; the -1.0 sentinel marks insufficient-coverage cells). A real data-sufficiency
+        // metric — how much of the length×GC plane the joint mixture could actually be fit over.
+        {
+            double cov_valid = 0.0, cov_total = 0.0;
+            for (const auto& row : lsd.cell_w_damaged)
+                for (double v : row) { cov_total += 1.0; if (v >= 0.0) cov_valid += 1.0; }
+            j << "      \"coverage_fraction\": ";
+            if (cov_total > 0.0) j << std::setprecision(6) << (cov_valid / cov_total);
+            else                 j << "null";
+            j << ",\n";
+        }
         j << "      \"cell_w_damaged\": [";
         for (size_t b = 0; b < lsd.cell_w_damaged.size(); ++b) {
             if (b > 0) j << ",";
@@ -2084,26 +2095,31 @@ void profile_to_json(const SampleDamageProfile& dp,
     // ── Library QC ────────────────────────────────────────────────────────────
     {
         j << "  \"library_qc\": {\n";
-        if (in.adapter_clipped && !in.adapter_stubs_5prime.empty()) {
-            j << "    \"adapter_stubs_clipped\": [";
+        // Invariant schema: always emit these keys; empty array / null when not applicable.
+        j << "    \"adapter_stubs_clipped\": [";
+        if (in.adapter_clipped) {
             for (size_t i = 0; i < in.adapter_stubs_5prime.size(); ++i) {
                 if (i) j << ",";
                 j << "\"" << in.adapter_stubs_5prime[i] << "\"";
             }
-            j << "],\n";
         }
-        if (in.adapter3_clipped && !in.adapter_stubs_3prime.empty()) {
-            j << "    \"adapter_stubs_clipped_3prime\": [";
+        j << "],\n";
+        j << "    \"adapter_stubs_clipped_3prime\": [";
+        if (in.adapter3_clipped) {
             for (size_t i = 0; i < in.adapter_stubs_3prime.size(); ++i) {
                 if (i) j << ",";
                 j << "\"" << in.adapter_stubs_3prime[i] << "\"";
             }
-            j << "],\n";
         }
+        j << "],\n";
         if (in.adapter_stub_reads_checked > 0) {
             j << "    \"adapter_stub5_read_fraction\": " << std::fixed << std::setprecision(6) << in.adapter_stub5_read_fraction << ",\n";
             j << "    \"adapter_stub3_read_fraction\": " << in.adapter_stub3_read_fraction << ",\n";
             j << "    \"adapter_stub_reads_checked\": " << in.adapter_stub_reads_checked << ",\n";
+        } else {
+            j << "    \"adapter_stub5_read_fraction\": null,\n";
+            j << "    \"adapter_stub3_read_fraction\": null,\n";
+            j << "    \"adapter_stub_reads_checked\": 0,\n";
         }
         j << "    \"adapter_offset_5prime\": " << dp.fit_offset_5prime << ",\n";
         j << "    \"adapter_offset_3prime\": " << dp.fit_offset_3prime << ",\n";
@@ -2149,7 +2165,7 @@ void profile_to_json(const SampleDamageProfile& dp,
             }
         }
         j << "],\n";
-        // Adapter prefix identification
+        // Adapter prefix identification — invariant schema: object when identified, null otherwise.
         if (in.adapter_clipped && !in.adapter_stubs_5prime.empty()) {
             static const std::pair<const char*, const char*> kAdapters[] = {
                 {"ACACTC", "TruSeq/P5"},
@@ -2166,6 +2182,9 @@ void profile_to_json(const SampleDamageProfile& dp,
                 if (top_seq == kv.first) { name = kv.second; break; }
             j << "    \"adapter_prefix_identified\": {\"seq\":\"" << top_seq
               << "\",\"name\":\"" << name << "\"},\n";
+        } else {
+            // Invariant schema: always the same shape; null fields when no adapter identified.
+            j << "    \"adapter_prefix_identified\": {\"seq\":null,\"name\":null},\n";
         }
         j << "    \"depurination_detected\": " << (dp.depurination_detected ? "true" : "false") << ",\n";
         j << "    \"short_read_frac\": " << std::setprecision(4)
@@ -2292,11 +2311,11 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "        \"artifact_overcall_3p\": " << (dp.artifact_overcall_3p ? "true" : "false") << ",\n";
         j << "        \"artifact_g_excess_5p\": " << dp.artifact_g_excess_5p << ",\n";
         j << "        \"artifact_g_excess_3p\": " << dp.artifact_g_excess_3p << "\n";
-        j << "      }" << (is_ss ? "," : "") << "\n";
+        j << "      },\n";
 
-        // ss_end_asymmetry: CircLigase selection bias and extreme 5'/3' asymmetry.
-        // Only emitted for SS libraries (CircLigase is the relevant ligation chemistry).
-        if (is_ss) {
+        // ss_end_asymmetry: CircLigase selection bias and extreme 5'/3' asymmetry. Invariant schema —
+        // always emitted; for non-SS (or SS without asymmetry) the flags are false / "none" / "".
+        {
             const char* recommended =
                 no_reliable_estimate ? "none" :
                 d5_suppressed        ? "d_max_3prime" :
