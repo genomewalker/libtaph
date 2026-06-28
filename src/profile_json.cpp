@@ -266,9 +266,27 @@ void profile_to_json(const SampleDamageProfile& dp,
         const bool pi_ub_only = dp.pi.state == DamageConfidence::BELOW_FLOOR &&
                                 std::isfinite(dp.pi.hi) && dp.pi.hi >= 0.0;
         const char* frac_state = pi_ident ? conf_str(dp.pi.state) : (pi_ub_only ? "BELOW_FLOOR" : "ABSTAIN");
+        // Deamination AUTHENTICATION (schema v3.2). "present" iff an ancient deamination signal is
+        // authenticated by a RELIABLE channel: either pi is identifiable (mixture/shape resolved the
+        // damaged stratum) OR Channel B significantly excludes the no-damage null (quantifiable, not
+        // inverted, d_max − 2·SE > 0). The previous source (raw damage_status / d_max_5prime) FALSE-
+        // authenticated composition-inflated nulls — modern + ds blanks sit at d_max≈0.1–0.3 with no
+        // real decay — AND orphaned the Channel-B-only ancient horizons (pi unidentifiable but B
+        // significant, e.g. FLB16mNdBds3 at 3.9σ). NOTE the fraction stays UNQUANTIFIED where only B
+        // fires: Channel A/B measure amp = π_dmg·A_b (a product), so authentication ≠ an identifiable π
+        // — `authenticated_by:channel_b` carries presence, not a rate. [Phase C: deliberate behavior
+        // change; golden `modern` re-baselined present→absent as the intended correction.]
+        const bool chanb_sig = dp.channel_b_quantifiable && !dp.channel_b_inverted &&
+                               std::isfinite(dp.d_max_from_channel_b) &&
+                               std::isfinite(dp.d_max_from_channel_b_se) &&
+                               (dp.d_max_from_channel_b - 2.0 * dp.d_max_from_channel_b_se) > 0.0;
+        const bool deam_authentic = pi_ident || chanb_sig;
+        const char* deam_via = pi_ident ? "pi_estimate" : (chanb_sig ? "channel_b" : "none");
         j << "  \"verdict\": {\n";
-        j << "    \"deamination\":      {\"call\": \"" << ds_str
-          << "\", \"source\": \"damage_status / deamination.d_max_5prime\", \"d_max_5prime\": ";
+        j << "    \"deamination\":      {\"call\": \"" << (deam_authentic ? "present" : "absent")
+          << "\", \"authenticated_by\": \"" << deam_via
+          << "\", \"source\": \"pi_identifiable OR channel_b(quantifiable,!inverted,d_max-2SE>0)\""
+          << ", \"d_max_5prime\": ";
         jn(dp.d_max_5prime); j << "},\n";
         j << "    \"damaged_fraction\": {\"state\": \"" << frac_state
           << "\", \"source\": \"pi_estimate\", \"pi\": "; if (pi_ident) jn(dp.pi.point); else j << "null"; j << "},\n";
