@@ -126,8 +126,14 @@ void profile_to_json(const SampleDamageProfile& dp,
     auto hs      = compute_hex_stats(dp);
     auto ds      = compute_depur_score(dp, is_ss);
     auto otr     = compute_oxog_trinuc(dp);
+    // F3: GG-breakpoint scission contrast resolved by purine context. 5' is primary (3' G is
+    // deamination-depleted, same caveat as the scalar oxidative_scission_delta).
+    auto scctx   = compute_scission_by_context(dp.tri_5prime_terminal, dp.tri_5prime_interior);
     auto oxe     = compute_oxog_estimate(dp, is_ss);
     const auto& otm = dp.oxidation_comovement;
+    // F4: provisional oxidative-vs-hydrolytic C->T split (reuses oxo_two_marker bins + the
+    // already-fitted oxidation coupling otm + reference-free G->T rate otr.gt_rate).
+    auto ctps    = compute_ct_pathway_split(dp, otm, otr, is_ss);
     auto pres    = compute_preservation_summary(dp, is_ss,
                        in.adapter_clipped, in.flag_hex_artifact,
                        cpg.z, oxog_is.z, otr.cosine, hs.shift_p);
@@ -160,7 +166,228 @@ void profile_to_json(const SampleDamageProfile& dp,
 
     // ── Top-level ─────────────────────────────────────────────────────────────
     j << "{\n";
-    j << "  \"schema_version\": 3,\n";
+    j << "  \"schema_version\": 9,\n";  // v9: F5 clustering.lesion_cooccurrence (cross-channel G->T x C->T co-occurrence excess; ionizing-radiation signature) + dose_proxy_note
+    // ── Context-resolved damage primitives (schema v4 consolidation) ──────────
+    // Map the EXISTING scattered computations into four damage-process parents. No new
+    // computation, no verdict change — pure layout. Legacy top-level blocks remain emitted
+    // as deprecated aliases for one release; the `deprecations` map below points each legacy
+    // key at its new canonical path. Every float is NaN-guarded by the NonfiniteNumPut facet
+    // (non-finite -> null), the same guard the rest of this document relies on.
+    {
+        j << "  \"context_primitives\": {\n";
+
+        // oxidation: consolidates oxo_two_marker (primary), oxog_estimate, oxog_trinuc/cosine,
+        // oxidation_like, oxidative_scission, oxidation_epsilon.
+        j << "    \"oxidation\": {\n";
+        j << "      \"primary\": {\n";
+        j << "        \"delta_beta\": " << std::setprecision(6) << otm.delta_beta << ",\n";
+        j << "        \"delta_beta_se\": " << otm.delta_beta_se << ",\n";
+        j << "        \"z\": " << clamp_z(otm.beta1_z) << ",\n";
+        j << "        \"valid\": " << (otm.valid ? "true" : "false") << ",\n";
+        j << "        \"source\": \"oxo_two_marker\"\n";
+        j << "      },\n";
+        j << "      \"estimate\": {\n";
+        j << "        \"ox_theta\": " << oxe.ox_theta << ",\n";
+        j << "        \"ox_theta_ci_lo\": " << oxe.ox_theta_ci_lo << ",\n";
+        j << "        \"ox_theta_ci_hi\": " << oxe.ox_theta_ci_hi << ",\n";
+        j << "        \"ox_like_excess\": " << oxe.ox_like_excess << ",\n";
+        j << "        \"ox_like_z\": " << oxe.ox_like_z << ",\n";
+        j << "        \"source\": \"oxog_estimate\"\n";
+        j << "      },\n";
+        j << "      \"context_cosine\": " << (std::isnan(otr.cosine) ? std::string("null") : std::to_string(otr.cosine)) << ",\n";
+        j << "      \"gt_asymmetry\": " << (std::isnan(otr.gt_asymmetry) ? std::string("null") : std::to_string(otr.gt_asymmetry)) << ",\n";
+        // F1: oxidation source attribution. Each class is the composition-corrected strand-symmetric
+        // EXCESS (G→T minus C→A complement, oxo_two_marker theta correction), never a raw per-context
+        // rate. Sparse classes emit null (NaN-guarded), not 0. by_context = 5'-flanker mechanism
+        // (fenton=C/T-flanked •OH, m1g=A-flanked lipid-peroxidation, hole=G-flanked charge transport);
+        // by_grun = hole-transport gradient GGG>GG>G with gradient (GGG-G) and its z.
+        auto emit_oxctx = [&](const char* key, const OxogContextExcess& o, bool last) {
+            j << "        \"" << key << "\": {\"excess\": " << nan_or(o.excess)
+              << ", \"se\": " << nan_or(o.se) << ", \"n\": " << o.n << "}"
+              << (last ? "\n" : ",\n");
+        };
+        j << "      \"by_context\": {\n";
+        emit_oxctx("fenton", otr.fenton, false);
+        emit_oxctx("m1g",    otr.m1g,    false);
+        emit_oxctx("hole",   otr.hole,   true);
+        j << "      },\n";
+        j << "      \"by_grun\": {\n";
+        emit_oxctx("GGG", otr.grun_ggg, false);
+        emit_oxctx("GG",  otr.grun_gg,  false);
+        emit_oxctx("G",   otr.grun_g,   false);
+        j << "        \"gradient\": {\"value\": " << nan_or(otr.grun_gradient)
+          << ", \"z\": " << nan_or(clamp_z(otr.grun_gradient_z)) << "}\n";
+        j << "      },\n";
+        j << "      \"like\": {\n";
+        j << "        \"excess\": " << nan_or(dp.oxidation_like_excess) << ",\n";
+        j << "        \"se\": " << nan_or(dp.oxidation_like_se) << ",\n";
+        j << "        \"z\": " << nan_or(dp.oxidation_like_z) << "\n";
+        j << "      },\n";
+        j << "      \"scission_proxy\": {\n";
+        j << "        \"delta\": " << nan_or(dp.oxidative_scission_delta) << ",\n";
+        j << "        \"delta_5prime\": " << nan_or(dp.oxidative_scission_delta_5prime) << ",\n";
+        j << "        \"delta_3prime\": " << nan_or(dp.oxidative_scission_delta_3prime) << "\n";
+        j << "      },\n";
+        j << "      \"epsilon\": {\n";
+        j << "        \"fitted\": " << (dp.epsilon.fitted ? "true" : "false") << ",\n";
+        j << "        \"epsilon\": " << nan_or(dp.epsilon.epsilon_floor) << ",\n";
+        j << "        \"epsilon_term\": " << nan_or(dp.epsilon.epsilon_term) << "\n";
+        j << "      }\n";
+        j << "    },\n";
+
+        // deamination: the methylation-context (CpG-vs-non-CpG) excess, currently emitted under
+        // deamination.cpg_like. Mapped here as the canonical context view.
+        j << "    \"deamination\": {\n";
+        // F2: methylation_context — CpG/CHG/CHH-resolved composition-corrected 5' C->T
+        // EXCESS (terminal-vs-interior amplitude from fit_ct5_ctx_amplitude), strand-aware
+        // and terminal-restricted. Sparse context classes emit null (never 0). meth_select
+        // = CpG - mean(CHG,CHH). Supersedes the cpg_like (CpG vs non-CpG) view; cpg_context
+        // kept as a deprecated alias for one release.
+        // F2: per-4-mer terminal C->T excess pooled by methylation class (terminal_n-
+        // weighted mean-of-ratios from tetra_5prime_*), per the validated
+        // 25_cwg_chh_4mer.py estimator. `chg` carries the CWG (clean plant CHG) pool.
+        // meth_select = CWG - CHH (bulk); meth_select_s34 = CWG - CHH from the
+        // ancient-enriched stratum (deam bins 3+4 merged).
+        j << "      \"methylation_context\": {\n";
+        j << "        \"cpg\": " << nan_or(dp.meth_ctx_cpg) << ",\n";
+        j << "        \"chg\": " << nan_or(dp.meth_ctx_chg) << ",\n";
+        j << "        \"chh\": " << nan_or(dp.meth_ctx_chh) << ",\n";
+        j << "        \"meth_select\": " << nan_or(dp.meth_ctx_select) << ",\n";
+        j << "        \"meth_select_s34\": " << nan_or(dp.meth_ctx_select_s34) << "\n";
+        j << "      },\n";
+        // F4: ct_pathway_split — PROVISIONAL oxidative-vs-hydrolytic interior C->T split.
+        // total/hydrolytic/oxidative are composition-corrected EXCESSES (never raw per-context
+        // rates), reusing the oxo_two_marker bins (no new accumulator). The split is NOT
+        // identifiable reference-free (both routes give the same C->T substitution), so it is
+        // flagged provisional=true, separable=false with a note. Under-determined fit or an
+        // unvalidated oxidation coupling -> null (NaN-guarded), never 0.
+        j << "      \"ct_pathway_split\": {\n";
+        j << "        \"total\": " << nan_or(ctps.total) << ",\n";
+        j << "        \"total_se\": " << nan_or(ctps.total_se) << ",\n";
+        j << "        \"hydrolytic\": " << nan_or(ctps.hydrolytic) << ",\n";
+        j << "        \"oxidative\": " << nan_or(ctps.oxidative) << ",\n";
+        j << "        \"oxidative_se\": " << nan_or(ctps.oxidative_se) << ",\n";
+        j << "        \"coupling_z\": " << nan_or(clamp_z(ctps.coupling_z)) << ",\n";
+        j << "        \"n_cells\": " << ctps.n_cells << ",\n";
+        j << "        \"valid\": " << (ctps.valid ? "true" : "false") << ",\n";
+        j << "        \"provisional\": " << (ctps.provisional ? "true" : "false") << ",\n";
+        j << "        \"separable\": " << (ctps.separable ? "true" : "false") << ",\n";
+        j << "        \"note\": \"PROVISIONAL: hydrolytic and oxidative (5-hydroxycytosine) "
+             "deamination yield the identical C->T substitution and are NOT separable reference-free. "
+             "oxidative = the interior C->T excess co-moving with the reference-free G->T (8-oxoG) "
+             "oxidation rate, gated on a marker-consistent oxidation coupling; hydrolytic = total - "
+             "oxidative. Treat as an oxidation-coupling attribution, not an identified decomposition; "
+             "needs external (e.g. oxBS/5-hmU) validation. Channel registry id O "
+             "(oxidative_deamination_5ohc).\"\n";
+        j << "      },\n";
+        j << "      \"cpg_context\": {\n";
+        j << "        \"dmax_ct5_cpg\": " << nan_or(dp.dmax_ct5_cpg_like) << ",\n";
+        j << "        \"dmax_ct5_noncpg\": " << nan_or(dp.dmax_ct5_noncpg_like) << ",\n";
+        j << "        \"log2_cpg_ratio\": " << nan_or(dp.log2_cpg_ratio) << ",\n";
+        j << "        \"cpg_score_z\": " << nan_or(clamp_z(cpg.z)) << ",\n";
+        j << "        \"methylation_excess\": " << nan_or(dp.cpg_methylation_excess) << ",\n";
+        j << "        \"source\": \"deamination.cpg_like\"\n";
+        j << "      }\n";
+        j << "    },\n";
+
+        // scission: the fitted strand-break rate gamma (currently top-level `scission`).
+        // F3: by_context resolves the GG-breakpoint contrast (previously the single
+        // oxidative_scission_delta) by purine dinucleotide context AG/GG/AA/GA. Each class is the
+        // composition-corrected terminal-vs-interior EXCESS (mid=A neutral-baseline subtracted),
+        // never a raw per-context rate; GG.excess reproduces oxidative_scission_delta_5prime.
+        // Sparse classes (terminal context count < 50) emit null, not 0.
+        j << "    \"scission\": {\n";
+        j << "      \"fitted\": " << (dp.scission.fitted ? "true" : "false") << ",\n";
+        j << "      \"gamma\": " << nan_or(dp.scission.gamma) << ",\n";
+        j << "      \"ci_lo\": " << nan_or(dp.scission.lo) << ",\n";
+        j << "      \"ci_hi\": " << nan_or(dp.scission.hi) << ",\n";
+        {
+            auto emit_scctx = [&](const char* key, const OxogContextExcess& o, bool last) {
+                j << "        \"" << key << "\": {\"excess\": " << nan_or(o.excess)
+                  << ", \"se\": " << nan_or(o.se) << ", \"n\": " << o.n << "}"
+                  << (last ? "\n" : ",\n");
+            };
+            j << "      \"by_context\": {\n";
+            emit_scctx("AG", scctx.ag, false);
+            emit_scctx("GG", scctx.gg, false);
+            emit_scctx("AA", scctx.aa, false);
+            emit_scctx("GA", scctx.ga, true);
+            j << "      },\n";
+        }
+        j << "      \"source\": \"scission\"\n";
+        j << "    },\n";
+
+        // clustering: interior C->T pair co-occurrence + per-read overdispersion, plus the F5
+        // cross-channel (G->T x C->T) within-read co-occurrence excess (ionizing-radiation /
+        // lesion-clustering signature). Absorbs the legacy top-level interior_ct_cluster and
+        // per_read_overdispersion blocks under this parent.
+        j << "    \"clustering\": {\n";
+        j << "      \"interior_ct\": {\n";
+        j << "        \"short_log2oe\": " << nan_or(dp.interior_ct_cluster_short_log2oe) << ",\n";
+        j << "        \"short_asym_log2oe\": " << nan_or(dp.interior_ct_cluster_short_asym_log2oe) << ",\n";
+        j << "        \"reads_used\": " << dp.interior_ct_cluster_reads_used << ",\n";
+        j << "        \"source\": \"interior_ct_cluster\"\n";
+        j << "      },\n";
+        // F5: lesion_cooccurrence — composition-corrected CROSS-CHANNEL (G->T x C->T) within-read
+        // co-occurrence EXCESS vs the Poisson expectation from the two per-read marginals (never a
+        // raw per-context rate). A positive excess = lesions of different chemistry cluster more
+        // than independent, the spatial signature of an ionizing-radiation track (mineral U/Th/K
+        // decay -> .OH water radiolysis), which chemical/enzymatic damage (diffuse) does not
+        // produce. Sparse (< 2000 eligible cross-pairs) -> null, never 0 (NaN-guarded).
+        j << "      \"lesion_cooccurrence\": {\n";
+        j << "        \"excess\": " << nan_or(dp.lesion_cooccurrence_excess) << ",\n";
+        j << "        \"z\": " << nan_or(clamp_z(dp.lesion_cooccurrence_z)) << ",\n";
+        j << "        \"obs\": " << dp.lesion_cooccurrence_obs << ",\n";
+        j << "        \"exp\": " << nan_or(dp.lesion_cooccurrence_exp) << ",\n";
+        j << "        \"reads_used\": " << dp.lesion_cooccurrence_reads_used << ",\n";
+        j << "        \"source\": \"interior_ct_cluster.cross_channel_gt_ct\"\n";
+        j << "      },\n";
+        // F5 dose coupling: clustering is the radiation signature, but the dose is external. To
+        // test it, correlate lesion_cooccurrence.excess across samples against a mineral-
+        // radioactivity proxy. The manuscript metadata carries K-feldspar (`feldspar` column,
+        // K-bearing) but no U/Th; that gap is flagged here rather than silently dropped.
+        j << "      \"dose_proxy_note\": \"Correlate lesion_cooccurrence.excess across samples "
+             "against a mineral-radioactivity dose proxy: K-feldspar (metadata `feldspar` column, "
+             "K-40 bearing) and, if obtainable, U/Th. U/Th is absent from current metadata (gap "
+             "flagged). Within-sample the excess cannot be dose-calibrated; it is the radiation-vs-"
+             "diffuse-chemistry discriminator, not an absolute dose.\",\n";
+        j << "      \"overdispersion_source\": \"per_read_overdispersion\"\n";
+        j << "    }\n";
+
+        j << "  },\n";
+
+        // deprecations: legacy top-level key -> new canonical path. Legacy keys stay emitted
+        // (as aliases) for one release; consumers should migrate to the mapped paths.
+        j << "  \"deprecations\": {\n";
+        j << "    \"oxo_two_marker\": \"context_primitives.oxidation.primary\",\n";
+        j << "    \"oxog_estimate\": \"context_primitives.oxidation.estimate\",\n";
+        j << "    \"oxog_context_cosine\": \"context_primitives.oxidation.context_cosine\",\n";
+        j << "    \"oxidation_like\": \"context_primitives.oxidation.like\",\n";
+        j << "    \"oxidative_scission\": \"context_primitives.oxidation.scission_proxy\",\n";
+        j << "    \"oxidation_epsilon\": \"context_primitives.oxidation.epsilon\",\n";
+        // F1: the flat oxog_4mer cosine/asymmetry view is superseded by the source-attributed
+        // by_context/by_grun excesses; legacy keys stay emitted as aliases for one release.
+        j << "    \"oxog_gt_asymmetry\": \"context_primitives.oxidation.gt_asymmetry\",\n";
+        j << "    \"oxog_4mer.by_context\": \"context_primitives.oxidation.by_context\",\n";
+        j << "    \"oxog_4mer.by_grun\": \"context_primitives.oxidation.by_grun\",\n";
+        j << "    \"deamination.cpg_like\": \"context_primitives.deamination.cpg_context\",\n";
+    j << "    \"context_primitives.deamination.cpg_context\": \"context_primitives.deamination.methylation_context\",\n";
+        // F4: discoverability pointer for the 5-OH-C oxidative-deamination channel (registry id O).
+        // Not a superseded legacy key (the split is new) — maps the channel name to its canonical
+        // provisional readout path so consumers can find it from the channel registry id.
+        j << "    \"oxidative_deamination_5ohc\": \"context_primitives.deamination.ct_pathway_split\",\n";
+        j << "    \"scission\": \"context_primitives.scission\",\n";
+        // F3: the single-number GG-breakpoint readout is superseded by the purine-context-resolved
+        // excess (GG.excess == the legacy delta_5prime). Legacy keys stay emitted for one release.
+        j << "    \"oxidative_scission.delta\": \"context_primitives.scission.by_context.GG\",\n";
+        j << "    \"context_primitives.oxidation.scission_proxy\": \"context_primitives.scission.by_context\",\n";
+        j << "    \"interior_ct_cluster\": \"context_primitives.clustering.interior_ct\",\n";
+        // F5: discoverability pointer for the new cross-channel co-occurrence readout (not a
+        // superseded legacy key — the statistic is new; maps its mnemonic to the canonical path).
+        j << "    \"lesion_cooccurrence_gt_ct\": \"context_primitives.clustering.lesion_cooccurrence\",\n";
+        j << "    \"per_read_overdispersion\": \"context_primitives.clustering.overdispersion_source\"\n";
+        j << "  },\n";
+    }
     j << "  \"input\": \"" << json_escape(in.sample_name) << "\",\n";
     j << "  \"n_reads\": " << in.n_reads << ",\n";
     j << "  \"library_type\": \"" << dp.library_type_str() << "\",\n";

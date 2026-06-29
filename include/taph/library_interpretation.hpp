@@ -117,15 +117,94 @@ struct OxogInteriorScore { double z = 0.0; double p = 1.0; };
 // Chargaff-symmetric G→T excess test over 16 trinucleotide contexts.
 OxogInteriorScore compute_oxog_interior_score(const SampleDamageProfile& dp);
 
+// F1: composition-corrected oxidation EXCESS resolved by mechanistic 5'-flanker
+// class and G-run subgradient. Each value is the strand-symmetric excess rate
+// (G→T minus C→A complement, reusing the oxo_two_marker theta correction), NOT a
+// raw per-context rate. Sparse classes (eligible opportunities below the minimum)
+// stay NaN so the JSON emitter maps them to null, never 0.
+struct OxogContextExcess {
+    double excess = std::numeric_limits<double>::quiet_NaN();
+    double se     = std::numeric_limits<double>::quiet_NaN();
+    double n      = 0.0;  // eligible strand-symmetric opportunities behind the class
+};
+
 struct OxogTrinucResult {
     double cosine  = std::numeric_limits<double>::quiet_NaN();
     int    n_ctx   = 0;
     double gt_asymmetry = std::numeric_limits<double>::quiet_NaN(); // IVW mean log(rc(XGY)/XGY), interior only
     double gt_rate   = std::numeric_limits<double>::quiet_NaN(); // max(0, 1-exp(-gt_asymmetry)); ref-free G→T rate estimate
+
+    // F1 by-mechanism (5'-flanker): C/T=Fenton/•OH, A=M1G/lipid-peroxidation, G=charge-transport hole.
+    OxogContextExcess fenton;
+    OxogContextExcess m1g;
+    OxogContextExcess hole;
+    // F1 by-G-run (hole-transport gradient): GGG > GG > G; gradient = GGG.excess - G.excess.
+    OxogContextExcess grun_ggg;
+    OxogContextExcess grun_gg;
+    OxogContextExcess grun_g;
+    double grun_gradient   = std::numeric_limits<double>::quiet_NaN(); // GGG - G excess
+    double grun_gradient_z = std::numeric_limits<double>::quiet_NaN(); // (GGG-G)/sqrt(se_ggg^2+se_g^2)
 };
 
 // Cosine similarity of per-context G→T residuals to empirical 8-oxoG reference.
 OxogTrinucResult compute_oxog_trinuc(const SampleDamageProfile& dp);
+
+// F3: depurination / strand-scission resolved by purine context.
+// The legacy oxidative_scission_delta is the single GG-vs-A terminal double-difference.
+// This resolves that GG-breakpoint contrast by purine dinucleotide context (mid,next)
+// in {AG,GG,AA,GA}: each value is the composition-corrected EXCESS
+//   excess(XY) = (term_frac(mid=X,next=Y) − inter_frac(mid=X,next=Y))
+//              − (term_frac(mid=A)        − inter_frac(mid=A))           [depurination-neutral baseline]
+// reusing OxogContextExcess (excess/se/n), NOT a raw per-context rate. GG.excess reproduces the
+// legacy delta (GG-run contrast minus the mid=A baseline). Sparse classes (terminal context count
+// below the minimum) stay NaN so the emitter maps them to null, never 0.
+struct ScissionContextResult {
+    OxogContextExcess ag;  // mid=A,next=G
+    OxogContextExcess gg;  // mid=G,next=G  (legacy GG-breakpoint contrast)
+    OxogContextExcess aa;  // mid=A,next=A
+    OxogContextExcess ga;  // mid=G,next=A
+};
+
+// 5'/3' terminal-vs-interior trinucleotide spectra -> per-purine-context scission excess.
+ScissionContextResult compute_scission_by_context(const std::array<uint64_t, 64>& term,
+                                                  const std::array<uint64_t, 64>& inter);
+
+// F4: oxidative-vs-hydrolytic C->T pathway split. Cytosine has two C->T routes:
+// hydrolytic deamination (the main aDNA signal) and oxidative deamination via
+// 5-hydroxycytosine (5-OH-C / 5-hmU). Both yield the SAME C->T substitution, so the
+// two routes are NOT separable reference-free from the substitution alone; the split
+// here is a PROVISIONAL attribution, not an identified decomposition (provisional=true,
+// separable=false). It reuses the existing oxo_two_marker bins (no new accumulator):
+//   total = composition-corrected interior C->T excess (top-strand C->T minus the
+//           bottom-strand A->? deamination-neutral complement, harmonic-mean weighted),
+//   oxidative = the part of `total` that co-moves with the interior G->T oxidation rate
+//           (otr.gt_rate) scaled by the validated oxidation coupling beta1; clamped >=0
+//           and to <= total,
+//   hydrolytic = max(0, total - oxidative).
+// Each value is a composition-corrected EXCESS, never a raw per-context rate. When the
+// regression is under-determined or the oxidation coupling is not marker-consistent the
+// oxidative attribution is withheld (NaN -> JSON null), and sparse cells (below the bin
+// count gate) are excluded so a thin class emits null, not 0.
+struct CtPathwaySplit {
+    double total      = std::numeric_limits<double>::quiet_NaN();  // interior C->T excess
+    double total_se   = std::numeric_limits<double>::quiet_NaN();
+    double hydrolytic = std::numeric_limits<double>::quiet_NaN();  // total - oxidative
+    double oxidative  = std::numeric_limits<double>::quiet_NaN();  // oxidation-coupled component
+    double oxidative_se = std::numeric_limits<double>::quiet_NaN();
+    double coupling_z = std::numeric_limits<double>::quiet_NaN();  // beta1/beta1_se (oxidation coupling)
+    int    n_cells    = 0;
+    bool   provisional = true;   // ALWAYS provisional: routes are not identifiable ref-free
+    bool   separable   = false;  // the substitution does not discriminate the two routes
+    bool   valid       = false;  // a usable `total` was estimated
+};
+
+// is_ss selects the SS (3' C->T) vs DS (3' G->A) oxo_two_marker panel, matching
+// compute_oxo_two_marker. otm carries the already-fitted oxidation coupling (beta1) and
+// otr.gt_rate the reference-free interior G->T (8-oxoG) rate used as the oxidative regressor.
+CtPathwaySplit compute_ct_pathway_split(const SampleDamageProfile& dp,
+                                        const OxoTwoMarkerResult& otm,
+                                        const OxogTrinucResult& otr,
+                                        bool is_ss);
 
 struct DepurScore {
     double z      = 0.0;

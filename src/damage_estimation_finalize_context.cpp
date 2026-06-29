@@ -21,18 +21,168 @@ void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
     // Context-split amplitude fits (CpG-like vs non-CpG-like)
     {
         auto fit_cpg = fit_ct5_ctx_amplitude(
-            profile.ct_ctx_t_5prime[SampleDamageProfile::CPG_LIKE],
-            profile.ct_ctx_total_5prime[SampleDamageProfile::CPG_LIKE],
-            profile.ct_ctx_t_interior[SampleDamageProfile::CPG_LIKE],
-            profile.ct_ctx_total_interior[SampleDamageProfile::CPG_LIKE],
+            profile.ct_ctx_t_5prime[SampleDamageProfile::CpG],
+            profile.ct_ctx_total_5prime[SampleDamageProfile::CpG],
+            profile.ct_ctx_t_interior[SampleDamageProfile::CpG],
+            profile.ct_ctx_total_interior[SampleDamageProfile::CpG],
             profile.lambda_5prime);
 
-        auto fit_ncpg = fit_ct5_ctx_amplitude(
-            profile.ct_ctx_t_5prime[SampleDamageProfile::NONCPG_LIKE],
-            profile.ct_ctx_total_5prime[SampleDamageProfile::NONCPG_LIKE],
-            profile.ct_ctx_t_interior[SampleDamageProfile::NONCPG_LIKE],
-            profile.ct_ctx_total_interior[SampleDamageProfile::NONCPG_LIKE],
+        // F2: CHG and CHH each fit independently (composition-corrected terminal-vs-
+        // interior excess), reusing the same amplitude fitter.
+        auto fit_chg = fit_ct5_ctx_amplitude(
+            profile.ct_ctx_t_5prime[SampleDamageProfile::CHG],
+            profile.ct_ctx_total_5prime[SampleDamageProfile::CHG],
+            profile.ct_ctx_t_interior[SampleDamageProfile::CHG],
+            profile.ct_ctx_total_interior[SampleDamageProfile::CHG],
             profile.lambda_5prime);
+
+        auto fit_chh = fit_ct5_ctx_amplitude(
+            profile.ct_ctx_t_5prime[SampleDamageProfile::CHH],
+            profile.ct_ctx_total_5prime[SampleDamageProfile::CHH],
+            profile.ct_ctx_t_interior[SampleDamageProfile::CHH],
+            profile.ct_ctx_total_interior[SampleDamageProfile::CHH],
+            profile.lambda_5prime);
+
+        // Legacy non-CpG aggregate (CHG+CHH) preserves the deprecated *_noncpg_like
+        // fit and cpg_ratio for existing consumers (library_interpretation_*,
+        // finalize_preservation), since the old NONCPG_LIKE bucket = every non-CpG site.
+        std::array<double, SampleDamageProfile::N_POS> ncpg_t_5p{}, ncpg_tot_5p{};
+        for (int p = 0; p < SampleDamageProfile::N_POS; ++p) {
+            ncpg_t_5p[p]   = profile.ct_ctx_t_5prime[SampleDamageProfile::CHG][p]
+                           + profile.ct_ctx_t_5prime[SampleDamageProfile::CHH][p];
+            ncpg_tot_5p[p] = profile.ct_ctx_total_5prime[SampleDamageProfile::CHG][p]
+                           + profile.ct_ctx_total_5prime[SampleDamageProfile::CHH][p];
+        }
+        const double ncpg_t_int   = profile.ct_ctx_t_interior[SampleDamageProfile::CHG]
+                                  + profile.ct_ctx_t_interior[SampleDamageProfile::CHH];
+        const double ncpg_tot_int = profile.ct_ctx_total_interior[SampleDamageProfile::CHG]
+                                  + profile.ct_ctx_total_interior[SampleDamageProfile::CHH];
+        auto fit_ncpg = fit_ct5_ctx_amplitude(
+            ncpg_t_5p, ncpg_tot_5p, ncpg_t_int, ncpg_tot_int, profile.lambda_5prime);
+
+        profile.dmax_ct5_chg = fit_chg.valid ? fit_chg.dmax : std::numeric_limits<float>::quiet_NaN();
+        profile.dmax_ct5_chh = fit_chh.valid ? fit_chh.dmax : std::numeric_limits<float>::quiet_NaN();
+        // meth_select = CpG excess - mean(CHG, CHH); only when all three fits valid
+        // (sparse class -> null, not 0).
+        if (fit_cpg.valid && fit_chg.valid && fit_chh.valid) {
+            profile.meth_select_excess =
+                fit_cpg.dmax - 0.5f * (fit_chg.dmax + fit_chh.dmax);
+        }
+
+        // F2 validated estimator (reproduces 25_cwg_chh_4mer.py): pool the per-4-mer
+        // terminal C->T excess from the same source the tetranuc_damage_rates.ct_5prime
+        // JSON block emits (terminal C->T rate minus interior C->T rate per 4-mer), into
+        // methylation classes as a terminal_n-weighted MEAN-OF-RATIOS. The amplitude fit
+        // above legitimately returns dmax~0 for CpG (interior already 5mC->T elevated), so
+        // the pooled excess — not the fit — is the correct methylation_context readout.
+        {
+            // 4-mer index = prev*64 + mid*16 + next1*4 + next2 (A=0,C=1,G=2,T=3); mid C=1
+            // (ref) / T=1->3 (dam). Per 4-mer: excess = term[id]/(term[ir]+term[id]) -
+            // intr[id]/(intr[ir]+intr[id]); terminal_n = term[ir]+term[id]. Same as
+            // emit_tetra_ctx in profile_json.cpp.
+            auto pool_meth = [](const std::array<uint64_t, SampleDamageProfile::N_TETRANUC>& term,
+                                const std::array<uint64_t, SampleDamageProfile::N_TETRANUC>& intr,
+                                float& cpg, float& cwg, float& chh) {
+                double cpg_sw = 0.0, cpg_swx = 0.0; bool cpg_any = false;
+                double cwg_sw = 0.0, cwg_swx = 0.0; bool cwg_any = false;
+                double chh_sw = 0.0, chh_swx = 0.0; bool chh_any = false;
+                for (int p = 0; p < 4; ++p)
+                  for (int n1 = 0; n1 < 4; ++n1)
+                    for (int n2 = 0; n2 < 4; ++n2) {
+                        const int ir = p*64 + 1*16 + n1*4 + n2;   // mid = C (ref)
+                        const int id = p*64 + 3*16 + n1*4 + n2;   // mid = T (dam)
+                        const uint64_t tn = term[ir] + term[id];
+                        const uint64_t xn = intr[ir] + intr[id];
+                        if (tn == 0 || xn == 0) continue;
+                        const double tr = static_cast<double>(term[id]) / tn;
+                        const double xr = static_cast<double>(intr[id]) / xn;
+                        const double ex = tr - xr;
+                        if (!(ex > -1.0)) continue;               // Python validity filter
+                        const double w = static_cast<double>(tn);
+                        // class: CpG next1=G; CWG next1 in {A,T} & next2=G; CCG next1=C &
+                        // next2=G (excluded); CHH next2!=G & next1!=G.
+                        if (n1 == 2) {                            // next1 == G  -> CpG
+                            cpg_sw += w; cpg_swx += w * ex; cpg_any = true;
+                        } else if (n2 == 2) {                     // next2 == G
+                            if (n1 == 0 || n1 == 3) {             // next1 in {A,T} -> CWG
+                                cwg_sw += w; cwg_swx += w * ex; cwg_any = true;
+                            }                                     // next1 == C -> CCG: skip
+                        } else {                                  // next2 != G, next1 != G -> CHH
+                            chh_sw += w; chh_swx += w * ex; chh_any = true;
+                        }
+                    }
+                cpg = (cpg_any && cpg_sw > 0.0)
+                        ? static_cast<float>(cpg_swx / cpg_sw) : std::numeric_limits<float>::quiet_NaN();
+                cwg = (cwg_any && cwg_sw > 0.0)
+                        ? static_cast<float>(cwg_swx / cwg_sw) : std::numeric_limits<float>::quiet_NaN();
+                chh = (chh_any && chh_sw > 0.0)
+                        ? static_cast<float>(chh_swx / chh_sw) : std::numeric_limits<float>::quiet_NaN();
+            };
+
+            float cpg_b, cwg_b, chh_b;
+            pool_meth(profile.tetra_5prime_terminal, profile.tetra_5prime_interior,
+                      cpg_b, cwg_b, chh_b);
+            profile.meth_ctx_cpg = cpg_b;
+            profile.meth_ctx_chg = cwg_b;
+            profile.meth_ctx_chh = chh_b;
+            if (std::isfinite(cwg_b) && std::isfinite(chh_b))
+                profile.meth_ctx_select = cwg_b - chh_b;
+
+            // s34: merge strata 3 and 4 by terminal_n-weighted per-4-mer excess
+            // combination (Python merge_strata), then pool CWG - CHH.
+            {
+                const auto& T3 = profile.tetra_5prime_terminal_by_deam[3];
+                const auto& I3 = profile.tetra_5prime_interior_by_deam[3];
+                const auto& T4 = profile.tetra_5prime_terminal_by_deam[4];
+                const auto& I4 = profile.tetra_5prime_interior_by_deam[4];
+                double cwg_sw = 0.0, cwg_swx = 0.0; bool cwg_any = false;
+                double chh_sw = 0.0, chh_swx = 0.0; bool chh_any = false;
+                auto per_4mer_excess = [](uint64_t tir, uint64_t tid,
+                                          uint64_t iir, uint64_t iid, double& ex) -> bool {
+                    const uint64_t tn = tir + tid;
+                    const uint64_t xn = iir + iid;
+                    if (tn == 0 || xn == 0) return false;
+                    ex = static_cast<double>(tid) / tn - static_cast<double>(iid) / xn;
+                    return true;
+                };
+                for (int p = 0; p < 4; ++p)
+                  for (int n1 = 0; n1 < 4; ++n1)
+                    for (int n2 = 0; n2 < 4; ++n2) {
+                        const int ir = p*64 + 1*16 + n1*4 + n2;
+                        const int id = p*64 + 3*16 + n1*4 + n2;
+                        // merge_strata: terminal_n-weighted combination of stratum excesses,
+                        // each stratum excess clamped to 0 unless finite and > -1.
+                        const uint64_t n3 = T3[ir] + T3[id];
+                        const uint64_t n4 = T4[ir] + T4[id];
+                        const uint64_t n_tot = n3 + n4;
+                        if (n_tot == 0) continue;                 // merged excess = -99 -> filtered
+                        double e3 = 0.0, e4 = 0.0;
+                        if (per_4mer_excess(T3[ir], T3[id], I3[ir], I3[id], e3)) {
+                            if (!(e3 > -1.0)) e3 = 0.0;
+                        } else e3 = 0.0;
+                        if (per_4mer_excess(T4[ir], T4[id], I4[ir], I4[id], e4)) {
+                            if (!(e4 > -1.0)) e4 = 0.0;
+                        } else e4 = 0.0;
+                        const double w3 = static_cast<double>(n3) / n_tot;
+                        const double w4 = static_cast<double>(n4) / n_tot;
+                        const double ex = w3 * e3 + w4 * e4;
+                        if (!(ex > -1.0)) continue;
+                        const double w = static_cast<double>(n_tot);
+                        if (n1 == 2) {
+                            // CpG: not pooled into select
+                        } else if (n2 == 2) {
+                            if (n1 == 0 || n1 == 3) {
+                                cwg_sw += w; cwg_swx += w * ex; cwg_any = true;
+                            }
+                        } else {
+                            chh_sw += w; chh_swx += w * ex; chh_any = true;
+                        }
+                    }
+                if (cwg_any && cwg_sw > 0.0 && chh_any && chh_sw > 0.0)
+                    profile.meth_ctx_select_s34 =
+                        static_cast<float>(cwg_swx / cwg_sw - chh_swx / chh_sw);
+            }
+        }
 
         profile.fit_baseline_ct5_cpg_like    = fit_cpg.baseline;
         profile.fit_baseline_ct5_noncpg_like = fit_ncpg.baseline;
@@ -153,20 +303,29 @@ void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
                 std::log((static_cast<double>(obs) + 0.5) / (exp + 0.5)) / std::log(2.0));
         };
 
+        // exp_*/var_* are __int128 fixed-point at CLUSTER_FP_SCALE (cross-thread
+        // determinism); divide by S here to recover the double rate the math below
+        // expects. Sum the int128 contributions first (associative, bit-identical),
+        // then convert once.
+        const double S = static_cast<double>(SampleDamageProfile::CLUSTER_FP_SCALE);
         uint64_t obs_ct_s = 0, pairs_ct_s = 0, obs_ag_s = 0;
-        double   exp_ct_s = 0.0, var_ct_s = 0.0;
-        double   exp_ag_s = 0.0, var_ag_s = 0.0;
+        __int128 exp_ct_fp = 0, var_ct_fp = 0;
+        __int128 exp_ag_fp = 0, var_ag_fp = 0;
 
         for (int d = 1; d <= 10; ++d) {
             profile.interior_ct_cluster_sep_log2oe[d - 1] =
-                safe_log2_oe(acc.obs_ct[d], acc.exp_ct[d]);
+                safe_log2_oe(acc.obs_ct[d], static_cast<double>(acc.exp_ct[d]) / S);
             if (d <= 5) {
                 obs_ct_s  += acc.obs_ct[d];   pairs_ct_s += acc.pairs_ct[d];
-                exp_ct_s  += acc.exp_ct[d];   var_ct_s   += acc.var_ct[d];
+                exp_ct_fp += acc.exp_ct[d];   var_ct_fp  += acc.var_ct[d];
                 obs_ag_s  += acc.obs_ag[d];
-                exp_ag_s  += acc.exp_ag[d];   var_ag_s   += acc.var_ag[d];
+                exp_ag_fp += acc.exp_ag[d];   var_ag_fp  += acc.var_ag[d];
             }
         }
+        const double exp_ct_s = static_cast<double>(exp_ct_fp) / S;
+        const double var_ct_s = static_cast<double>(var_ct_fp) / S;
+        const double exp_ag_s = static_cast<double>(exp_ag_fp) / S;
+        const double var_ag_s = static_cast<double>(var_ag_fp) / S;
 
         profile.interior_ct_cluster_short_obs          = obs_ct_s;
         profile.interior_ct_cluster_short_pairs        = pairs_ct_s;
@@ -193,6 +352,37 @@ void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
         const double scz_cap = static_cast<double>(SampleDamageProfile::kZCap);
         profile.interior_ct_cluster_short_z =
             static_cast<float>(std::clamp(num / denom, -scz_cap, scz_cap));
+
+        // F5: cross-channel (G→T × C→T) co-occurrence excess vs Poisson. Aggregate the short
+        // separations d=1..5 — the radiation-track length scale — then emit the composition-
+        // corrected EXCESS (obs − exp)/exp (never a raw per-context rate; exp already folds in the
+        // per-read p_g·p_c marginals) and a Bernoulli-pair z. Sparse classes emit NaN (→ null in
+        // JSON), never 0: gate on a minimum eligible cross-pair count and a positive expectation.
+        {
+            uint64_t obs_x_s = 0, pairs_x_s = 0;
+            __int128 exp_x_fp = 0, var_x_fp = 0;
+            for (int d = 1; d <= 5; ++d) {
+                obs_x_s   += acc.obs_x[d];
+                pairs_x_s += acc.pairs_x[d];
+                exp_x_fp  += acc.exp_x[d];
+                var_x_fp  += acc.var_x[d];
+            }
+            const double exp_x_s = static_cast<double>(exp_x_fp) / S;
+            const double var_x_s = static_cast<double>(var_x_fp) / S;
+            profile.lesion_cooccurrence_obs        = obs_x_s;
+            profile.lesion_cooccurrence_exp        = exp_x_s;
+            profile.lesion_cooccurrence_reads_used = acc.reads_used_x;
+            // ceiling: 2000 eligible cross-pairs ~ the floor below which (obs−exp)/exp is noise-
+            // dominated; upgrade: calibrate against held-out diffuse-damage controls.
+            if (pairs_x_s >= 2000 && exp_x_s > 1e-9 && var_x_s > 1e-12) {
+                profile.lesion_cooccurrence_excess =
+                    static_cast<float>((static_cast<double>(obs_x_s) - exp_x_s) / exp_x_s);
+                const double z = (static_cast<double>(obs_x_s) - exp_x_s) / std::sqrt(var_x_s);
+                profile.lesion_cooccurrence_z =
+                    static_cast<float>(std::clamp(z, -scz_cap, scz_cap));
+            }
+            // else: leave both fields at their NaN init (sparse → null, never 0).
+        }
     }
 
     // Step 3: Per-position damage rates using fit baseline

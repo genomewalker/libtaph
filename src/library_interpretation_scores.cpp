@@ -119,6 +119,13 @@ OxogTrinucResult compute_oxog_trinuc(const SampleDamageProfile& dp) {
     static constexpr int RC4[4] = {3, 2, 1, 0};
     OxogTrinucResult r;
     double v[16] = {};
+    // F1: per-class strand-symmetric excess. exc[c] accumulates (k - nt*theta) — the
+    // G→T-minus-C→A-complement residual already corrected by theta (the same oxo_two_marker
+    // correction used for v[]); opp[c] accumulates nt (eligible opportunities). Classes:
+    // 5'-flanker mechanism {fenton=C/T, m1g=A, hole=G} and G-run {GGG,GG,G} keyed on whether
+    // the G has a 5'-G and/or 3'-G neighbour (single-trinuc approximation of run length).
+    enum { CL_FEN, CL_M1G, CL_HOLE, CL_GGG, CL_GG, CL_G, N_CL };
+    double exc[N_CL] = {}, opp[N_CL] = {};
     for (const auto* tri : {&dp.tri_5prime_interior, &dp.tri_3prime_interior}) {
         for (int p = 0; p < 4; ++p) {
             for (int n = 0; n < 4; ++n) {
@@ -132,10 +139,39 @@ OxogTrinucResult compute_oxog_trinuc(const SampleDamageProfile& dp) {
                 double ca = a_rc + c_rc;
                 if (ca < 10.0) continue;
                 double theta = a_rc / ca;
-                v[p*4 + n] += std::max(0.0, k - nt * theta);
+                double resid = k - nt * theta;   // signed strand-symmetric excess count
+                v[p*4 + n] += std::max(0.0, resid);
                 ++r.n_ctx;
+                // 5'-flanker mechanism (p is the 5' neighbour of the central G).
+                int mech = (p == 2) ? CL_HOLE : (p == 0) ? CL_M1G : CL_FEN;  // C/T -> fenton
+                exc[mech] += resid; opp[mech] += nt;
+                // G-run subgradient: count G neighbours flanking the central G.
+                int gruns = (p == 2 ? 1 : 0) + (n == 2 ? 1 : 0);
+                int run = (gruns == 2) ? CL_GGG : (gruns == 1) ? CL_GG : CL_G;
+                exc[run] += resid; opp[run] += nt;
             }
         }
+    }
+    // Finalize each class as excess = sum_resid/sum_opp with binomial SE; gate on a minimum
+    // eligible-opportunity count so sparse classes stay NaN (-> JSON null), never 0.
+    static constexpr double kMinOpp = 50.0;
+    auto finalize_cl = [&](int c, OxogContextExcess& o) {
+        o.n = opp[c];
+        if (opp[c] < kMinOpp) return;
+        double rate = exc[c] / opp[c];
+        o.excess = rate;
+        o.se = std::sqrt(std::max(0.0, rate * (1.0 - rate)) / opp[c]);
+    };
+    finalize_cl(CL_FEN, r.fenton);
+    finalize_cl(CL_M1G, r.m1g);
+    finalize_cl(CL_HOLE, r.hole);
+    finalize_cl(CL_GGG, r.grun_ggg);
+    finalize_cl(CL_GG,  r.grun_gg);
+    finalize_cl(CL_G,   r.grun_g);
+    if (std::isfinite(r.grun_ggg.excess) && std::isfinite(r.grun_g.excess)) {
+        r.grun_gradient = r.grun_ggg.excess - r.grun_g.excess;
+        double sg = std::sqrt(r.grun_ggg.se * r.grun_ggg.se + r.grun_g.se * r.grun_g.se);
+        if (sg > 1e-30) r.grun_gradient_z = r.grun_gradient / sg;
     }
     double dot = 0.0, nv = 0.0, nr = 0.0;
     for (int i = 0; i < 16; ++i) {
@@ -171,6 +207,119 @@ OxogTrinucResult compute_oxog_trinuc(const SampleDamageProfile& dp) {
         }
     }
 
+    return r;
+}
+
+// F3: resolve the GG-breakpoint scission contrast by purine dinucleotide context.
+// Trinuc idx = prev*16 + mid*4 + next (A=0,C=1,G=2,T=3). The breakpoint context is the
+// (mid,next) dinucleotide; the depurination-neutral comparator is mid=A (matches the legacy
+// compute_oxscission_delta A-context subtraction). Each class is the composition-corrected
+// terminal-vs-interior double difference, gated on a minimum terminal context count.
+ScissionContextResult compute_scission_by_context(const std::array<uint64_t, 64>& term,
+                                                  const std::array<uint64_t, 64>& inter) {
+    auto den = [](const std::array<uint64_t, 64>& s) {
+        uint64_t d = 0;
+        for (int i = 0; i < 64; ++i) d += s[i];
+        return static_cast<double>(d);
+    };
+    auto ctx_count = [](const std::array<uint64_t, 64>& s, int mid, int next) {
+        uint64_t c = 0;
+        for (int prev = 0; prev < 4; ++prev) c += s[prev*16 + mid*4 + next];
+        return static_cast<double>(c);
+    };
+    auto mid_count = [](const std::array<uint64_t, 64>& s, int mid) {
+        uint64_t c = 0;
+        for (int prev = 0; prev < 4; ++prev)
+            for (int next = 0; next < 4; ++next) c += s[prev*16 + mid*4 + next];
+        return static_cast<double>(c);
+    };
+
+    const double dt = den(term), di = den(inter);
+    ScissionContextResult r;
+    if (dt < 1.0 || di < 1.0) return r;   // no eligible termini -> all classes stay null
+
+    // Depurination-neutral baseline contrast: mid=A terminal-vs-interior fraction shift.
+    const double base = mid_count(term, /*A*/0) / dt - mid_count(inter, 0) / di;
+
+    static constexpr double kMinTermCtx = 50.0;
+    auto finalize_ctx = [&](int mid, int next, OxogContextExcess& o) {
+        const double kt = ctx_count(term, mid, next);
+        o.n = kt;
+        if (kt < kMinTermCtx) return;     // sparse class -> NaN -> JSON null
+        const double pt = kt / dt;
+        const double pi = ctx_count(inter, mid, next) / di;
+        o.excess = (pt - pi) - base;
+        o.se = std::sqrt(std::max(0.0, pt * (1.0 - pt)) / dt);  // dominant terminal-fraction term
+    };
+    finalize_ctx(0, 2, r.ag);   // AG
+    finalize_ctx(2, 2, r.gg);   // GG (legacy GG-breakpoint contrast)
+    finalize_ctx(0, 0, r.aa);   // AA
+    finalize_ctx(2, 0, r.ga);   // GA
+    return r;
+}
+
+// F4: provisional oxidative-vs-hydrolytic C->T pathway split. Reuses the oxo_two_marker bins
+// (no new accumulator). `total` is the composition-corrected interior C->T excess: the
+// harmonic-mean-weighted (effective-N) IVW mean of the per-cell strand contrast
+// D = T/(T+G) - A/(A+C), the same per-cell quantity compute_oxo_two_marker regresses; its
+// aggregate is the C->T-driven top-strand T enrichment net of the complement baseline. The
+// oxidative component is the part of `total` that co-moves with the reference-free interior
+// G->T oxidation rate (otr.gt_rate), gated on the oxidation coupling being marker-consistent
+// (otm.markers_consistent) and significant (|beta1_z| via otm). Because both routes give the
+// identical C->T substitution, this attribution is NOT identifiable reference-free: emitted
+// provisional (provisional=true, separable=false), never as a hard decomposition.
+CtPathwaySplit compute_ct_pathway_split(const SampleDamageProfile& dp,
+                                        const OxoTwoMarkerResult& otm,
+                                        const OxogTrinucResult& otr,
+                                        bool is_ss) {
+    using Bins = SampleDamageProfile::OxoTwoMarkerBins;
+    CtPathwaySplit r;
+    const auto& panel = is_ss ? dp.oxo_two_marker_ss : dp.oxo_two_marker;
+
+    // IVW aggregate of the per-cell strand contrast D, weighted by harmonic-mean effective N
+    // (matching compute_oxo_two_marker's WLS weight). var(D) per cell from the two binomial
+    // terms; SE of the weighted mean = sqrt(1/Σw_var) with w_var = 1/var(D).
+    double sum_wD = 0.0, sum_w = 0.0, sum_wvar = 0.0;
+    int n_cells = 0;
+    for (int i = 0; i < Bins::TOTAL; ++i) {
+        const auto& c = panel.cells[i];
+        if (c.sum_nGT < 200 || c.sum_nAC < 200) continue;  // sparse cell -> excluded, not 0
+        const double pT = static_cast<double>(c.sum_T) / c.sum_nGT;
+        const double pA = static_cast<double>(c.sum_A) / c.sum_nAC;
+        const double D  = pT - pA;
+        const double w  = 2.0 * c.sum_nGT * c.sum_nAC
+                        / static_cast<double>(c.sum_nGT + c.sum_nAC);
+        const double varD = pT * (1.0 - pT) / c.sum_nGT + pA * (1.0 - pA) / c.sum_nAC;
+        sum_wD += w * D;
+        sum_w  += w;
+        if (varD > 1e-30) sum_wvar += 1.0 / varD;
+        ++n_cells;
+    }
+    r.n_cells = n_cells;
+    if (n_cells < 6 || sum_w <= 0.0) return r;  // under-determined -> all NaN (JSON null)
+
+    r.total    = sum_wD / sum_w;
+    r.total_se = (sum_wvar > 1e-30) ? std::sqrt(1.0 / sum_wvar)
+                                    : std::numeric_limits<double>::quiet_NaN();
+    r.valid    = true;
+
+    // Oxidative attribution: the C->T component co-moving with the interior G->T oxidation
+    // rate, gated on a marker-consistent, significant oxidation coupling. Withheld (NaN) when
+    // the coupling is not validated -> JSON null, so hydrolytic also stays null (we will not
+    // claim "all hydrolytic" merely because oxidation coupling was unmeasurable).
+    const double gt = otr.gt_rate;  // reference-free interior 8-oxoG rate
+    const bool coupling_ok = otm.valid && otm.markers_consistent
+                             && std::isfinite(otm.beta1) && std::isfinite(otm.beta1_se)
+                             && otm.beta1_se > 0.0;
+    if (coupling_ok) r.coupling_z = otm.beta1 / otm.beta1_se;
+    if (coupling_ok && std::isfinite(gt) && gt > 0.0 && std::isfinite(r.total)) {
+        // Oxidation-coupled C->T excess = coupling slope x oxidation rate, clamped to [0,total].
+        double ox = otm.beta1 * gt;
+        ox = std::max(0.0, std::min(ox, std::max(0.0, r.total)));
+        r.oxidative    = ox;
+        r.oxidative_se = std::sqrt(std::max(0.0, otm.beta1_se * otm.beta1_se * gt * gt));
+        r.hydrolytic   = std::max(0.0, r.total - ox);
+    }
     return r;
 }
 

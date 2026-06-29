@@ -131,6 +131,29 @@ inline constexpr std::array<ChannelSpec, 3> kStopChannels3p = {{
       "rate_only;empirical;no_terminal_enrichment_inference_at_3prime" },
 }};
 
+// F4: the 5-hydroxycytosine oxidative-deamination channel. Registered declaratively here as the
+// single authority for its semantics, but kept OUT of kStopChannels5p/3p: it is NOT a terminal
+// stop channel and does NOT participate in the F/G/H pooled-z / OR stop-channel inference
+// (inference_class = RATE_ONLY). Its readout is the interior C->T pathway split
+// (context_primitives.deamination.ct_pathway_split), which is PROVISIONAL: hydrolytic and
+// oxidative deamination give the identical C->T substitution, so the route is not separable
+// reference-free (mechanism_status = EMPIRICAL, inferred_lesion asserts the candidate lesion is
+// not earned from the substitution alone).
+inline constexpr ChannelSpec kOxidativeDeaminationChannel = {
+    "O", 'O', "oxidative_deamination_5ohc",
+    "Interior C to T via 5-hydroxycytosine (oxidative deamination), as opposed to hydrolytic C to T. "
+    "PROVISIONAL: both routes yield the same C to T substitution, so they are not separable "
+    "reference-free; the split is an oxidation-coupling attribution, not an identified decomposition.",
+    "oxidative_deamination_5hydroxycytosine",
+    MechanismStatus::EMPIRICAL,
+    "interior_C_to_T_oxidation_coupling", nullptr, StrandFrame::TOP_5P,
+    /*has_deam_shadow*/ false, /*shadow_in_z*/ false, /*shadow_in_rate*/ false,
+    /*has_mh_stratification*/ false, /*n_strata*/ 1, /*applicable_in_ss*/ true,
+    VarianceFamily::POOLED_BERNOULLI, CapPolicy::NONE, InferenceClass::RATE_ONLY,
+    "oxidation_coupled_fraction_of_interior_C_to_T_excess",
+    "provisional;routes_not_separable_reference_free;requires_external_validation"
+};
+
 inline constexpr const ChannelSpec& stop_channel_spec(char type) {
     for (const auto& s : kStopChannels5p)
         if (s.channel_type == type) return s;

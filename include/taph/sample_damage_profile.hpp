@@ -22,7 +22,7 @@ struct UnifiedDamageContext;
 
 struct SampleDamageProfile {
     static constexpr int N_POS = 15;
-    static constexpr int N_CT_CTX = 2;
+    static constexpr int N_CT_CTX = 3;
     static constexpr int N_OXOG16 = 16;
     static constexpr int N_UPSTREAM_CTX = 4;  // AC, CC, GC, TC (upstream base before C)
     static constexpr int N_OX_LEN_BINS = 4;   // <=50, <=75, <=100, >100
@@ -30,7 +30,12 @@ struct SampleDamageProfile {
     static constexpr int N_OX_DEAM_STRATA = 5;
     static constexpr int N_OX_BINS = N_OX_LEN_BINS * N_OX_GC_BINS;
 
-    enum CtContext : int { CPG_LIKE = 0, NONCPG_LIKE = 1 };
+    // F2: methylation-context split of the 5' C->T accumulator. CpG (+1=G),
+    // CHG (+1 in {A,C,T} and +2=G), CHH (else), captured strand-aware at the
+    // 5' accumulate step. CPG_LIKE is a deprecated alias for CpG; NONCPG_LIKE
+    // is the deprecated CHG+CHH aggregate (re-derived in finalize_context for the
+    // legacy *_noncpg_like fit, not a live array index).
+    enum CtContext : int { CpG = 0, CHG = 1, CHH = 2, CPG_LIKE = CpG };
     enum UpstreamContext : int { CTX_AC = 0, CTX_CC = 1, CTX_GC = 2, CTX_TC = 3 };
 
     // C2: emitted clamp for explosive/uncalibrated test statistics (binom_z,
@@ -145,6 +150,25 @@ struct SampleDamageProfile {
     float fit_baseline_ct5_noncpg_like = std::numeric_limits<float>::quiet_NaN();
     float dmax_ct5_cpg_like    = std::numeric_limits<float>::quiet_NaN();
     float dmax_ct5_noncpg_like = std::numeric_limits<float>::quiet_NaN();
+    // F2: CHG/CHH-resolved composition-corrected 5' C->T excess (terminal-vs-interior
+    // amplitude from fit_ct5_ctx_amplitude). NaN when the context class is sparse (gated
+    // by the fit's coverage floors) — emitted as null, never 0.
+    float dmax_ct5_chg = std::numeric_limits<float>::quiet_NaN();
+    float dmax_ct5_chh = std::numeric_limits<float>::quiet_NaN();
+    // meth_select = CpG excess - mean(CHG, CHH) excess: the methylation-enhanced
+    // hydrolysis selectivity. NaN unless all three context fits are valid.
+    float meth_select_excess = std::numeric_limits<float>::quiet_NaN();
+    // F2 (validated estimator, replaces the all-null amplitude-fit emission): per-4-mer
+    // terminal C->T excess (terminal minus interior rate per 4-mer, from tetra_5prime_*),
+    // pooled by methylation class as a terminal_n-weighted MEAN-OF-RATIOS. Matches
+    // flb_damage_analysis/scripts/25_cwg_chh_4mer.py exactly. CpG: next1==G; CWG (clean
+    // plant CHG, emitted as `chg`): next1 in {A,T} and next2==G; CHH: next2!=G and next1!=G;
+    // CCG (next1==C,next2==G) excluded. NaN when a class has zero valid 4-mers (excess>-1).
+    float meth_ctx_cpg         = std::numeric_limits<float>::quiet_NaN();
+    float meth_ctx_chg         = std::numeric_limits<float>::quiet_NaN();  // CWG pool
+    float meth_ctx_chh         = std::numeric_limits<float>::quiet_NaN();
+    float meth_ctx_select      = std::numeric_limits<float>::quiet_NaN();  // CWG - CHH (bulk)
+    float meth_ctx_select_s34  = std::numeric_limits<float>::quiet_NaN();  // CWG - CHH (strata 3+4)
     float cpg_ratio     = std::numeric_limits<float>::quiet_NaN();
     float log2_cpg_ratio = std::numeric_limits<float>::quiet_NaN();
     bool  cpg_ratio_backwards = false;  // P5 QC: true only when cpg_ratio is computed AND < 1 (CpG deamination
@@ -403,21 +427,53 @@ struct SampleDamageProfile {
     float oxidation_like_heterogeneity = 0.0f;
     bool oxidation_like_artifact_suspect = false;
 
-    // Interior clustered C→T: excess short-range co-occurrence of T at non-CpG {C,T} sites
+    // Interior clustered C→T: excess short-range co-occurrence of T at non-CpG {C,T} sites.
+    // F5 (lesion clustering / ionizing-radiation signature): the same accumulator also carries
+    // the CROSS-CHANNEL G→T × C→T within-read co-occurrence. A radiation track deposits energy
+    // along a path, producing correlated lesions of DIFFERENT chemistry (8-oxoG → G→T AND strand-
+    // adjacent deamination → C→T) in a short window; chemical/enzymatic damage is diffuse and the
+    // two channels stay independent. obs_x/pairs_x/exp_x are the cross-channel counterpart of the
+    // single-channel ct arrays: a "cross pair" is a window-separated (G/T-eligible, C/T-eligible)
+    // site pair, observed when the G-site reads T (G→T proxy) AND the C-site reads T (C→T proxy);
+    // exp_x is the Poisson-independence expectation from the two per-read marginals.
+    // Cross-thread determinism: exp_*/var_* are non-associative float reductions over
+    // per-read products, so a plain double accumulator drifts ~1 ULP across thread
+    // counts. Store them as __int128 fixed-point at scale CLUSTER_FP_SCALE = 2^40;
+    // integer addition is associative, so the merged result is bit-identical regardless
+    // of how reads are partitioned across workers. Per-read contributions are formed by
+    // integer-rational round-half-to-even (see damage_estimation_update.cpp), never by
+    // llround of a double (which would inject one-directional rounding bias). int128 is
+    // required throughout (int64 overflows ~1.3e5 reads at this scale).
+    static constexpr int      CLUSTER_FP_SHIFT = 40;
+    static constexpr __int128 CLUSTER_FP_SCALE = (static_cast<__int128>(1) << CLUSTER_FP_SHIFT);
     struct InteriorCtClusterAccumulator {
         uint64_t short_reads_skipped = 0;
         uint64_t reads_used_ct = 0;
         uint64_t reads_used_ag = 0;
+        uint64_t reads_used_x  = 0;   // F5: reads with ≥2 G/T-eligible AND ≥2 C/T-eligible sites
         uint64_t obs_ct[11]   = {};
         uint64_t pairs_ct[11] = {};
-        double   exp_ct[11]   = {};
-        double   var_ct[11]   = {};
+        __int128 exp_ct[11]   = {};
+        __int128 var_ct[11]   = {};
         uint64_t obs_ag[11]   = {};
         uint64_t pairs_ag[11] = {};
-        double   exp_ag[11]   = {};
-        double   var_ag[11]   = {};
+        __int128 exp_ag[11]   = {};
+        __int128 var_ag[11]   = {};
+        // F5 cross-channel (G→T × C→T) ordered-pair co-occurrence, separation d=1..10.
+        uint64_t obs_x[11]    = {};   // both sites positive (T at G-site, T at C-site)
+        uint64_t pairs_x[11]  = {};   // ordered (G/T-elig, C/T-elig) eligible site pairs
+        __int128 exp_x[11]    = {};   // pairs · p_g · p_c (Poisson-independence expectation)
+        __int128 var_x[11]    = {};   // pairs · p_g·p_c·(1 − p_g·p_c)
     };
     InteriorCtClusterAccumulator interior_ct_cluster = {};
+
+    // F5 finalized cross-channel co-occurrence: composition-corrected excess (obs − exp)/exp over
+    // short separations d=1..5, with a z from the per-read Bernoulli pair variance. Sparse → NaN.
+    float    lesion_cooccurrence_excess = std::numeric_limits<float>::quiet_NaN();
+    float    lesion_cooccurrence_z      = std::numeric_limits<float>::quiet_NaN();
+    uint64_t lesion_cooccurrence_obs    = 0;
+    double   lesion_cooccurrence_exp    = 0.0;
+    uint64_t lesion_cooccurrence_reads_used = 0;
 
     float    interior_ct_cluster_short_log2oe       = 0.0f;  // CT log2(obs/exp), d=1..5
     float    interior_ct_cluster_short_asym_log2oe  = 0.0f;  // CT minus AG control

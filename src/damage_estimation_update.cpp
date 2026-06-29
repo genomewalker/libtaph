@@ -9,6 +9,41 @@
 #include <stdexcept>
 #include <vector>
 namespace taph {
+
+// Cross-thread-deterministic fixed-point: returns round_half_to_even(num * SCALE / den)
+// as __int128, with num,den >= 0 and den > 0. The whole computation is exact integer
+// arithmetic, so accumulating these contributions in any order yields a bit-identical
+// sum (unlike the non-associative double products they replace). Half-to-even (not
+// half-away-from-zero / llround) avoids a one-directional bias that would otherwise
+// accumulate over millions of positive addends.
+static inline __int128 fp_round_div(__int128 num, __int128 den) {
+    const __int128 scaled = num * SampleDamageProfile::CLUSTER_FP_SCALE;
+    __int128 q = scaled / den;
+    __int128 r = scaled - q * den;            // 0 <= r < den (num,den >= 0)
+    const __int128 twice = r << 1;
+    if (twice > den) {
+        ++q;
+    } else if (twice == den) {
+        if (q & 1) ++q;                        // round half to even
+    }
+    return q;
+}
+
+// F2: methylation context of a 5' C->T site from its +1 / +2 downstream bases on
+// the SAME strand (strand-aware: the read is already oriented to the cytosine).
+//   CpG  : +1 == G
+//   CHG  : +1 in {A,C,T} and +2 == G
+//   CHH  : +1 in {A,C,T} and +2 in {A,C,T}
+// Returns -1 when +2 is ambiguous (N / off-end) so the site is dropped, never
+// misassigned between CHG and CHH.
+static inline int ct_meth_context(char plus1, char plus2) {
+    if (plus1 == 'G') return SampleDamageProfile::CpG;
+    if (plus1 != 'A' && plus1 != 'C' && plus1 != 'T') return -1;
+    if (plus2 == 'G') return SampleDamageProfile::CHG;
+    if (plus2 == 'A' || plus2 == 'C' || plus2 == 'T') return SampleDamageProfile::CHH;
+    return -1;
+}
+
 void FrameSelector::update_sample_profile(
     SampleDamageProfile& profile,
     std::string_view seq) {
@@ -530,9 +565,15 @@ void FrameSelector::update_sample_profile(
         const char x = decoded[p];
         const char y = decoded[p + 1];
         if ((x == 'C' || x == 'T') && (y == 'A' || y == 'C' || y == 'G' || y == 'T')) {
-            const int ctx = (y == 'G') ? SampleDamageProfile::CPG_LIKE : SampleDamageProfile::NONCPG_LIKE;
-            profile.ct_ctx_total_5prime[ctx][p] += 1.0f;
-            if (x == 'T') profile.ct_ctx_t_5prime[ctx][p] += 1.0f;
+            // F2: capture +2 to split non-CpG into CHG (+2=G) vs CHH. CpG needs only +1.
+            // CHG/CHH require the +2 base in-bounds; if +2 is off the read end the site is
+            // ambiguous between CHG and CHH and is dropped (not misassigned).
+            const char z = ((p + 2) < static_cast<int>(len)) ? decoded[p + 2] : 'N';
+            const int ctx = ct_meth_context(y, z);
+            if (ctx >= 0) {
+                profile.ct_ctx_total_5prime[ctx][p] += 1.0f;
+                if (x == 'T') profile.ct_ctx_t_5prime[ctx][p] += 1.0f;
+            }
         }
         // Upstream-context-aware: classify by preceding base (for p > 0)
         if (p > 0 && (x == 'C' || x == 'T')) {
@@ -567,9 +608,12 @@ void FrameSelector::update_sample_profile(
         for (int q = q0; q < q1 && (q + 1) < static_cast<int>(len); ++q) {
             const char x = decoded[q], y = decoded[q + 1];
             if ((x == 'C' || x == 'T') && (y == 'A' || y == 'C' || y == 'G' || y == 'T')) {
-                const int ctx = (y == 'G') ? SampleDamageProfile::CPG_LIKE : SampleDamageProfile::NONCPG_LIKE;
-                profile.ct_ctx_total_interior[ctx] += 1.0f;
-                if (x == 'T') profile.ct_ctx_t_interior[ctx] += 1.0f;
+                const char z = ((q + 2) < static_cast<int>(len)) ? decoded[q + 2] : 'N';
+                const int ctx = ct_meth_context(y, z);
+                if (ctx >= 0) {
+                    profile.ct_ctx_total_interior[ctx] += 1.0f;
+                    if (x == 'T') profile.ct_ctx_t_interior[ctx] += 1.0f;
+                }
             }
             // Upstream-context-aware interior baseline
             if (q > 0 && (x == 'C' || x == 'T')) {
@@ -1265,24 +1309,34 @@ void FrameSelector::update_sample_profile(
             // Thread-local scratch reused across reads — eliminates 4 heap
             // allocations per read on this hot path. Buffers grow monotonically
             // and are zeroed in the prefix actually used (size_t wlen).
+            // F5: gt_elig/gt_pos add the G→T (8-oxoG oxidation) proxy track alongside the
+            // existing ct track, so the cross-channel co-occurrence shares this one loop and
+            // these buffers — no parallel accumulator and no second pass over the read.
             thread_local std::vector<uint8_t> ct_elig_buf, ct_pos_buf,
-                                              ag_elig_buf, ag_pos_buf;
+                                              ag_elig_buf, ag_pos_buf,
+                                              gt_elig_buf, gt_pos_buf;
             const size_t W = static_cast<size_t>(wlen);
             if (ct_elig_buf.size() < W) {
                 ct_elig_buf.resize(W);
                 ct_pos_buf .resize(W);
                 ag_elig_buf.resize(W);
                 ag_pos_buf .resize(W);
+                gt_elig_buf.resize(W);
+                gt_pos_buf .resize(W);
             }
             uint8_t* ct_elig = ct_elig_buf.data();
             uint8_t* ct_pos  = ct_pos_buf.data();
             uint8_t* ag_elig = ag_elig_buf.data();
             uint8_t* ag_pos  = ag_pos_buf.data();
+            uint8_t* gt_elig = gt_elig_buf.data();
+            uint8_t* gt_pos  = gt_pos_buf.data();
             std::memset(ct_elig, 0, W);
             std::memset(ct_pos,  0, W);
             std::memset(ag_elig, 0, W);
             std::memset(ag_pos,  0, W);
-            int n_ct = 0, k_ct = 0, n_ag = 0, k_ag = 0;
+            std::memset(gt_elig, 0, W);
+            std::memset(gt_pos,  0, W);
+            int n_ct = 0, k_ct = 0, n_ag = 0, k_ag = 0, n_gt = 0, k_gt = 0;
             for (int i = lo; i < hi; ++i) {
                 const int j = i - lo;
                 const char b = decoded[i];
@@ -1296,57 +1350,101 @@ void FrameSelector::update_sample_profile(
                     ag_elig[j] = 1; ++n_ag;
                     if (b == 'A') { ag_pos[j] = 1; ++k_ag; }
                 }
+                // F5 G→T proxy: eligible at G/T sites, positive when the base reads T (a G→T
+                // substitution and a real T are indistinguishable reference-free, so the per-read
+                // T-among-{G,T} marginal is the composition-corrected null — same device the ct
+                // track uses for C→T). Exclude CpG-context G to mirror the ct non-CpG gate.
+                if ((b == 'G' || b == 'T') && pv != 'C') {
+                    gt_elig[j] = 1; ++n_gt;
+                    if (b == 'T') { gt_pos[j] = 1; ++k_gt; }
+                }
             }
             if (wlen <= 64) {
                 // Pack eligible/position flags into uint64 bitmaps; replace
                 // the O(W)×10 branchy j-loop with 10 shifted-AND-popcount ops.
                 uint64_t ct_elig_w = 0, ct_pos_w = 0;
                 uint64_t ag_elig_w = 0, ag_pos_w = 0;
+                uint64_t gt_elig_w = 0, gt_pos_w = 0;
                 for (int j = 0; j < wlen; ++j) {
                     ct_elig_w |= static_cast<uint64_t>(ct_elig[j]) << j;
                     ct_pos_w  |= static_cast<uint64_t>(ct_pos[j])  << j;
                     ag_elig_w |= static_cast<uint64_t>(ag_elig[j]) << j;
                     ag_pos_w  |= static_cast<uint64_t>(ag_pos[j])  << j;
+                    gt_elig_w |= static_cast<uint64_t>(gt_elig[j]) << j;
+                    gt_pos_w  |= static_cast<uint64_t>(gt_pos[j])  << j;
                 }
                 if (n_ct >= 2) {
                     ++acc.reads_used_ct;
-                    const double q_ct = (k_ct >= 2)
-                        ? (static_cast<double>(k_ct) * (k_ct - 1)) /
-                          (static_cast<double>(n_ct) * (n_ct - 1))
-                        : 0.0;
+                    const __int128 A_ct = (k_ct >= 2)
+                        ? static_cast<__int128>(k_ct) * (k_ct - 1) : 0;
+                    const __int128 D_ct = static_cast<__int128>(n_ct) * (n_ct - 1);
                     for (int d = 1; d <= 10; ++d) {
                         uint64_t e     = ct_elig_w & (ct_elig_w >> d);
                         uint64_t pairs = static_cast<uint64_t>(__builtin_popcountll(e));
                         uint64_t obs   = static_cast<uint64_t>(__builtin_popcountll(e & ct_pos_w & (ct_pos_w >> d)));
                         acc.pairs_ct[d] += pairs;
                         acc.obs_ct[d]   += obs;
-                        acc.exp_ct[d]   += static_cast<double>(pairs) * q_ct;
-                        acc.var_ct[d]   += static_cast<double>(pairs) * q_ct * (1.0 - q_ct);
+                        if (A_ct > 0 && pairs > 0) {
+                            const __int128 P = static_cast<__int128>(pairs);
+                            acc.exp_ct[d] += fp_round_div(P * A_ct, D_ct);
+                            acc.var_ct[d] += fp_round_div(P * A_ct * (D_ct - A_ct), D_ct * D_ct);
+                        }
                     }
                 }
                 if (n_ag >= 2) {
                     ++acc.reads_used_ag;
-                    const double q_ag = (k_ag >= 2)
-                        ? (static_cast<double>(k_ag) * (k_ag - 1)) /
-                          (static_cast<double>(n_ag) * (n_ag - 1))
-                        : 0.0;
+                    const __int128 A_ag = (k_ag >= 2)
+                        ? static_cast<__int128>(k_ag) * (k_ag - 1) : 0;
+                    const __int128 D_ag = static_cast<__int128>(n_ag) * (n_ag - 1);
                     for (int d = 1; d <= 10; ++d) {
                         uint64_t e     = ag_elig_w & (ag_elig_w >> d);
                         uint64_t pairs = static_cast<uint64_t>(__builtin_popcountll(e));
                         uint64_t obs   = static_cast<uint64_t>(__builtin_popcountll(e & ag_pos_w & (ag_pos_w >> d)));
                         acc.pairs_ag[d] += pairs;
                         acc.obs_ag[d]   += obs;
-                        acc.exp_ag[d]   += static_cast<double>(pairs) * q_ag;
-                        acc.var_ag[d]   += static_cast<double>(pairs) * q_ag * (1.0 - q_ag);
+                        if (A_ag > 0 && pairs > 0) {
+                            const __int128 P = static_cast<__int128>(pairs);
+                            acc.exp_ag[d] += fp_round_div(P * A_ag, D_ag);
+                            acc.var_ag[d] += fp_round_div(P * A_ag * (D_ag - A_ag), D_ag * D_ag);
+                        }
+                    }
+                }
+                // F5 cross-channel (G→T × C→T). Ordered pairs at separation d in BOTH directions
+                // (G-site upstream of C-site and vice versa); a positive observation is T at the
+                // G-site AND T at the C-site. Poisson-independence expectation uses the two per-read
+                // marginals p_g·p_c, so a within-read positive correlation (radiation-track cluster)
+                // surfaces as obs − exp > 0. Skip when either marginal is undefined (n<2).
+                if (n_gt >= 2 && n_ct >= 2) {
+                    ++acc.reads_used_x;
+                    // pc = (k_gt/n_gt)*(k_ct/n_ct) = PN/PD as an exact rational.
+                    const __int128 PN = static_cast<__int128>(k_gt) * k_ct;
+                    const __int128 PD = static_cast<__int128>(n_gt) * n_ct;
+                    for (int d = 1; d <= 10; ++d) {
+                        // direction 1: G-site at j, C-site at j+d
+                        uint64_t e1 = gt_elig_w & (ct_elig_w >> d);
+                        uint64_t o1 = e1 & gt_pos_w & (ct_pos_w >> d);
+                        // direction 2: C-site at j, G-site at j+d
+                        uint64_t e2 = ct_elig_w & (gt_elig_w >> d);
+                        uint64_t o2 = e2 & ct_pos_w & (gt_pos_w >> d);
+                        uint64_t pairs = static_cast<uint64_t>(__builtin_popcountll(e1))
+                                       + static_cast<uint64_t>(__builtin_popcountll(e2));
+                        uint64_t obs   = static_cast<uint64_t>(__builtin_popcountll(o1))
+                                       + static_cast<uint64_t>(__builtin_popcountll(o2));
+                        acc.pairs_x[d] += pairs;
+                        acc.obs_x[d]   += obs;
+                        if (PN > 0 && pairs > 0) {
+                            const __int128 P = static_cast<__int128>(pairs);
+                            acc.exp_x[d] += fp_round_div(P * PN, PD);
+                            acc.var_x[d] += fp_round_div(P * PN * (PD - PN), PD * PD);
+                        }
                     }
                 }
             } else {
                 if (n_ct >= 2) {
                     ++acc.reads_used_ct;
-                    const double q_ct = (k_ct >= 2)
-                        ? (static_cast<double>(k_ct) * (k_ct - 1)) /
-                          (static_cast<double>(n_ct) * (n_ct - 1))
-                        : 0.0;
+                    const __int128 A_ct = (k_ct >= 2)
+                        ? static_cast<__int128>(k_ct) * (k_ct - 1) : 0;
+                    const __int128 D_ct = static_cast<__int128>(n_ct) * (n_ct - 1);
                     for (int d = 1; d <= 10; ++d) {
                         uint64_t pairs = 0, obs = 0;
                         for (int j = 0; j + d < wlen; ++j) {
@@ -1356,16 +1454,18 @@ void FrameSelector::update_sample_profile(
                         }
                         acc.pairs_ct[d] += pairs;
                         acc.obs_ct[d]   += obs;
-                        acc.exp_ct[d]   += static_cast<double>(pairs) * q_ct;
-                        acc.var_ct[d]   += static_cast<double>(pairs) * q_ct * (1.0 - q_ct);
+                        if (A_ct > 0 && pairs > 0) {
+                            const __int128 P = static_cast<__int128>(pairs);
+                            acc.exp_ct[d] += fp_round_div(P * A_ct, D_ct);
+                            acc.var_ct[d] += fp_round_div(P * A_ct * (D_ct - A_ct), D_ct * D_ct);
+                        }
                     }
                 }
                 if (n_ag >= 2) {
                     ++acc.reads_used_ag;
-                    const double q_ag = (k_ag >= 2)
-                        ? (static_cast<double>(k_ag) * (k_ag - 1)) /
-                          (static_cast<double>(n_ag) * (n_ag - 1))
-                        : 0.0;
+                    const __int128 A_ag = (k_ag >= 2)
+                        ? static_cast<__int128>(k_ag) * (k_ag - 1) : 0;
+                    const __int128 D_ag = static_cast<__int128>(n_ag) * (n_ag - 1);
                     for (int d = 1; d <= 10; ++d) {
                         uint64_t pairs = 0, obs = 0;
                         for (int j = 0; j + d < wlen; ++j) {
@@ -1375,8 +1475,37 @@ void FrameSelector::update_sample_profile(
                         }
                         acc.pairs_ag[d] += pairs;
                         acc.obs_ag[d]   += obs;
-                        acc.exp_ag[d]   += static_cast<double>(pairs) * q_ag;
-                        acc.var_ag[d]   += static_cast<double>(pairs) * q_ag * (1.0 - q_ag);
+                        if (A_ag > 0 && pairs > 0) {
+                            const __int128 P = static_cast<__int128>(pairs);
+                            acc.exp_ag[d] += fp_round_div(P * A_ag, D_ag);
+                            acc.var_ag[d] += fp_round_div(P * A_ag * (D_ag - A_ag), D_ag * D_ag);
+                        }
+                    }
+                }
+                // F5 cross-channel (G→T × C→T) — scalar mirror of the bitmap branch above.
+                if (n_gt >= 2 && n_ct >= 2) {
+                    ++acc.reads_used_x;
+                    const __int128 PN = static_cast<__int128>(k_gt) * k_ct;
+                    const __int128 PD = static_cast<__int128>(n_gt) * n_ct;
+                    for (int d = 1; d <= 10; ++d) {
+                        uint64_t pairs = 0, obs = 0;
+                        for (int j = 0; j + d < wlen; ++j) {
+                            if (gt_elig[j] && ct_elig[j + d]) {
+                                ++pairs;
+                                obs += static_cast<uint64_t>(gt_pos[j] & ct_pos[j + d]);
+                            }
+                            if (ct_elig[j] && gt_elig[j + d]) {
+                                ++pairs;
+                                obs += static_cast<uint64_t>(ct_pos[j] & gt_pos[j + d]);
+                            }
+                        }
+                        acc.pairs_x[d] += pairs;
+                        acc.obs_x[d]   += obs;
+                        if (PN > 0 && pairs > 0) {
+                            const __int128 P = static_cast<__int128>(pairs);
+                            acc.exp_x[d] += fp_round_div(P * PN, PD);
+                            acc.var_x[d] += fp_round_div(P * PN * (PD - PN), PD * PD);
+                        }
                     }
                 }
             }
@@ -1518,6 +1647,7 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         const auto& sa = src.interior_ct_cluster;
         da.reads_used_ct        += sa.reads_used_ct;
         da.reads_used_ag        += sa.reads_used_ag;
+        da.reads_used_x         += sa.reads_used_x;
         da.short_reads_skipped  += sa.short_reads_skipped;
         for (int d = 1; d <= 10; ++d) {
             da.obs_ct[d]   += sa.obs_ct[d];
@@ -1528,6 +1658,10 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
             da.pairs_ag[d] += sa.pairs_ag[d];
             da.exp_ag[d]   += sa.exp_ag[d];
             da.var_ag[d]   += sa.var_ag[d];
+            da.obs_x[d]    += sa.obs_x[d];
+            da.pairs_x[d]  += sa.pairs_x[d];
+            da.exp_x[d]    += sa.exp_x[d];
+            da.var_x[d]    += sa.var_x[d];
         }
     }
 
@@ -2161,6 +2295,9 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.fit_baseline_ct5_noncpg_like = std::numeric_limits<float>::quiet_NaN();
     profile.dmax_ct5_cpg_like    = std::numeric_limits<float>::quiet_NaN();
     profile.dmax_ct5_noncpg_like = std::numeric_limits<float>::quiet_NaN();
+    profile.dmax_ct5_chg         = std::numeric_limits<float>::quiet_NaN();
+    profile.dmax_ct5_chh         = std::numeric_limits<float>::quiet_NaN();
+    profile.meth_select_excess   = std::numeric_limits<float>::quiet_NaN();
     profile.cpg_ratio     = std::numeric_limits<float>::quiet_NaN();
     profile.log2_cpg_ratio = std::numeric_limits<float>::quiet_NaN();
 
