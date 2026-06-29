@@ -199,15 +199,16 @@ void profile_to_json(const SampleDamageProfile& dp,
         // F1: oxidation source attribution. Each class is the composition-corrected strand-symmetric
         // EXCESS (G→T minus C→A complement, oxo_two_marker theta correction), never a raw per-context
         // rate. Sparse classes emit null (NaN-guarded), not 0. by_context = 5'-flanker mechanism
-        // (fenton=C/T-flanked •OH, m1g=A-flanked lipid-peroxidation, hole=G-flanked charge transport);
-        // by_grun = hole-transport gradient GGG>GG>G with gradient (GGG-G) and its z.
+        // (oh_radical=C/T-flanked •OH SIGNATURE [classical Fenton OR oxidising iron-mineral — flanker
+        // can't distinguish; redox direction does], m1g=A-flanked lipid-peroxidation, hole=G-flanked
+        // charge transport); by_grun = hole-transport gradient GGG>GG>G with gradient (GGG-G) and its z.
         auto emit_oxctx = [&](const char* key, const OxogContextExcess& o, bool last) {
             j << "        \"" << key << "\": {\"excess\": " << nan_or(o.excess)
               << ", \"se\": " << nan_or(o.se) << ", \"n\": " << o.n << "}"
               << (last ? "\n" : ",\n");
         };
         j << "      \"by_context\": {\n";
-        emit_oxctx("fenton", otr.fenton, false);
+        emit_oxctx("oh_radical", otr.oh_radical, false);
         emit_oxctx("m1g",    otr.m1g,    false);
         emit_oxctx("hole",   otr.hole,   true);
         j << "      },\n";

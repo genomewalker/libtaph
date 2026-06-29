@@ -122,9 +122,9 @@ OxogTrinucResult compute_oxog_trinuc(const SampleDamageProfile& dp) {
     // F1: per-class strand-symmetric excess. exc[c] accumulates (k - nt*theta) — the
     // G→T-minus-C→A-complement residual already corrected by theta (the same oxo_two_marker
     // correction used for v[]); opp[c] accumulates nt (eligible opportunities). Classes:
-    // 5'-flanker mechanism {fenton=C/T, m1g=A, hole=G} and G-run {GGG,GG,G} keyed on whether
+    // 5'-flanker signature {oh_radical=C/T (•OH), m1g=A, hole=G} and G-run {GGG,GG,G} keyed on whether
     // the G has a 5'-G and/or 3'-G neighbour (single-trinuc approximation of run length).
-    enum { CL_FEN, CL_M1G, CL_HOLE, CL_GGG, CL_GG, CL_G, N_CL };
+    enum { CL_OH, CL_M1G, CL_HOLE, CL_GGG, CL_GG, CL_G, N_CL };
     double exc[N_CL] = {}, opp[N_CL] = {};
     for (const auto* tri : {&dp.tri_5prime_interior, &dp.tri_3prime_interior}) {
         for (int p = 0; p < 4; ++p) {
@@ -143,7 +143,7 @@ OxogTrinucResult compute_oxog_trinuc(const SampleDamageProfile& dp) {
                 v[p*4 + n] += std::max(0.0, resid);
                 ++r.n_ctx;
                 // 5'-flanker mechanism (p is the 5' neighbour of the central G).
-                int mech = (p == 2) ? CL_HOLE : (p == 0) ? CL_M1G : CL_FEN;  // C/T -> fenton
+                int mech = (p == 2) ? CL_HOLE : (p == 0) ? CL_M1G : CL_OH;  // C/T -> oh_radical (•OH signature)
                 exc[mech] += resid; opp[mech] += nt;
                 // G-run subgradient: count G neighbours flanking the central G.
                 int gruns = (p == 2 ? 1 : 0) + (n == 2 ? 1 : 0);
@@ -162,7 +162,7 @@ OxogTrinucResult compute_oxog_trinuc(const SampleDamageProfile& dp) {
         o.excess = rate;
         o.se = std::sqrt(std::max(0.0, rate * (1.0 - rate)) / opp[c]);
     };
-    finalize_cl(CL_FEN, r.fenton);
+    finalize_cl(CL_OH, r.oh_radical);
     finalize_cl(CL_M1G, r.m1g);
     finalize_cl(CL_HOLE, r.hole);
     finalize_cl(CL_GGG, r.grun_ggg);

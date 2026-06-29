@@ -134,8 +134,12 @@ struct OxogTrinucResult {
     double gt_asymmetry = std::numeric_limits<double>::quiet_NaN(); // IVW mean log(rc(XGY)/XGY), interior only
     double gt_rate   = std::numeric_limits<double>::quiet_NaN(); // max(0, 1-exp(-gt_asymmetry)); ref-free G→T rate estimate
 
-    // F1 by-mechanism (5'-flanker): C/T=Fenton/•OH, A=M1G/lipid-peroxidation, G=charge-transport hole.
-    OxogContextExcess fenton;
+    // F1 by-5'-flanker SIGNATURE (source-agnostic — NOT a mechanism name):
+    //   oh_radical = C/T-flanked = •OH hydroxyl-radical 8-oxoG. The •OH can come from classical
+    //   Fenton (reduced Fe2+) OR an oxidising iron-mineral surface; the flanker signature does NOT
+    //   distinguish them — the redox DIRECTION does (oxidising-end => not classical Fenton).
+    //   m1g = A-flanked = malondialdehyde-guanine (lipid peroxidation); hole = G-flanked = charge transport.
+    OxogContextExcess oh_radical;
     OxogContextExcess m1g;
     OxogContextExcess hole;
     // F1 by-G-run (hole-transport gradient): GGG > GG > G; gradient = GGG.excess - G.excess.
