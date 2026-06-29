@@ -154,6 +154,13 @@ void BulkDamageModel::step_beta(const BulkDamageSuffStats& s, Params& P,
 // artifact while λ and δ are fit from the p≥1 tail. Fisher-scored on the penalized objective. Init 0.
 void BulkDamageModel::step_spike(const BulkDamageSuffStats& s, Params& P,
                                         const std::vector<int>& live) {
+    // FIX B (extend to spike): λ FIXED ⇒ decay built once. s_spike[l][e] enters eta only at the single
+    // (l, c=0, e, p=0) cell each candidate perturbs — refresh that one eta, read every other from the
+    // cache. log_lik_cached sums over ALL cells in log_lik()'s order ⇒ bit-identical; the SPIKE_RIDGE
+    // penalty term outside the sum is unchanged.
+    const DecayTable decay = make_decay(P, s.ss);
+    EtaCache ec;
+    build_eta_cache(s, P, live, ec);
     const int p = 0;
     for (int l : live) {
         for (int e = 0; e < N_END; ++e) {
@@ -171,14 +178,20 @@ void BulkDamageModel::step_spike(const BulkDamageSuffStats& s, Params& P,
             score -= 2.0 * SPIKE_RIDGE_N * P.s_spike[l][e];   // weak shrink gradient
             info  += 2.0 * SPIKE_RIDGE_N;                     // weak shrink curvature
             if (info > 0) {
-                double base = log_lik(s, P) - SPIKE_RIDGE_N * P.s_spike[l][e] * P.s_spike[l][e];
+                double base = log_lik_cached(s, P, ec, decay)
+                              - SPIKE_RIDGE_N * P.s_spike[l][e] * P.s_spike[l][e];
                 double full = score / info, t = 1.0, saved = P.s_spike[l][e];
                 for (int b = 0; b < 12; ++b) {
                     P.s_spike[l][e] = saved + t * full;
-                    double cand = log_lik(s, P) - SPIKE_RIDGE_N * P.s_spike[l][e] * P.s_spike[l][e];
+                    ec[l][0][e][0] = eta(P, 0, e, l, 0);
+                    double cand = log_lik_cached(s, P, ec, decay)
+                                  - SPIKE_RIDGE_N * P.s_spike[l][e] * P.s_spike[l][e];
                     if (cand >= base) break;
                     t *= 0.5;
-                    if (b == 11) P.s_spike[l][e] = saved;
+                    if (b == 11) {
+                        P.s_spike[l][e] = saved;
+                        ec[l][0][e][0] = eta(P, 0, e, l, 0);
+                    }
                 }
             }
         }
@@ -193,6 +206,13 @@ void BulkDamageModel::step_spike(const BulkDamageSuffStats& s, Params& P,
 // of the a_dmg/δ shift symmetry is carried by the δ_{Lmax}=0 anchor (step_delta_isotonic).
 void BulkDamageModel::step_artifact(const BulkDamageSuffStats& s, Params& P,
                                            const std::vector<int>& live) {
+    // FIX B (extend to artifact): λ is FIXED across this whole step, so the decay table is built once.
+    // eta=σ(β̂+a+spike) is recomputed only for the ONE (c,e,p) channel each candidate perturbs (over all
+    // live l); every other cell's eta is read from the cache. log_lik_cached then sums over ALL cells in
+    // the SAME order as log_lik() ⇒ bit-identical; only the unchanged cells' eta recompute is avoided.
+    const DecayTable decay = make_decay(P, s.ss);
+    EtaCache ec;
+    build_eta_cache(s, P, live, ec);
     for (int c = 0; c < BulkDamageSuffStats::N_CH; ++c) {
         for (int e = 0; e < N_END; ++e) {
             for (int p = 0; p < N_POS - 1; ++p) {   // p = 0..13 free; p=14 anchored to 0
@@ -211,12 +231,18 @@ void BulkDamageModel::step_artifact(const BulkDamageSuffStats& s, Params& P,
                     info  += static_cast<double>(n) / (m * (1.0 - m)) * dmu * dmu;
                 }
                 if (info > 0) {
-                    double base = log_lik(s, P), full = score / info, t = 1.0, saved = P.a[c][e][p];
+                    // a[c][e][p] enters eta only for cells at this (c,e,p) — refresh those, reuse the rest.
+                    double base = log_lik_cached(s, P, ec, decay);
+                    double full = score / info, t = 1.0, saved = P.a[c][e][p];
                     for (int b = 0; b < 12; ++b) {
                         P.a[c][e][p] = saved + t * full;
-                        if (log_lik(s, P) >= base) break;
+                        for (int l : live) ec[l][c][e][p] = eta(P, c, e, l, p);
+                        if (log_lik_cached(s, P, ec, decay) >= base) break;
                         t *= 0.5;
-                        if (b == 11) P.a[c][e][p] = saved;
+                        if (b == 11) {
+                            P.a[c][e][p] = saved;
+                            for (int l : live) ec[l][c][e][p] = eta(P, c, e, l, p);
+                        }
                     }
                 }
             }
