@@ -263,8 +263,8 @@ void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
                 float chi2 = 0.0f;
                 for (int uctx = 0; uctx < 4; ++uctx) {
                     const float d = profile.dmax_ct5_by_upstream[uctx];
-                    const float cov = profile.cov_ct5_terminal_by_upstream[uctx];
-                    if (cov > 100.0f) {
+                    const double cov = profile.cov_ct5_terminal_by_upstream[uctx];
+                    if (cov > 100.0) {
                         // Weight by coverage (pseudo chi-squared)
                         chi2 += cov * (d - mean_d) * (d - mean_d) / (mean_d * (1.0f - mean_d) + 1e-6f);
                     }

@@ -174,15 +174,19 @@ struct SampleDamageProfile {
     bool  cpg_ratio_backwards = false;  // P5 QC: true only when cpg_ratio is computed AND < 1 (CpG deamination
                                         // BELOW non-CpG) — anomalous for methylation-driven aDNA, flags artifact/mixture
 
-    // Coverage diagnostics for context split
-    float effcov_ct5_cpg_like_terminal    = 0.0f;
-    float effcov_ct5_noncpg_like_terminal = 0.0f;
-    float effcov_ct5_cpg_like_interior    = 0.0f;
-    float effcov_ct5_noncpg_like_interior = 0.0f;
-    float cov_ct5_cpg_like_terminal       = 0.0f;
-    float cov_ct5_noncpg_like_terminal    = 0.0f;
-    float cov_ct5_cpg_like_interior       = 0.0f;
-    float cov_ct5_noncpg_like_interior    = 0.0f;
+    // Coverage diagnostics for context split.
+    // double (not float): these are SUMS of per-position counts; at 100M+ libraries
+    // they exceed float32's 2^24 exact-integer limit (rounded by ±16 ULP at scale).
+    // Computed once at finalize from exact double accumulators -> double is exact and
+    // deterministic. (Rates/fractions/dmax stay float; only count magnitudes need this.)
+    double effcov_ct5_cpg_like_terminal    = 0.0;
+    double effcov_ct5_noncpg_like_terminal = 0.0;
+    double effcov_ct5_cpg_like_interior    = 0.0;
+    double effcov_ct5_noncpg_like_interior = 0.0;
+    double cov_ct5_cpg_like_terminal       = 0.0;
+    double cov_ct5_noncpg_like_terminal    = 0.0;
+    double cov_ct5_cpg_like_interior       = 0.0;
+    double cov_ct5_noncpg_like_interior    = 0.0;
     int   fit_positions_ct5_cpg_like    = 0;
     int   fit_positions_ct5_noncpg_like = 0;
 
@@ -210,8 +214,10 @@ struct SampleDamageProfile {
         std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::quiet_NaN()
     };
-    std::array<float, N_UPSTREAM_CTX> cov_ct5_terminal_by_upstream = {};
-    std::array<float, N_UPSTREAM_CTX> cov_ct5_interior_by_upstream = {};
+    // double (not float): per-upstream-context coverage SUMS; exceed float32's 2^24
+    // exact-integer limit at scale. Exact + deterministic when kept in double.
+    std::array<double, N_UPSTREAM_CTX> cov_ct5_terminal_by_upstream = {};
+    std::array<double, N_UPSTREAM_CTX> cov_ct5_interior_by_upstream = {};
 
     // Derived contrasts
     float dipyr_contrast = std::numeric_limits<float>::quiet_NaN();  // mean(CC,TC) - mean(AC,GC); upstream (5') base; correct CPD geometry

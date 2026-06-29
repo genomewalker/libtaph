@@ -378,8 +378,12 @@ static std::pair<ChannelDecayFit, int> fit_decay_joint_best_offset(
 struct CtCtxFit {
     float baseline = std::numeric_limits<float>::quiet_NaN();
     float dmax     = std::numeric_limits<float>::quiet_NaN();
-    float cov_terminal = 0.0f, cov_interior = 0.0f;
-    float effcov_terminal = 0.0f, effcov_interior = 0.0f;
+    // Coverage/effective-coverage are SUMS of per-position double counts. At 100M+
+    // libraries these exceed float32's 2^24 exact-integer limit (rounded by ±16 ULP).
+    // Keep in double: computed once at finalize from exact double accumulators, so
+    // double is both exact and deterministic. (dmax/baseline are bounded rates -> float.)
+    double cov_terminal = 0.0, cov_interior = 0.0;
+    double effcov_terminal = 0.0, effcov_interior = 0.0;
     int   fit_positions = 0;
     bool  valid = false;
     bool  lower_boundary = false;  // C4: fit ran but dmax clamped to lower wall; valid=false for individual emission, but contributes 0 to contrasts
@@ -398,21 +402,21 @@ static CtCtxFit fit_ct5_ctx_amplitude(
     constexpr float EPS = 1e-6f;
 
     CtCtxFit fit;
-    fit.cov_interior = static_cast<float>(total_interior);
+    fit.cov_interior = total_interior;
     if (total_interior < MIN_INT_COV) return fit;
 
     const double b_d = std::clamp(t_interior / total_interior, (double)EPS, 1.0 - (double)EPS);
     const float b = static_cast<float>(b_d);
     fit.baseline = b;
-    fit.effcov_interior = static_cast<float>(total_interior * (1.0 - b_d));
+    fit.effcov_interior = total_interior * (1.0 - b_d);
     if (fit.effcov_interior < MIN_EFF_INT) return fit;
 
-    float cov_term = 0.0f, effcov_term = 0.0f;
+    double cov_term = 0.0, effcov_term = 0.0;
     int n_fit_pos = 0;
     for (int p = 0; p < SampleDamageProfile::N_POS; ++p) {
         const double n = total_counts[p];
-        cov_term += static_cast<float>(n);
-        if (n >= MIN_POS_COV) { ++n_fit_pos; effcov_term += static_cast<float>(n * (1.0 - b_d)); }
+        cov_term += n;
+        if (n >= MIN_POS_COV) { ++n_fit_pos; effcov_term += n * (1.0 - b_d); }
     }
     fit.cov_terminal = cov_term;
     fit.effcov_terminal = effcov_term;
