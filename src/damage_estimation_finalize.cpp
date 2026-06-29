@@ -19,7 +19,7 @@
 
 namespace taph {
 
-void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
+void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile, int bulk_fit_threads) {
     if (profile.n_reads == 0) return;
     FinalCtx ctx;
     finalize_init(profile, ctx);
@@ -34,7 +34,7 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile) {
     finalize_libtype(profile, ctx);
     compute_codon_did(profile);   // composition-immune codon DiD; needs library_type from finalize_libtype
     finalize_oxidation(profile, ctx);
-    finalize_bulk(profile);
+    finalize_bulk(profile, bulk_fit_threads);
     profile.tau                   = finalize_tau(profile);
     profile.pi_shape              = fit_pi_shape(profile);
     profile.scission              = finalize_scission(profile);

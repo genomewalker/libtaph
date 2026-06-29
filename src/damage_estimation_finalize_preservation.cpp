@@ -121,7 +121,7 @@ void finalize_preservation(SampleDamageProfile& profile) {
 // discriminator). Aggregates the fine fixed length bins into ~equal-read adaptive bins,
 // maps terminal counts to damage/control channels (ss/ds-aware), and fits the
 // count-level binomial GLM. Reads raw len_bins + final library_type; writes bulk_damage.
-void finalize_bulk(SampleDamageProfile& profile) {
+void finalize_bulk(SampleDamageProfile& profile, int bulk_fit_threads) {
     {
         const auto& LB = profile.len_bins;
         uint64_t n_total = 0;
@@ -221,7 +221,7 @@ void finalize_bulk(SampleDamageProfile& profile) {
             }
 
             profile.bulk_attempted = true;
-            BulkDamageResult R = BulkDamageModel::fit(bs);
+            BulkDamageResult R = BulkDamageModel::fit(bs, bulk_fit_threads);
             // Wave-3: record whether the bulk kernel modeled the 5' ss overhang (r(0)=1), or fell back
             // to the ds exp form. degenerate = ss library whose terminal overhang was not identifiable.
             profile.ss_overhang_modeled    = R.ss_overhang_modeled;

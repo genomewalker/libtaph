@@ -32,7 +32,10 @@ public:
         std::string_view seq,
         float weight);
 
-    static void finalize_sample_profile(SampleDamageProfile& profile);
+    // bulk_fit_threads parallelizes ONLY the main bulk MLE's per-bin profile loop (BulkDamageModel::fit).
+    // Default 1 keeps every caller serial; the length-strat per-bin path leaves it at 1 (its bins are
+    // already distributed across a worker pool — passing >1 here would nest-oversubscribe).
+    static void finalize_sample_profile(SampleDamageProfile& profile, int bulk_fit_threads = 1);
 
     static void merge_sample_profiles(SampleDamageProfile& dst, const SampleDamageProfile& src);
 

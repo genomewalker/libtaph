@@ -15,7 +15,7 @@ void finalize_decay       (SampleDamageProfile&, FinalCtx&);
 void finalize_oxidation   (SampleDamageProfile&, const FinalCtx&);
 void finalize_context     (SampleDamageProfile&, FinalCtx&);
 void finalize_libtype     (SampleDamageProfile&, const FinalCtx&);
-void finalize_bulk        (SampleDamageProfile&);
+void finalize_bulk        (SampleDamageProfile&, int bulk_fit_threads = 1);
 void compute_codon_did    (SampleDamageProfile&);  // composition-immune codon DiD validator (finalize_decay.cpp)
 void finalize_pi          (SampleDamageProfile&);  // validated reference-free pi (read_ancient_llr.cpp)
 void finalize_dmax        (SampleDamageProfile&, const FinalCtx&);

@@ -196,7 +196,11 @@ struct BulkDamageResult {
 
 class BulkDamageModel {
 public:
-    static BulkDamageResult fit(const BulkDamageSuffStats& s);
+    // n_threads parallelizes ONLY the per-bin profile-likelihood loop (each bin owns its R.bins[l]
+    // slot and a private Params Q ⇒ output is index-ordered and bit-identical to the serial run).
+    // Default 1 preserves every existing caller; the length-strat per-bin fits MUST keep 1 (their
+    // bins are already distributed across a worker pool — no nested oversubscription).
+    static BulkDamageResult fit(const BulkDamageSuffStats& s, int n_threads = 1);
 
     // Terminal (p=0) kernel weight — the one place the ds and ss decay kernels DIFFER.
     //   ds: the 5' terminus is excluded from the decay (0); the p0 spike s[l][e] absorbs any

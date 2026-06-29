@@ -1,8 +1,10 @@
 // BulkDamageModel implementation (moved from bulk_damage_model.hpp).
 #include "taph/bulk_damage_model.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <limits>
+#include <thread>
 #include <vector>
 namespace taph {
 // ------------------------------------------------------------------ log-likelihood
@@ -413,7 +415,7 @@ int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
 
 // ------------------------------------------------------------------ driver
 
-BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s) {
+BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_threads) {
     BulkDamageResult R;
     const int L = s.L();
     if (L == 0) return R;
@@ -503,7 +505,11 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s) {
 
     // FULL profile-likelihood per live bin: pin δ_l on a grid, re-optimize all nuisances + other δ,
     // warm-started outward from the MLE. Δℓ0 read off the δ_l=0 grid point.
-    for (int l : live) {
+    // The body is read-only on (s, P, R.log_lik) and writes ONLY R.bins[l] for its own l with a
+    // PRIVATE Params Q — zero cross-bin dependency. Distribute over a fixed worker pool by index into
+    // `live`; each result lands in its fixed R.bins[l] slot, so output is completion-order-independent
+    // ⇒ byte-identical to the serial loop. Same pattern as LengthBinStats::finalize_all.
+    auto profile_bin = [&](int l) {
         auto& B = R.bins[l];
         B.profile_delta.assign(PROFILE_PTS, 0.0);
         B.profile_loglik.assign(PROFILE_PTS, 0.0);
@@ -527,6 +533,25 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s) {
         for (double& v : B.profile_loglik) v -= pk;
         B.delta_ell0 = -B.profile_loglik[0];     // Δℓ0 = ℓ̂ − ℓ(δ_l=0)
         B.s0 = std::exp(-std::max(0.0, B.delta_ell0));
+    };
+    const int workers = std::min<int>(n_threads < 1 ? 1 : n_threads,
+                                      static_cast<int>(live.size()));
+    if (workers <= 1) {
+        for (int l : live) profile_bin(l);
+    } else {
+        std::atomic<size_t> next{0};
+        auto run = [&] {
+            for (;;) {
+                size_t i = next.fetch_add(1, std::memory_order_relaxed);
+                if (i >= live.size()) break;
+                profile_bin(live[i]);
+            }
+        };
+        std::vector<std::thread> pool;
+        pool.reserve(static_cast<size_t>(workers) - 1);
+        for (int t = 1; t < workers; ++t) pool.emplace_back(run);
+        run();
+        for (auto& th : pool) th.join();
     }
 
     // ── length-coupling weight w_length (threshold-free) ─────────────────────────────────────────
