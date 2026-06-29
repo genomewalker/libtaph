@@ -645,10 +645,10 @@ void FrameSelector::update_sample_profile(
             };
             if (b == 'T') {
                 int il = enc(l), ir = enc(r);
-                if (il >= 0 && ir >= 0) profile.oxog16_t[4*il+ir] += 1.0f;
+                if (il >= 0 && ir >= 0) profile.oxog16_t[4*il+ir] += 1;
             } else if (b == 'A') {
                 int il = enc(rc_base(r)), ir = enc(rc_base(l));
-                if (il >= 0 && ir >= 0) profile.oxog16_a_rc[4*il+ir] += 1.0f;
+                if (il >= 0 && ir >= 0) profile.oxog16_a_rc[4*il+ir] += 1;
             }
         }
     }
@@ -2328,10 +2328,10 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.cov_ct5_noncpg_like_interior    = 0.0f;
     profile.fit_positions_ct5_cpg_like    = 0;
     profile.fit_positions_ct5_noncpg_like = 0;
-    profile.oxog16_t.fill(0.0f);
-    profile.oxog16_a_rc.fill(0.0f);
+    profile.oxog16_t.fill(0);
+    profile.oxog16_a_rc.fill(0);
     profile.s_oxog_16ctx.fill(0.0f);
-    profile.cov_oxog_16ctx.fill(0.0f);
+    profile.cov_oxog_16ctx.fill(0);
     profile.tetra_5prime_terminal.fill(0);
     profile.tetra_5prime_interior.fill(0);
     for (auto& a : profile.tetra_5prime_terminal_by_deam) a.fill(0);

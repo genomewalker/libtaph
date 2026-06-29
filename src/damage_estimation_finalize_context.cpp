@@ -207,11 +207,12 @@ void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
 
         // oxoG 16-context finalization
         for (int i = 0; i < SampleDamageProfile::N_OXOG16; ++i) {
-            const float t = profile.oxog16_t[i], a = profile.oxog16_a_rc[i];
-            const float cov = t + a;
+            const uint64_t t = profile.oxog16_t[i], a = profile.oxog16_a_rc[i];
+            const uint64_t cov = t + a;
             profile.cov_oxog_16ctx[i] = cov;
-            profile.s_oxog_16ctx[i] = (cov >= 500.0f)
-                ? (t - a) / cov
+            // t,a are exact integers < 2^53 -> double conversion + subtraction is exact.
+            profile.s_oxog_16ctx[i] = (cov >= 500)
+                ? static_cast<float>((static_cast<double>(t) - static_cast<double>(a)) / static_cast<double>(cov))
                 : std::numeric_limits<float>::quiet_NaN();
         }
 

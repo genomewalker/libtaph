@@ -223,10 +223,14 @@ struct SampleDamageProfile {
     bool  context_heterogeneity_computed = false;  // true only when valid_ctx_count==4 and mean_d>0.001
 
     // oxoG 16-context interior panel
-    std::array<float, N_OXOG16> oxog16_t        = {};
-    std::array<float, N_OXOG16> oxog16_a_rc     = {};
-    std::array<float, N_OXOG16> s_oxog_16ctx    = {};
-    std::array<float, N_OXOG16> cov_oxog_16ctx  = {};
+    // Counts are uint64 (not float): at scale the per-cell coverage exceeds float32's
+    // 2^24 exact-integer limit, making float accumulation lossy AND order-dependent
+    // (non-deterministic across thread counts / scheduling). Integers are exact and
+    // associative -> byte-identical at any scale. s_oxog is a ratio, stays float.
+    std::array<uint64_t, N_OXOG16> oxog16_t        = {};
+    std::array<uint64_t, N_OXOG16> oxog16_a_rc     = {};
+    std::array<float,    N_OXOG16> s_oxog_16ctx    = {};
+    std::array<uint64_t, N_OXOG16> cov_oxog_16ctx  = {};
 
     // Reference-free trinucleotide spectrum (64 contexts, prev*16 + mid*4 + next;
     // A=0,C=1,G=2,T=3). Counts observed trinucleotides at the 5' terminal zone
