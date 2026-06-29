@@ -21,7 +21,9 @@ struct LengthBinStats {
     void configure(const std::vector<int>& new_edges);
     void update(std::string_view seq, int length);
     void merge(const LengthBinStats& other);
-    void finalize_all();
+    // FIX A: the per-bin BulkDamageModel fits inside finalize_sample_profile are INDEPENDENT (each
+    // reads/writes only its own profiles[i]), so run them concurrently. n_threads ≤ 0 ⇒ serial.
+    void finalize_all(int n_threads = 1);
 
     std::size_t bin_index(int length) const;
 };

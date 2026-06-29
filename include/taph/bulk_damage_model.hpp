@@ -269,6 +269,18 @@ private:
                         : terminal_kernel_weight(ss, P.ss_p0_overhang);
     }
 
+    // FIX B: λ is fixed within a single log_lik / golden-search f() evaluation, so the 15 decay
+    // weights r(p) are constant across all cells of that evaluation. Precompute them ONCE per λ and
+    // reuse — each entry is the EXACT bits std::exp(-P.lambda*p) (or terminal_kernel_weight at p0)
+    // that r_kernel would return, so every consumer reads identical values (no math reordering).
+    using DecayTable = std::array<double, N_POS>;
+    static DecayTable make_decay(const Params& P, bool ss) {
+        DecayTable d;
+        d[0] = terminal_kernel_weight(ss, P.ss_p0_overhang);
+        for (int p = 1; p < N_POS; ++p) d[p] = std::exp(-P.lambda * p);
+        return d;
+    }
+
     // η_{c,e,l,p} = σ(β̂[l][c] + a[c][e][p] + s[l][e]·[c==0 && p==0]) — FREE per-channel artifact, p0 spike dmg-only.
     static double eta(const Params& P, int c, int e, int l, int p) {
         double spike = (c == 0 && p == 0) ? P.s_spike[l][e] : 0.0;
@@ -282,6 +294,14 @@ private:
         if (r == 0.0) return clamp_mu(h);
         return clamp_mu(h + (1.0 - h) * P.delta[l] * r);
     }
+    // μ using a precomputed decay table (FIX B). r comes from decay[p] — identical bits to mu() above.
+    static double mu_d(const Params& P, const DecayTable& decay, int c, int e, int l, int p) {
+        double h = eta(P, c, e, l, p);
+        if (c == 1) return clamp_mu(h);
+        double r = decay[p];
+        if (r == 0.0) return clamp_mu(h);
+        return clamp_mu(h + (1.0 - h) * P.delta[l] * r);
+    }
 
     static bool cell_live(const BulkDamageSuffStats& s, int c, int e, int p) {
         // drop 3′ position 0 from the damage score when requested (ss ligation artifact)
@@ -289,6 +309,18 @@ private:
     }
 
     static double log_lik(const BulkDamageSuffStats& s, const Params& P);
+
+    // FIX B (golden search): eta=σ(β̂+a+spike) is LAMBDA-INDEPENDENT. step_lambda's golden search
+    // varies ONLY λ across ~40 log_lik calls, so cache eta per live cell once and reuse — only the
+    // decay table changes per λ. EtaCache[l][c][e][p] holds the exact sigmoid bits eta() returns.
+    using EtaCache = std::vector<std::array<std::array<std::array<double, N_POS>, N_END>, 2>>;
+    static void build_eta_cache(const BulkDamageSuffStats& s, const Params& P,
+                                const std::vector<int>& live, EtaCache& ec);
+    // log_lik with eta read from the cache and r from the decay table — same per-cell arithmetic,
+    // same summation order, identical bits to log_lik().
+    static double log_lik_cached(const BulkDamageSuffStats& s, const Params& P,
+                                 const EtaCache& ec, const DecayTable& decay);
+
     static double penalized_obj(const BulkDamageSuffStats& s, const Params& P);
     static void   init(const BulkDamageSuffStats& s, Params& P, const std::vector<int>& live);
     static void   step_beta(const BulkDamageSuffStats& s, Params& P, const std::vector<int>& live);

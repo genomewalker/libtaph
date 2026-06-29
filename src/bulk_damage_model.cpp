@@ -10,6 +10,7 @@ namespace taph {
 double BulkDamageModel::log_lik(const BulkDamageSuffStats& s, const Params& P) {
     double ll = 0.0;
     const int L = s.L();
+    const DecayTable decay = make_decay(P, s.ss);   // FIX B: 15 exp(-λp) once per evaluation
     for (int l = 0; l < L; ++l) {
         for (int c = 0; c < BulkDamageSuffStats::N_CH; ++c) {
             for (int e = 0; e < N_END; ++e) {
@@ -18,7 +19,53 @@ double BulkDamageModel::log_lik(const BulkDamageSuffStats& s, const Params& P) {
                     if (!cell_live(s, c, e, p)) continue;
                     uint64_t n = cell.n[p];
                     if (n == 0) continue;
-                    double m = mu(P, s.ss, c, e, l, p);
+                    double m = mu_d(P, decay, c, e, l, p);
+                    double k = static_cast<double>(cell.k[p]);
+                    ll += k * std::log(m) + (static_cast<double>(n) - k) * std::log(1.0 - m);
+                }
+            }
+        }
+    }
+    return ll;
+}
+
+// FIX B: build the λ-independent eta cache for every cell of every bin (control + damage).
+// eta() depends only on β̂,a,spike — none of which the golden search touches — so this is computed
+// once before the search and reused across all ~40 evaluations. Values are the exact eta() bits.
+void BulkDamageModel::build_eta_cache(const BulkDamageSuffStats& s, const Params& P,
+                                      const std::vector<int>& /*live*/, EtaCache& ec) {
+    const int L = s.L();
+    ec.resize(L);
+    for (int l = 0; l < L; ++l)
+        for (int c = 0; c < BulkDamageSuffStats::N_CH; ++c)
+            for (int e = 0; e < N_END; ++e)
+                for (int p = 0; p < N_POS; ++p)
+                    ec[l][c][e][p] = eta(P, c, e, l, p);
+}
+
+// FIX B: log_lik reading eta from the cache and r from the decay table. Same loop nesting, same
+// per-cell formula, same accumulation order ⇒ bit-identical to log_lik().
+double BulkDamageModel::log_lik_cached(const BulkDamageSuffStats& s, const Params& P,
+                                       const EtaCache& ec, const DecayTable& decay) {
+    double ll = 0.0;
+    const int L = s.L();
+    for (int l = 0; l < L; ++l) {
+        for (int c = 0; c < BulkDamageSuffStats::N_CH; ++c) {
+            for (int e = 0; e < N_END; ++e) {
+                const auto& cell = s.bin[l][c][e];
+                for (int p = 0; p < N_POS; ++p) {
+                    if (!cell_live(s, c, e, p)) continue;
+                    uint64_t n = cell.n[p];
+                    if (n == 0) continue;
+                    double h = ec[l][c][e][p];
+                    double m;
+                    if (c == 1) {
+                        m = clamp_mu(h);
+                    } else {
+                        double r = decay[p];
+                        m = (r == 0.0) ? clamp_mu(h)
+                                       : clamp_mu(h + (1.0 - h) * P.delta[l] * r);
+                    }
                     double k = static_cast<double>(cell.k[p]);
                     ll += k * std::log(m) + (static_cast<double>(n) - k) * std::log(1.0 - m);
                 }
@@ -246,14 +293,18 @@ void BulkDamageModel::step_delta_isotonic(const BulkDamageSuffStats& s, Params& 
     std::vector<Block> blocks;
     blocks.reserve(N);
 
+    // FIX C: reuse one cell-scratch buffer across all block_delta calls (clear+reuse, reserved once)
+    // instead of allocating a std::vector<LE> per call. Cells are pushed in the SAME order, so the
+    // delta_block_mle sum over them is bit-identical.
+    std::vector<LE> cells;
+    cells.reserve(static_cast<std::size_t>(N) * 2);
     auto block_delta = [&](const std::vector<int>& bins) -> double {
         // Forced anchor: if the block contains lmax_idx, return 0.
         for (int bl : bins) if (bl == lmax_idx) return 0.0;
         // Profile pin: if the block contains pinned_idx, return pinned_val.
         for (int bl : bins) if (bl == pinned_idx) return pinned_val;
         // Collect cells for all bins in the block (both ends, pooled).
-        std::vector<LE> cells;
-        cells.reserve(bins.size() * 2);
+        cells.clear();
         for (int bl : bins) { cells.push_back({0, bl}); cells.push_back({1, bl}); }
         return std::max(DELTA_MIN, delta_block_mle(s, P, cells));
     };
@@ -287,11 +338,19 @@ void BulkDamageModel::step_delta_isotonic(const BulkDamageSuffStats& s, Params& 
 // ------------------------------------------------------------------ λ step: golden section
 
 void BulkDamageModel::step_lambda(const BulkDamageSuffStats& s, Params& P,
-                                         const std::vector<int>& /*live*/) {
+                                         const std::vector<int>& live) {
     const double phi = 0.6180339887498949;
     double a = LAMBDA_MIN, b = LAMBDA_MAX;
     double c = b - phi * (b - a), d = a + phi * (b - a);
-    auto f = [&](double lam) { double sv = P.lambda; P.lambda = lam; double v = log_lik(s, P); P.lambda = sv; return v; };
+    // FIX B: eta is λ-independent — cache it once; each f(lam) only rebuilds the 15-entry decay table.
+    EtaCache ec;
+    build_eta_cache(s, P, live, ec);
+    auto f = [&](double lam) {
+        double sv = P.lambda; P.lambda = lam;
+        DecayTable decay = make_decay(P, s.ss);
+        double v = log_lik_cached(s, P, ec, decay);
+        P.lambda = sv; return v;
+    };
     double fc = f(c), fd = f(d);
     for (int it = 0; it < 40; ++it) {
         if (fc > fd) { b = d; d = c; fd = fc; c = b - phi * (b - a); fc = f(c); }
