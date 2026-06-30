@@ -64,6 +64,28 @@ void finalize_init(SampleDamageProfile& profile, FinalCtx& ctx) {
         pos0_artifact_5 = true;
     }
 
+    // 3. Composition criterion (dilution-robust). The two criteria above are
+    //    damage-based: they need a pos1 C→T enrichment to fire, which heavy
+    //    modern dilution flattens — so they miss the artifact exactly when it
+    //    matters. The double-stranded blunt-end fill-in prepends a non-template
+    //    G at pos0 (a library-prep artifact present in EVERY read, authentic or
+    //    modern, hence dilution-invariant), depleting the C/T pool exactly where
+    //    C→T is measured and railing d_max. Detect it directly from base
+    //    composition: flag when the pos0 G-fraction clearly exceeds the interior
+    //    G-fraction (the fill-in signature). ds-fill-in ≈ +0.27; clean ss/KapK
+    //    sit near 0; threshold 0.10 separates them with margin.
+    {
+        const double tot0 = profile.a_freq_5prime[0] + profile.g_freq_5prime[0]
+                          + profile.t_freq_5prime[0] + profile.c_freq_5prime[0];
+        const double totb = profile.baseline_a_freq + profile.baseline_g_freq
+                          + profile.baseline_t_freq + profile.baseline_c_freq;
+        if (tot0 > 0.0 && totb > 0.0) {
+            const double g0_frac = profile.g_freq_5prime[0] / tot0;
+            const double gb_frac = profile.baseline_g_freq / totb;
+            if (g0_frac - gb_frac > 0.07) pos0_artifact_5 = true;
+        }
+    }
+
     if (pos0_artifact_5) {
         profile.terminal_shift_5prime = stats_5_pos1.first;
         profile.terminal_z_5prime = stats_5_pos1.second;
