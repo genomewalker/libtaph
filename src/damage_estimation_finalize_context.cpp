@@ -127,9 +127,11 @@ void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
             profile.meth_ctx_chh = chh_b;
             if (std::isfinite(cwg_b) && std::isfinite(chh_b))
                 profile.meth_ctx_select = cwg_b - chh_b;
+            if (std::isfinite(cpg_b) && std::isfinite(chh_b))
+                profile.meth_ctx_select_cpg = cpg_b - chh_b;
 
             // s34: merge strata 3 and 4 by terminal_n-weighted per-4-mer excess
-            // combination (Python merge_strata), then pool CWG - CHH.
+            // combination (Python merge_strata), then pool CWG - CHH and CpG - CHH.
             {
                 const auto& T3 = profile.tetra_5prime_terminal_by_deam[3];
                 const auto& I3 = profile.tetra_5prime_interior_by_deam[3];
@@ -137,6 +139,7 @@ void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
                 const auto& I4 = profile.tetra_5prime_interior_by_deam[4];
                 double cwg_sw = 0.0, cwg_swx = 0.0; bool cwg_any = false;
                 double chh_sw = 0.0, chh_swx = 0.0; bool chh_any = false;
+                double cpg_sw = 0.0, cpg_swx = 0.0; bool cpg_any = false;
                 auto per_4mer_excess = [](uint64_t tir, uint64_t tid,
                                           uint64_t iir, uint64_t iid, double& ex) -> bool {
                     const uint64_t tn = tir + tid;
@@ -169,7 +172,7 @@ void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
                         if (!(ex > -1.0)) continue;
                         const double w = static_cast<double>(n_tot);
                         if (n1 == 2) {
-                            // CpG: not pooled into select
+                            cpg_sw += w; cpg_swx += w * ex; cpg_any = true;  // CpG: next1==G
                         } else if (n2 == 2) {
                             if (n1 == 0 || n1 == 3) {
                                 cwg_sw += w; cwg_swx += w * ex; cwg_any = true;
@@ -181,6 +184,14 @@ void finalize_context(SampleDamageProfile& profile, FinalCtx& ctx) {
                 if (cwg_any && cwg_sw > 0.0 && chh_any && chh_sw > 0.0)
                     profile.meth_ctx_select_s34 =
                         static_cast<float>(cwg_swx / cwg_sw - chh_swx / chh_sw);
+                const float cpg_s34 = (cpg_any && cpg_sw > 0.0)
+                        ? static_cast<float>(cpg_swx / cpg_sw) : std::numeric_limits<float>::quiet_NaN();
+                const float chh_s34 = (chh_any && chh_sw > 0.0)
+                        ? static_cast<float>(chh_swx / chh_sw) : std::numeric_limits<float>::quiet_NaN();
+                profile.meth_ctx_cpg_s34 = cpg_s34;
+                profile.meth_ctx_chh_s34 = chh_s34;
+                if (std::isfinite(cpg_s34) && std::isfinite(chh_s34))
+                    profile.meth_ctx_select_cpg_s34 = cpg_s34 - chh_s34;
             }
         }
 

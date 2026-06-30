@@ -254,7 +254,11 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "        \"chg\": " << nan_or(dp.meth_ctx_chg) << ",\n";
         j << "        \"chh\": " << nan_or(dp.meth_ctx_chh) << ",\n";
         j << "        \"meth_select\": " << nan_or(dp.meth_ctx_select) << ",\n";
-        j << "        \"meth_select_s34\": " << nan_or(dp.meth_ctx_select_s34) << "\n";
+        j << "        \"meth_select_s34\": " << nan_or(dp.meth_ctx_select_s34) << ",\n";
+        j << "        \"meth_select_cpg\": " << nan_or(dp.meth_ctx_select_cpg) << ",\n";
+        j << "        \"cpg_s34\": " << nan_or(dp.meth_ctx_cpg_s34) << ",\n";
+        j << "        \"chh_s34\": " << nan_or(dp.meth_ctx_chh_s34) << ",\n";
+        j << "        \"meth_select_cpg_s34\": " << nan_or(dp.meth_ctx_select_cpg_s34) << "\n";
         j << "      },\n";
         // F4: ct_pathway_split — PROVISIONAL oxidative-vs-hydrolytic interior C->T split.
         // total/hydrolytic/oxidative are composition-corrected EXCESSES (never raw per-context

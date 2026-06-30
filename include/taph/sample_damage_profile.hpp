@@ -169,6 +169,12 @@ struct SampleDamageProfile {
     float meth_ctx_chh         = std::numeric_limits<float>::quiet_NaN();
     float meth_ctx_select      = std::numeric_limits<float>::quiet_NaN();  // CWG - CHH (bulk)
     float meth_ctx_select_s34  = std::numeric_limits<float>::quiet_NaN();  // CWG - CHH (strata 3+4)
+    // CpG-context selectivity (the headline contrast), pooled the same way as the CWG fields.
+    // _s34 = ancient-enriched deam strata 3+4, enabling a damage-stratum-matched cross-site test.
+    float meth_ctx_select_cpg     = std::numeric_limits<float>::quiet_NaN();  // CpG - CHH (bulk)
+    float meth_ctx_cpg_s34        = std::numeric_limits<float>::quiet_NaN();  // pooled CpG excess, strata 3+4
+    float meth_ctx_chh_s34        = std::numeric_limits<float>::quiet_NaN();  // pooled CHH excess, strata 3+4
+    float meth_ctx_select_cpg_s34 = std::numeric_limits<float>::quiet_NaN();  // CpG - CHH (strata 3+4)
     float cpg_ratio     = std::numeric_limits<float>::quiet_NaN();
     float log2_cpg_ratio = std::numeric_limits<float>::quiet_NaN();
     bool  cpg_ratio_backwards = false;  // P5 QC: true only when cpg_ratio is computed AND < 1 (CpG deamination
