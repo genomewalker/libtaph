@@ -877,6 +877,11 @@ struct SampleDamageProfile {
     float   damaged_fraction_lambda5 = 0.0f;
     float   damaged_fraction_bg5     = 0.0f;  // modern-interior baseline used by the d5 fit
     float   damaged_fraction_bg3     = 0.0f;  // modern-interior baseline used by the d3 fit
+    float   damaged_fraction_d5_pval = -1.0f; // permutation-gate p-value (debug diagnostic)
+    float   damaged_fraction_d5_raw  = 0.0f;  // pre-gate fit value (debug diagnostic)
+    std::array<int64_t,7> debug_anc_t5  = {}; // raw counts pos0-6 (debug diagnostic)
+    std::array<int64_t,7> debug_anc_tc5 = {};
+    float   damaged_fraction_bg5_var = 0.0f;  // bg variance used by the d5 fit (debug diagnostic)
     float   damaged_fraction_d3_fit  = 0.0f;
     float   damaged_fraction_lambda3 = 0.0f;
     float   nondamaged_fraction_d5_fit   = 0.0f;

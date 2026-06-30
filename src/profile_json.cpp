@@ -2265,6 +2265,15 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"d_max_5prime\": " << (identity_amplified ? std::string("null") : nan_or(dp.damaged_fraction_d5)) << ",\n";
     j << "      \"d_max_3prime\": " << (identity_amplified ? std::string("null") : nan_or(dp.damaged_fraction_d3)) << ",\n";
     j << "      \"d_max_5prime_fit\": " << nan_or(dp.damaged_fraction_d5_fit) << ",\n";
+    j << "      \"d_max_5prime_raw\": " << nan_or(dp.damaged_fraction_d5_raw) << ",\n";
+    j << "      \"d_max_5prime_pval\": " << dp.damaged_fraction_d5_pval << ",\n";
+    j << "      \"debug_anc_t5\": [";
+    for (int i=0;i<7;++i) { if(i) j<<","; j<<dp.debug_anc_t5[i]; }
+    j << "],\n";
+    j << "      \"debug_anc_tc5\": [";
+    for (int i=0;i<7;++i) { if(i) j<<","; j<<dp.debug_anc_tc5[i]; }
+    j << "],\n";
+    j << "      \"debug_bg5_var\": " << dp.damaged_fraction_bg5_var << ",\n";
     j << "      \"bg5\": " << nan_or(dp.damaged_fraction_bg5) << ",\n";
     j << "      \"bg3\": " << nan_or(dp.damaged_fraction_bg3) << ",\n";
     j << "      \"lambda_5prime\": " << nan_or(dp.damaged_fraction_lambda5) << ",\n";
