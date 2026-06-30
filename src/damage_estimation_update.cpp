@@ -356,6 +356,13 @@ void FrameSelector::update_sample_profile(
             const int gc_bin = std::clamp(
                 static_cast<int>(gc_frac * SampleDamageProfile::N_OX_GC_BINS),
                 0, SampleDamageProfile::N_OX_GC_BINS - 1);
+            // Oxidation co-movement: q-weighted per-GC-bin G->T / C->A damaged-vs-non-damaged
+            // contrast. q = clamp(deam_score,0,1); middle-third counts are this read's, already
+            // strand-oriented. compute_ox_scores derives s_oxog/s_ca/d_oriented at finalize.
+            update_ox_bins(profile.ox_comov_bins[gc_bin],
+                           std::clamp(deam_score, 0.0, 1.0),
+                           static_cast<int>(mid_t), static_cast<int>(mid_g),
+                           static_cast<int>(mid_c), static_cast<int>(mid_a));
             int len_bin = 3;
             if (len <= 50) len_bin = 0;
             else if (len <= 75) len_bin = 1;
@@ -1857,6 +1864,9 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         }
     }
 
+    for (int b = 0; b < SampleDamageProfile::N_OX_GC_BINS; ++b)
+        merge_ox_bins(dst.ox_comov_bins[b], src.ox_comov_bins[b]);
+
     for (int bin = 0; bin < SampleDamageProfile::N_GC_BINS; ++bin) {
         auto& db = dst.gc_bins[bin];
         const auto& sb = src.gc_bins[bin];
@@ -2430,6 +2440,7 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.adaptive_gc_threshold = 0.0f;
     profile.gc_threshold_computed = false;
     profile.gc_bins = {};
+    profile.ox_comov_bins = {};
     profile.len_bins = {};
     profile.gc_stratified_d_max_weighted = 0.0f;
     profile.gc_stratified_d_max_joint = 0.0f;

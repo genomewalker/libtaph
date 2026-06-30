@@ -97,6 +97,8 @@ AncientFractionResult compute_ancient_fraction(
 
     dp.damaged_fraction_d5_fit  = static_cast<float>(ad5);
     dp.damaged_fraction_lambda5 = static_cast<float>(al5);
+    dp.damaged_fraction_bg5     = static_cast<float>(mod_bg5.mean);
+    dp.damaged_fraction_bg3     = static_cast<float>(mod_bg3.mean);
     dp.damaged_fraction_d3_fit  = static_cast<float>(ad3);
     dp.damaged_fraction_lambda3 = static_cast<float>(al3);
     dp.nondamaged_fraction_d5_fit   = static_cast<float>(md5);

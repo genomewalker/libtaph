@@ -2265,6 +2265,8 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"d_max_5prime\": " << (identity_amplified ? std::string("null") : nan_or(dp.damaged_fraction_d5)) << ",\n";
     j << "      \"d_max_3prime\": " << (identity_amplified ? std::string("null") : nan_or(dp.damaged_fraction_d3)) << ",\n";
     j << "      \"d_max_5prime_fit\": " << nan_or(dp.damaged_fraction_d5_fit) << ",\n";
+    j << "      \"bg5\": " << nan_or(dp.damaged_fraction_bg5) << ",\n";
+    j << "      \"bg3\": " << nan_or(dp.damaged_fraction_bg3) << ",\n";
     j << "      \"lambda_5prime\": " << nan_or(dp.damaged_fraction_lambda5) << ",\n";
     j << "      \"d_max_3prime_fit\": " << nan_or(dp.damaged_fraction_d3_fit) << ",\n";
     j << "      \"lambda_3prime\": " << nan_or(dp.damaged_fraction_lambda3) << ",\n";

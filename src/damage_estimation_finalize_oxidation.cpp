@@ -921,6 +921,19 @@ void finalize_oxidation(SampleDamageProfile& profile, const FinalCtx& ctx) {
         profile.chargaff_gc_balance = (gc > 0.0) ? static_cast<float>(std::fabs(gi - ci) / gc) : 0.0f;
         profile.s_gt_valid = (profile.chargaff_gc_balance <= 0.02f) && profile.d_computed;
     }
+
+    // === Oxidation co-movement: q-weighted G->T / C->A damaged-vs-non-damaged contrast ===
+    // Derive s_oxog/s_ca/d_oriented (with Kish-ESS gating + delta-method SE) from the
+    // per-GC-bin accumulators filled during update_sample_profile (q = clamped deam_score).
+    {
+        OxScoreResult oxr = compute_ox_scores(profile.ox_comov_bins.data(),
+                                              SampleDamageProfile::N_OX_GC_BINS);
+        profile.ox_comov_has_score  = oxr.has_score;
+        profile.ox_comov_s_oxog     = static_cast<float>(oxr.s_oxog);
+        profile.ox_comov_se_s_oxog  = static_cast<float>(oxr.se_s_oxog);
+        profile.ox_comov_s_ca       = static_cast<float>(oxr.s_ca);
+        profile.ox_comov_d_oriented = static_cast<float>(oxr.d_oriented);
+    }
 }
 
 } // namespace taph

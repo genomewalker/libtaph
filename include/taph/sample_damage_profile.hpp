@@ -7,6 +7,7 @@
 #include "bulk_damage_model.hpp"
 #include "damage_estimate.hpp"
 #include "channel_count_table.hpp"
+#include "oxog_score.hpp"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -243,6 +244,17 @@ struct SampleDamageProfile {
     std::array<uint64_t, N_OXOG16> oxog16_a_rc     = {};
     std::array<float,    N_OXOG16> s_oxog_16ctx    = {};
     std::array<uint64_t, N_OXOG16> cov_oxog_16ctx  = {};
+
+    // Oxidation co-movement (compute_ox_scores): per-GC-bin, q-weighted G->T (s_oxog)
+    // and C->A (s_ca) damaged-vs-non-damaged contrast, plus Chargaff log-odds D_oriented.
+    // q = clamp(per-read deam_score, 0, 1) (single-pass; the calibrated-posterior second
+    // pass is the DETECTED/reference-based upgrade). s_oxog>0 AND s_ca>0 -> oriented oxidation.
+    std::array<OxBinAcc, N_OX_GC_BINS> ox_comov_bins = {};
+    float ox_comov_s_oxog     = std::numeric_limits<float>::quiet_NaN();
+    float ox_comov_se_s_oxog  = std::numeric_limits<float>::quiet_NaN();
+    float ox_comov_s_ca       = std::numeric_limits<float>::quiet_NaN();
+    float ox_comov_d_oriented = std::numeric_limits<float>::quiet_NaN();
+    bool  ox_comov_has_score  = false;
 
     // Reference-free trinucleotide spectrum (64 contexts, prev*16 + mid*4 + next;
     // A=0,C=1,G=2,T=3). Counts observed trinucleotides at the 5' terminal zone
@@ -863,6 +875,8 @@ struct SampleDamageProfile {
     // over all N_POS positions). _fit fields are the fitted d_max; _lambda are decay rates.
     float   damaged_fraction_d5_fit  = 0.0f;
     float   damaged_fraction_lambda5 = 0.0f;
+    float   damaged_fraction_bg5     = 0.0f;  // modern-interior baseline used by the d5 fit
+    float   damaged_fraction_bg3     = 0.0f;  // modern-interior baseline used by the d3 fit
     float   damaged_fraction_d3_fit  = 0.0f;
     float   damaged_fraction_lambda3 = 0.0f;
     float   nondamaged_fraction_d5_fit   = 0.0f;
