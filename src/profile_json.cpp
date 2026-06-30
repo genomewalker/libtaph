@@ -196,6 +196,15 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      },\n";
         j << "      \"context_cosine\": " << (std::isnan(otr.cosine) ? std::string("null") : std::to_string(otr.cosine)) << ",\n";
         j << "      \"gt_asymmetry\": " << (std::isnan(otr.gt_asymmetry) ? std::string("null") : std::to_string(otr.gt_asymmetry)) << ",\n";
+        // Oxidation co-movement: G->T (s_oxog) and C->A (s_ca) enriched in damaged-weighted
+        // reads vs non-damaged (q = clamped per-read deam_score). s_oxog>0 AND s_ca>0 = oriented
+        // oxidation co-moving with the ancient signal. d_oriented = Chargaff log-odds contrast.
+        j << "      \"co_movement\": {\"s_oxog\": " << nan_or(dp.ox_comov_s_oxog)
+          << ", \"se_s_oxog\": " << nan_or(dp.ox_comov_se_s_oxog)
+          << ", \"s_ca\": " << nan_or(dp.ox_comov_s_ca)
+          << ", \"d_oriented\": " << nan_or(dp.ox_comov_d_oriented)
+          << ", \"has_score\": " << (dp.ox_comov_has_score ? "true" : "false")
+          << ", \"q_method\": \"deam_score\"},\n";
         // F1: oxidation source attribution. Each class is the composition-corrected strand-symmetric
         // EXCESS (G→T minus C→A complement, oxo_two_marker theta correction), never a raw per-context
         // rate. Sparse classes emit null (NaN-guarded), not 0. by_context = 5'-flanker mechanism
@@ -2244,6 +2253,13 @@ void profile_to_json(const SampleDamageProfile& dp,
     const bool identity_amplified =
         dp.damaged_fraction_pi > 0.0f && dp.damaged_fraction_pi < 0.1f;
     j << "    \"identity_amplified\": " << (identity_amplified ? "true" : "false") << ",\n";
+    j << "    \"diagnostics\": {"
+      << "\"converged\":" << (dp.mixture_converged ? "true" : "false")
+      << ",\"identifiable\":" << (dp.mixture_identifiable ? "true" : "false")
+      << ",\"pi_damaged\":" << nan_or(dp.mixture_pi_damaged)
+      << ",\"d_damaged\":" << nan_or(dp.mixture_d_damaged)
+      << ",\"d_population\":" << nan_or(dp.mixture_d_population)
+      << ",\"n_components\":" << dp.mixture_n_components << "},\n";
     j << std::setprecision(6);
     j << "    \"damaged\": {\n";
     j << "      \"d_max_5prime\": " << (identity_amplified ? std::string("null") : nan_or(dp.damaged_fraction_d5)) << ",\n";
