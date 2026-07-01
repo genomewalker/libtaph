@@ -47,6 +47,7 @@ add_library(taph
     src/llr_table.cpp
     src/ancient_fraction.cpp
     src/oxog_score.cpp
+    src/lsd_accumulator.cpp
 )
 
 add_library(taph::taph ALIAS taph)
