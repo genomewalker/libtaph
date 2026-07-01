@@ -150,6 +150,17 @@ AncientFractionResult compute_ancient_fraction(
         dp.debug_anc_tc5[i] = anc_tc5[i];
     }
 
+    // Diagnostic (pending validation, not yet production): CT-vs-(CA,CG)
+    // difference-series decay fit. Sidesteps the baseline-contamination
+    // mechanism entirely instead of patching around it — see
+    // fit_ct_specific_decay's doc comment in fraction_fitting.hpp.
+    {
+        auto cf = fit_ct_specific_decay(dp.tri_5prime_pos.data(), NP);
+        dp.ct_diff_d5_fit    = static_cast<float>(cf.A);
+        dp.ct_diff_d5_lambda = static_cast<float>(cf.lambda);
+        dp.ct_diff_d5_npts   = cf.n_points;
+    }
+
     dp.damaged_fraction_d5_fit  = static_cast<float>(ad5);
     dp.damaged_fraction_lambda5 = static_cast<float>(al5);
     dp.damaged_fraction_bg5     = static_cast<float>(mod_bg5.mean);

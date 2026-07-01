@@ -882,6 +882,9 @@ struct SampleDamageProfile {
     std::array<int64_t,7> debug_anc_t5  = {}; // raw counts pos0-6 (debug diagnostic)
     std::array<int64_t,7> debug_anc_tc5 = {};
     float   damaged_fraction_bg5_var = 0.0f;  // bg variance used by the d5 fit (debug diagnostic)
+    float   ct_diff_d5_fit    = 0.0f;  // fit_ct_specific_decay amplitude (diagnostic, pending validation)
+    float   ct_diff_d5_lambda = 0.0f;
+    int32_t ct_diff_d5_npts   = 0;
     float   damaged_fraction_d3_fit  = 0.0f;
     float   damaged_fraction_lambda3 = 0.0f;
     float   nondamaged_fraction_d5_fit   = 0.0f;

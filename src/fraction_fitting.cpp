@@ -1,4 +1,5 @@
 #include "taph/fraction_fitting.hpp"
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -124,6 +125,53 @@ std::pair<double,double> fit_exp_decay_irls(
         if (skip_pos0) return {dmax1 * std::exp(-lam1), lam1};
         return {dmax1, lam1};
     }
+}
+
+CtSpecificDecayFit fit_ct_specific_decay(
+    const std::array<uint64_t, 64>* tri_pos, int n_pos)
+{
+    const CtSpecificDecayFit FAIL{std::numeric_limits<double>::quiet_NaN(),
+                                   std::numeric_limits<double>::quiet_NaN(), 0};
+    constexpr int MIN_N = 10;  // minimum FROM+TO count to trust a position's rate
+
+    auto rate_at = [&](int p, int from, int to) -> std::pair<double,double> {
+        // returns {rate, weight=nf+nt}, weight=-1 if under-covered
+        uint64_t nf = 0, nt = 0;
+        for (int prev = 0; prev < 4; ++prev)
+            for (int next = 0; next < 4; ++next) {
+                nf += tri_pos[p][prev * 16 + from * 4 + next];
+                nt += tri_pos[p][prev * 16 + to   * 4 + next];
+            }
+        if (nf + nt < MIN_N) return {0.0, -1.0};
+        return {static_cast<double>(nt) / (nf + nt), static_cast<double>(nf + nt)};
+    };
+
+    // Weighted log-linear regression: log(g(p)) ~ intercept - lambda*p,
+    // over positions where g(p) = CT(p) - 0.5*(CA(p)+CG(p)) is positive.
+    // Weight by the harmonic-ish combined coverage of the three channels at p.
+    double sw=0, sx=0, sy=0, sxx=0, sxy=0;
+    int n_pts = 0;
+    for (int p = 1; p < n_pos; ++p) {
+        auto [ct, w_ct] = rate_at(p, 1, 3);
+        auto [ca, w_ca] = rate_at(p, 1, 0);
+        auto [cg, w_cg] = rate_at(p, 1, 2);
+        if (w_ct < 0 || w_ca < 0 || w_cg < 0) continue;
+        double g = ct - 0.5 * (ca + cg);
+        if (g <= 0.005) continue;
+        double w = std::min({w_ct, w_ca, w_cg});
+        double logy = std::log(g);
+        sw += w; sx += w*p; sy += w*logy; sxx += w*p*p; sxy += w*p*logy;
+        ++n_pts;
+    }
+    if (n_pts < 3) return FAIL;
+    double denom = sw * sxx - sx * sx;
+    if (std::abs(denom) < 1e-12) return FAIL;
+    double slope     = (sw * sxy - sx * sy) / denom;
+    double intercept = (sy - slope * sx) / sw;
+    double lambda = -slope;
+    double A = std::exp(intercept);
+    if (lambda <= 0.0 || A <= 0.0 || A > 1.0) return FAIL;
+    return {A, lambda, n_pts};
 }
 
 } // namespace taph

@@ -2274,6 +2274,9 @@ void profile_to_json(const SampleDamageProfile& dp,
     for (int i=0;i<7;++i) { if(i) j<<","; j<<dp.debug_anc_tc5[i]; }
     j << "],\n";
     j << "      \"debug_bg5_var\": " << dp.damaged_fraction_bg5_var << ",\n";
+    j << "      \"ct_diff_d5_fit\": " << nan_or(dp.ct_diff_d5_fit) << ",\n";
+    j << "      \"ct_diff_d5_lambda\": " << nan_or(dp.ct_diff_d5_lambda) << ",\n";
+    j << "      \"ct_diff_d5_npts\": " << dp.ct_diff_d5_npts << ",\n";
     j << "      \"bg5\": " << nan_or(dp.damaged_fraction_bg5) << ",\n";
     j << "      \"bg3\": " << nan_or(dp.damaged_fraction_bg3) << ",\n";
     j << "      \"lambda_5prime\": " << nan_or(dp.damaged_fraction_lambda5) << ",\n";
