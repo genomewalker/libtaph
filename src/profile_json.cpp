@@ -504,9 +504,6 @@ void profile_to_json(const SampleDamageProfile& dp,
         const bool pi_ident = std::isfinite(dp.pi.point) && dp.pi.point >= 0.0 &&
                               std::isfinite(dp.pi.lo) && std::isfinite(dp.pi.hi) &&
                               dp.pi.hi >= dp.pi.lo && dp.pi.point >= dp.pi.lo && dp.pi.point <= dp.pi.hi;
-        const bool pi_ub_only = dp.pi.state == DamageConfidence::BELOW_FLOOR &&
-                                std::isfinite(dp.pi.hi) && dp.pi.hi >= 0.0;
-        const char* frac_state = pi_ident ? conf_str(dp.pi.state) : (pi_ub_only ? "BELOW_FLOOR" : "ABSTAIN");
         // Deamination AUTHENTICATION (schema v3.2). "present" iff an ancient deamination signal is
         // authenticated by a RELIABLE channel: either pi is identifiable (mixture/shape resolved the
         // damaged stratum) OR Channel B significantly excludes the no-damage null (quantifiable, not
@@ -529,8 +526,19 @@ void profile_to_json(const SampleDamageProfile& dp,
           << "\", \"source\": \"pi_identifiable OR channel_b(quantifiable,!inverted,d_max-2SE>0)\""
           << ", \"d_max_5prime\": ";
         jn(dp.d_max_5prime); j << "},\n";
-        j << "    \"damaged_fraction\": {\"state\": \"" << frac_state
-          << "\", \"source\": \"pi_estimate\", \"pi\": "; if (pi_ident) jn(dp.pi.point); else j << "null"; j << "},\n";
+        // CANONICAL damaged-fraction pi routes through the CONSTANT-FREE within-read co-occurrence
+        // estimator (centered covariance; no D_MAX_CONSERVED denominator), NOT the legacy A/0.39
+        // pi_estimate. The co-occurrence point identifies pi only when it authenticates (DETECTED/TRACE);
+        // otherwise the fraction is UNQUANTIFIED (state carries detection, pi is null). See pi_cooccurrence
+        // block for CI/lift_z; the legacy pi_estimate/dp.pi remains only as the per-read ranking prior.
+        const auto& picc = dp.pi_cooccurrence;
+        const bool picc_ident = picc.state == DamageConfidence::DETECTED ||
+                                picc.state == DamageConfidence::TRACE;
+        const char* frac_state_cc = picc_ident ? conf_str(picc.state)
+                                  : (picc.state == DamageConfidence::BELOW_FLOOR ? "BELOW_FLOOR" : "ABSTAIN");
+        j << "    \"damaged_fraction\": {\"state\": \"" << frac_state_cc
+          << "\", \"source\": \"pi_cooccurrence (centered within-read covariance; constant-free)\", \"pi\": ";
+        if (picc_ident) jn(picc.point); else j << "null"; j << "},\n";
         j << "    \"oxidation\":        {\"call\": \"" << ox_call
           << "\", \"present\": " << (dp.oxidation_present ? "true" : "false")
           << ", \"source\": \"oxo_two_marker delta_beta (paired G->T - C->A, B1 SE gate)\", \"g_to_t_beta\": "
@@ -2239,6 +2247,45 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "      \"baseline\": ";  jn(sh.baseline); j << ",\n";
         j << "      \"shape_lrt\": "; jn(sh.lrt);      j << "\n";
         j << "    }\n";
+        j << "  },\n";
+    }
+
+    {   // Within-read co-occurrence π (centered-covariance; additive diagnostic, never feeds d_max).
+        const auto& e = dp.pi_cooccurrence;
+        const bool ident = e.state == DamageConfidence::DETECTED || e.state == DamageConfidence::TRACE;
+        const char* st = e.state == DamageConfidence::DETECTED    ? "DETECTED" :
+                         e.state == DamageConfidence::TRACE       ? "TRACE" :
+                         e.state == DamageConfidence::BELOW_FLOOR ? "BELOW_FLOOR" : "UNDETERMINED";
+        auto jn2 = [&](double v){ if (std::isfinite(v) && v >= 0.0) j << std::setprecision(6) << v; else j << "null"; };
+        j << "  \"pi_cooccurrence\": {\n";
+        j << "    \"point\": ";  if (ident) jn2(e.point); else j << "null"; j << ",\n";
+        j << "    \"ci_lo\": ";  jn2(e.lo);  j << ",\n";
+        j << "    \"ci_hi\": ";  jn2(e.hi);  j << ",\n";
+        j << "    \"identifiable\": " << (ident ? "true" : "false") << ",\n";
+        j << "    \"state\": \"" << st << "\",\n";
+        j << "    \"lift\": ";   jn2(dp.pi_cooccurrence_lift); j << ",\n";
+        j << "    \"lift_z\": "; (dp.pi_cooccurrence_lift >= 0.0 && std::isfinite(dp.pi_cooccurrence_lift_z))
+                                     ? (j << std::setprecision(6) << dp.pi_cooccurrence_lift_z) : (j << "null");
+        j << "\n";
+        j << "  },\n";
+    }
+
+    {   // Intrinsic d_max recovered from the co-occurrence π (sibling diagnostic; never feeds mixture d_max).
+        const auto& e = dp.d_max_cooccurrence;
+        const bool ident = e.state == DamageConfidence::DETECTED || e.state == DamageConfidence::TRACE;
+        const char* st = e.state == DamageConfidence::DETECTED    ? "DETECTED" :
+                         e.state == DamageConfidence::TRACE       ? "TRACE" :
+                         e.state == DamageConfidence::BELOW_FLOOR ? "BELOW_FLOOR" : "UNDETERMINED";
+        auto jn2 = [&](double v){ if (std::isfinite(v) && v >= 0.0) j << std::setprecision(6) << v; else j << "null"; };
+        j << "  \"d_max_cooccurrence\": {\n";
+        j << "    \"point\": ";  if (ident) jn2(e.point); else j << "null"; j << ",\n";
+        j << "    \"ci_lo\": ";  jn2(e.lo);  j << ",\n";
+        j << "    \"ci_hi\": ";  jn2(e.hi);  j << ",\n";
+        j << "    \"identifiable\": " << (ident ? "true" : "false") << ",\n";
+        const char* prep = dp.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED ? "ss" :
+                           dp.library_type == SampleDamageProfile::LibraryType::DOUBLE_STRANDED ? "ds" : "unknown";
+        j << "    \"lib_prep\": \"" << prep << "\",\n";
+        j << "    \"state\": \"" << st << "\"\n";
         j << "  },\n";
     }
 

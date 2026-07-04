@@ -267,8 +267,297 @@ PiVerdict combine(const DamageEvidence& ev) {
     return v;
 }
 
+// ── Within-read co-occurrence π (centered-covariance estimator) ──────────────────────────────────
+// Identifies the ancient fraction π SEPARATELY from the per-lineage damage amplitude by exploiting
+// that the two read ends co-vary only through the shared latent ancient state. Per length bin L,
+// terminal pooled over C vs the interior null:
+//   x_L = (μ5T−μ5I)(μ3T−μ3I)  [excess-marginal product ∝ π²δ5δ3]
+//   y_L = covT − covI          [excess covariance         ∝ π(1−π)δ5δ3]
+// ⇒ y_L/x_L = (1−π)/π = α, π = 1/(1+α). Global zero-intercept inverse-variance fit y_L = α·x_L.
+// GATE BEFORE the ratio: a blank has x,y→0 so the raw quotient is 0/0 (noise → π garbage); emit a
+// point ONLY when the aggregate excess covariance is significant (z≥2.58) and both excess marginals
+// are >0, else ABSTAIN. ds-only; DIAGNOSTIC — never touches profile.pi, d_max, or mixture_model.
+static void estimate_pi_cooccurrence(SampleDamageProfile& profile) {
+    profile.pi_cooccurrence   = DamageEstimate{};
+    profile.d_max_cooccurrence = DamageEstimate{};
+    profile.pi_cooccurrence_lift   = -1.0;
+    profile.pi_cooccurrence_lift_z = -1.0;
+    // PREP PRECEDENCE: the --library-type FORCED call (profile.library_type) is AUTHORITATIVE and already
+    // drove the 3' allele counted into pi_cooc at accumulate time (#A ds / #T ss). The data-driven detector
+    // below (pooled 3' A-excess vs T-excess over the shuffle null) is a QC CROSS-CHECK only — it can itself
+    // misclassify on dilute libraries where the 3' excess is at the noise floor, so it never overrides the
+    // arg. A forced/detected mismatch is surfaced as a WARN (wrong metadata or an odd/contaminated library).
+    // forced = the user's --library-type arg (forced_library_type; UNKNOWN ⇒ "auto"). The channel that
+    // actually drove pi_cooc is profile.library_type (= the forced type when set, else the BIC call).
+    const char* forced = profile.forced_library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED ? "ss"
+                       : profile.forced_library_type == SampleDamageProfile::LibraryType::DOUBLE_STRANDED ? "ds" : "auto";
+    const double qtn = static_cast<double>(profile.cooc_qc_term_n);
+    const double qnn = static_cast<double>(profile.cooc_qc_null_n);
+    const double a3_excess = (qtn > 0.0 && qnn > 0.0)
+        ? static_cast<double>(profile.cooc_qc_term_a3) / qtn - static_cast<double>(profile.cooc_qc_null_a3) / qnn : 0.0;
+    const double t3_excess = (qtn > 0.0 && qnn > 0.0)
+        ? static_cast<double>(profile.cooc_qc_term_t3) / qtn - static_cast<double>(profile.cooc_qc_null_t3) / qnn : 0.0;
+    constexpr double PREP_MIN = 0.01;   // 3' marginal-excess floor to call a detected prep
+    const char* detected = (std::max(a3_excess, t3_excess) < PREP_MIN) ? "unknown"
+                         : (a3_excess >= t3_excess ? "ds" : "ss");
+    // forced ∈ {ds,ss,auto}, detected ∈ {ds,ss,unknown}; auto (no explicit arg) never disagrees.
+    const bool agree = profile.forced_library_type == SampleDamageProfile::LibraryType::UNKNOWN
+                     || forced[0] == detected[0];   // 'd'/'s' distinguishes ds/ss; 'u'(unknown) matches neither
+    if (std::getenv("DEBUG_PICOOC")) {
+        std::fprintf(stderr, "PICOOC PREP forced=%s detected=%s a3_excess=%.4f t3_excess=%.4f agree=%s\n",
+                     forced, detected, a3_excess, t3_excess, agree ? "yes" : "no");
+        if (!agree)
+            std::fprintf(stderr, "PICOOC PREP WARN forced=%s but detected=%s (3' geometry disagrees with "
+                         "--library-type; forced wins the computation — check library metadata)\n",
+                         forced, detected);
+    }
+
+    constexpr int P = SampleDamageProfile::P_PI;
+    constexpr double PI_COOC_THR = 0.005;
+    constexpr uint64_t MIN_N = 200;   // per-bin read floor for a stable second moment
+
+    auto moments = [](const SampleDamageProfile::PiCooc& c,
+                      double& mu5, double& mu3, double& cov, double& var_cov) {
+        const double n = static_cast<double>(c.n);
+        mu5 = static_cast<double>(c.sum_k5) / n;
+        mu3 = static_cast<double>(c.sum_k3) / n;
+        cov = static_cast<double>(c.sum_k5k3) / n - mu5 * mu3;      // E[k5·k3] − μ5μ3
+        double eg2 = 0.0;                                           // E[g²], g = (k5−μ5)(k3−μ3)
+        for (int a = 0; a <= P; ++a)
+            for (int b = 0; b <= P; ++b) {
+                const double h = static_cast<double>(c.hist[a * (P + 1) + b]);
+                if (h == 0.0) continue;
+                const double g = (static_cast<double>(a) - mu5) * (static_cast<double>(b) - mu3);
+                eg2 += h * g * g;
+            }
+        eg2 /= n;
+        var_cov = std::max(0.0, (eg2 - cov * cov) / n);             // Var(cov) = Var(g)/n (centered influence)
+    };
+
+    double Sxy = 0.0, Sxx = 0.0;          // inverse-variance accumulators for α, over ADMITTED bins only
+    double sumY = 0.0, varSumY = 0.0;     // aggregate excess covariance + variance (ALL bins; legacy lift_z)
+    double sumYadm = 0.0, varYadm = 0.0;  // aggregate excess covariance + variance over ADMITTED bins (gate)
+    double ex5w = 0.0, ex3w = 0.0;        // read-weighted aggregate excess marginals (admitted bins)
+    double jointT = 0.0, indepT = 0.0, nT_all = 0.0;   // raw lift diagnostic
+    int used_bins = 0;
+
+    for (int L = 0; L < SampleDamageProfile::N_PI_LEN; ++L) {
+        SampleDamageProfile::PiCooc term{};           // terminal pooled over C
+        for (int C = 0; C < SampleDamageProfile::N_PI_C; ++C) {
+            const auto& s = profile.pi_cooc[L][C];
+            term.n += s.n; term.sum_k5 += s.sum_k5; term.sum_k3 += s.sum_k3; term.sum_k5k3 += s.sum_k5k3;
+            for (int h = 0; h < (P + 1) * (P + 1); ++h) term.hist[h] += s.hist[h];
+        }
+        const auto& intr = profile.pi_cooc_interior_ds[L];
+        if (term.n < MIN_N || intr.n < MIN_N) continue;
+
+        double mu5T, mu3T, covT, vcT, mu5I, mu3I, covI, vcI;
+        moments(term, mu5T, mu3T, covT, vcT);
+        moments(intr, mu5I, mu3I, covI, vcI);
+
+        const double d5 = mu5T - mu5I;         // excess terminal 5' T (damage marginal), must be > 0
+        const double d3 = mu3T - mu3I;         // excess terminal 3' A (damage marginal), must be > 0
+        const double x  = d5 * d3;             // ∝ π²δ5δ3 (SIGN-BLIND product — signs gated below)
+        // covI is the shuffle-null compositional pedestal. The WHOLE-read shuffle couples k5,k3 through
+        // the read's global n_T/n_A base-competition (negative at fixed length), but the terminal covT
+        // only sees a DILUTED version of that coupling through its two 5 bp windows, so the raw shuffle
+        // covI is more negative than covT's true pedestal and would over-subtract (→ π biased low). The
+        // pedestal is floored at 0 per the fix design ("covI must be ≈0 or ≥0, a clean compositional
+        // pedestal"): a negative composition covariance cannot masquerade as extra damage covariance.
+        const double covI_eff = std::max(0.0, covI);
+        const double y  = covT - covI_eff;     // ∝ π(1−π)δ5δ3
+        const double vy = vcT + vcI;
+        if (!(vy > 0.0) || !std::isfinite(x) || !std::isfinite(y)) continue;
+
+        // SIGN BACKSTOP admission: both excess marginals positive, terminal covariance positive, and the
+        // excess covariance positive. Drops composition-noise bins (e.g. L=2 with d5<0,d3<0 yet x>0 via
+        // the sign-blind product, and a hugely negative covI) so they can never enter — and thereby
+        // deflate — the fit. A pathological bin SELF-EXCLUDES here. |x| >= X_MIN additionally drops the
+        // near-zero-x blowup (bin L=2 had x=1e-6 → alpha_L=89402): a bin whose excess-marginal product is
+        // consistent with 0 cannot identify α (y/x explodes) and its inverse-variance weight x²/vy is
+        // negligible anyway, so excluding it changes the fit by ~0 while removing the pathology.
+        constexpr double X_MIN = 1e-4;
+        const bool admit = d5 > 0.0 && d3 > 0.0 && covT > 0.0 && y > 0.0 && std::fabs(x) >= X_MIN;
+        const double alpha_L = (x > 0.0) ? y / x : -1.0;   // per-bin (1−π)/π (diagnostic; fit uses Sxy/Sxx)
+
+        // lift_z aggregates ALL usable bins (diagnostic; NOT gated on admission) so its emitted value is
+        // comparable to the historical dumps.
+        sumY += y; varSumY += vy;
+        jointT += static_cast<double>(term.sum_k5k3);
+        indepT += static_cast<double>(term.n) * mu5T * mu3T;
+        nT_all += static_cast<double>(term.n);
+
+        if (admit) {
+            Sxy += x * y / vy;  Sxx += x * x / vy;    // inverse-variance weighted mean of alpha_L = y/x
+            sumYadm += y; varYadm += vy;              // admitted-bin excess-cov significance (fit gate)
+            ex5w += static_cast<double>(term.n) * d5;
+            ex3w += static_cast<double>(term.n) * d3;
+            ++used_bins;
+        }
+        if (std::getenv("DEBUG_PICOOC"))
+            std::fprintf(stderr,
+                "PICOOC L=%d nT=%llu nI=%llu mu5T=%.4f mu5I=%.4f mu3T=%.4f mu3I=%.4f "
+                "covT=%.5f covI=%.5f covIeff=%.5f x=%.6f y=%.6f vy=%.3e alpha_L=%.4f admit=%d\n",
+                L, (unsigned long long)term.n, (unsigned long long)intr.n,
+                mu5T, mu5I, mu3T, mu3I, covT, covI, covI_eff, x, y, vy, alpha_L, (int)admit);
+    }
+
+    if (nT_all > 0.0 && indepT > 0.0)
+        profile.pi_cooccurrence_lift = jointT / indepT;    // raw uncentered lift (≈1 on a blank)
+    const double lift_z = (varSumY > 0.0) ? sumY / std::sqrt(varSumY) : 0.0;
+    profile.pi_cooccurrence_lift_z = lift_z;                // legacy all-bin lift_z: DIAGNOSTIC ONLY, kept
+                                                            // for JSON continuity; NOT the gate statistic.
+
+    // SIGNIFICANCE GATE — re-instated on the CORRECTED covI. Fixing the null (shuffle, floored) re-signed
+    // the aggregate excess-covariance z so it is discriminating again: blank lift_z≈2.2 vs ancient ≈44.6
+    // (the OLD interior null had this backwards — blank 121 > ancient 98 — which is the ONLY reason it was
+    // dropped; that premise is void here). Blank ABSTENTION is a hard requirement, so the significance is
+    // load-bearing (the covI floor alone is NOT sufficient safety). Gate on the all-bin lift_z ≥ 3.0
+    // (stricter than 2.58): rejects the blank (≤2.9) with margin, passes the ancient (44.6) trivially.
+    // sig_z (admitted-bin z) is kept as a corroborating diagnostic only.
+    const double sig_z = (varYadm > 0.0) ? sumYadm / std::sqrt(varYadm) : 0.0;
+    constexpr double LIFT_Z_THR = 3.0;
+
+    const double alpha = (Sxx > 0.0) ? Sxy / Sxx : -1.0;   // (1−π)/π; must be >0 to identify π∈(0,1)
+    // GATE: ≥1 admitted (sign-clean) bin, identifiable α>0, positive aggregate excess marginals, AND the
+    // aggregate excess covariance significant under the shuffle null (lift_z ≥ 3). Blank fails on lift_z.
+    const bool gate = used_bins > 0 && Sxx > 0.0 && ex5w > 0.0 && ex3w > 0.0 && alpha > 0.0
+                      && lift_z >= LIFT_Z_THR;
+
+    if (std::getenv("DEBUG_PICOOC"))
+        std::fprintf(stderr, "PICOOC AGG used_bins=%d Sxy=%.4e Sxx=%.4e alpha=%.4f ex5w=%.4e ex3w=%.4e "
+                     "sig_z=%.2f lift_z=%.2f gate=%d\n",
+                     used_bins, Sxy, Sxx, alpha, ex5w, ex3w, sig_z, lift_z, (int)gate);
+
+    if (!gate) { profile.pi_cooccurrence.state = DamageConfidence::UNDETERMINED; return; }
+
+    const double var_alpha = 1.0 / Sxx;
+    const double pi_pt     = 1.0 / (1.0 + alpha);
+    const double dpi_da    = -1.0 / ((1.0 + alpha) * (1.0 + alpha));     // delta method
+    const double se_pi     = std::sqrt(var_alpha) * std::fabs(dpi_da);
+
+    auto& e = profile.pi_cooccurrence;
+    e.point = pi_pt;
+    e.lo = std::max(0.0, pi_pt - 1.96 * se_pi);
+    e.hi = std::min(1.0, pi_pt + 1.96 * se_pi);
+    if (e.lo > PI_COOC_THR)       e.state = DamageConfidence::DETECTED;
+    else if (e.hi >= PI_COOC_THR) e.state = DamageConfidence::TRACE;
+    else { e.point = -1.0; e.lo = -1.0; e.state = DamageConfidence::BELOW_FLOOR; }  // upper bound only
+
+    // ── Intrinsic d_max from the co-occurrence π (f_C-FREE, self-normalized) ─────────────────────────
+    // The count-excess route needed the terminal ref-C fraction f_C (unrecoverable reference-free → a
+    // ~1.5x bias). We instead use the SELF-NORMALIZED per-position C→T rate rate[p]=ndeam/nelig = T/(C+T)
+    // among C-eligible sites, which the two-state mixture makes f_C-free and exact:
+    //     rate[p] = baseline + π·d_p·(1−baseline)      (baseline = undamaged composition rate c/(c+t))
+    //  ⇒  d_p     = (rate[p] − baseline) / (π·(1−baseline))
+    // (1−baseline) is read off the deepest (interior-most) window positions; no f_C, no geometric sum
+    // (this is a per-position rate, not a window-count total). d_max = d_p at the peak position.
+    if (e.state == DamageConfidence::DETECTED || e.state == DamageConfidence::TRACE) {
+        // rate[p] = pooled per-position 5' C→T rate (T/(C+T)); pooled over all L,C (matches the LRT input).
+        double rate[SampleDamageProfile::P_PI] = {};
+        {
+            double nelig[SampleDamageProfile::P_PI] = {}, ndeam[SampleDamageProfile::P_PI] = {};
+            for (int L = 0; L < SampleDamageProfile::N_PI_LEN; ++L)
+                for (int C = 0; C < SampleDamageProfile::N_PI_C; ++C)
+                    for (int p = 0; p < P; ++p) {
+                        nelig[p] += static_cast<double>(profile.pi_pos_5prime[L][C][p].n_elig);
+                        ndeam[p] += static_cast<double>(profile.pi_pos_5prime[L][C][p].n_deam);
+                    }
+            for (int p = 0; p < P; ++p) rate[p] = nelig[p] > 0.0 ? ndeam[p] / nelig[p] : 0.0;
+        }
+        // baseline = interior undamaged C→T rate = T/(C+T) among interior C-eligible sites, READ OFF THE
+        // MIDDLE-THIRD census (baseline_t_freq/(baseline_t+baseline_c)). This is the true composition
+        // asymptote the identity wants. rate[P-1] is NOT it: the deepest window position (p=P−1) is still
+        // inside the oscillating terminal zone and sits ABOVE the interior asymptote (FLB01: rate[4]=0.521
+        // vs interior 0.492), which undercounts the excess and biases d_max LOW. Fall back to rate[P-1]
+        // only if the interior census is empty.
+        const double bt = static_cast<double>(profile.baseline_t_freq);
+        const double bc = static_cast<double>(profile.baseline_c_freq);
+        const double baseline = (bt + bc > 0.0) ? bt / (bt + bc) : rate[P - 1];
+        // rate_peak = MAX over the terminal window: robust to the odd/even oscillation AND to the
+        // adapter-suppressed pos-0 (which can sit BELOW baseline).
+        double rate_peak = rate[0];
+        for (int p = 1; p < P; ++p) rate_peak = std::max(rate_peak, rate[p]);
+
+        // λ retained as a DIAGNOSTIC only (no longer used in the d_max computation).
+        double lambda = 0.25;
+        if (rate[0] - baseline > 1e-6) {
+            const double r = (rate[1] - baseline) / (rate[0] - baseline);
+            if (r > 0.0 && r < 1.0) lambda = r;
+        }
+
+        // HONEST NUMERATOR NOISE: the excess (rate_peak − baseline) sits on top of a position-to-position
+        // COMPOSITIONAL wobble. Estimate its sigma from the scatter of the 5' C→T rate across the FLAT
+        // INTERIOR positions (past the terminal damage/fill-in oscillation), read off the 15-position C→T
+        // census. This is the systematic floor the peak must clear — the binomial SE understates it ~100×
+        // at these depths. The interior baseline is a huge-N census (negligible SE), so σ_excess ≈ σ_peak.
+        double sigma_excess = 0.0;
+        {
+            constexpr int WOBBLE_START = 8;   // positions ≥8 are past the terminal oscillation → flat interior
+            double v[SampleDamageProfile::N_POS]; int nw = 0; double m = 0.0;
+            for (int p = WOBBLE_START; p < SampleDamageProfile::N_POS; ++p) {
+                double t = 0.0, tot = 0.0;
+                for (int c = 0; c < SampleDamageProfile::N_CT_CTX; ++c) {
+                    t   += profile.ct_ctx_t_5prime[c][p];
+                    tot += profile.ct_ctx_total_5prime[c][p];
+                }
+                if (tot > 0.0) { v[nw] = t / tot; m += v[nw]; ++nw; }
+            }
+            if (nw >= 2) {
+                m /= nw; double s2 = 0.0;
+                for (int i = 0; i < nw; ++i) s2 += (v[i] - m) * (v[i] - m);
+                sigma_excess = std::sqrt(s2 / (nw - 1));
+            }
+        }
+
+        auto& dm = profile.d_max_cooccurrence;
+        const double norm = pi_pt * (1.0 - baseline);
+        const double excess = rate_peak - baseline;
+        constexpr double DMAX_Z = 2.0;   // excess must clear Z·σ_wobble to be a recoverable amplitude
+        // RELIABILITY GATE (data-driven, NOT a π hardcode): the amplitude is recoverable only when the bulk
+        // excess exceeds the composition noise. At low π the excess collapses to the wobble floor (FLB45:
+        // excess≈0.0035 vs σ≈wobble) and d_max is NOT trustworthy per-sample → abstain on the point but
+        // still report π. FLB01 (excess≈0.045 ≫ σ) passes. This trips on dilution WITHOUT knowing π first.
+        const bool reliable = excess > 0.0 && sigma_excess > 0.0 && excess >= DMAX_Z * sigma_excess;
+        if (excess > 0.0 && norm > 0.0) {
+            const double d_max_raw = excess / norm;
+            // Propagate BOTH noise sources: numerator wobble (dominates at low π) AND π's SE. σ_dmax/dmax =
+            // sqrt((σ_excess/excess)² + (σ_π/π)²). The old CI propagated ONLY π's band, understating the true
+            // uncertainty at low π by ~the amplification factor — this makes the CI honest.
+            const double rel_excess = (excess > 0.0)  ? sigma_excess / excess : 0.0;
+            const double rel_pi     = (pi_pt  > 0.0)  ? se_pi / pi_pt         : 0.0;
+            const double sigma_dmax = d_max_raw * std::sqrt(rel_excess * rel_excess + rel_pi * rel_pi);
+            dm.lo = std::clamp(d_max_raw - 1.96 * sigma_dmax, 0.0, 1.0);
+            dm.hi = std::clamp(d_max_raw + 1.96 * sigma_dmax, 0.0, 1.0);
+            if (reliable) {
+                dm.point = std::clamp(d_max_raw, 0.0, 1.0);
+                dm.state = e.state;                       // DETECTED / TRACE — a trustworthy point
+            } else {
+                dm.point = -1.0;                          // numerator at the noise floor → ABSTAIN on point
+                dm.state = DamageConfidence::BELOW_FLOOR; // identifiable=false; the (huge) CI still emits
+            }
+            if (std::getenv("DEBUG_PICOOC"))
+                std::fprintf(stderr,
+                    "PICOOC DMAX2 rate=[%.4f %.4f %.4f %.4f %.4f] base=%.4f peak=%.4f pi=%.4f lambda=%.4f "
+                    "dmax_fcfree=%.4f sig_exc=%.4f exc/sig=%.2f reliable=%d ci=[%.4f,%.4f]\n",
+                    rate[0], rate[1], rate[2], rate[3], rate[4], baseline, rate_peak, pi_pt, lambda,
+                    d_max_raw, sigma_excess, sigma_excess > 0.0 ? excess / sigma_excess : 0.0,
+                    (int)reliable, dm.lo, dm.hi);
+        } else {
+            // No terminal excess above the interior baseline ⇒ no amplitude signal ⇒ ABSTAIN on d_max.
+            dm.state = DamageConfidence::UNDETERMINED;
+            if (std::getenv("DEBUG_PICOOC"))
+                std::fprintf(stderr,
+                    "PICOOC DMAX2 rate=[%.4f %.4f %.4f %.4f %.4f] base=%.4f peak=%.4f pi=%.4f lambda=%.4f "
+                    "dmax_fcfree=UNDETERMINED(peak<=base)\n",
+                    rate[0], rate[1], rate[2], rate[3], rate[4], baseline, rate_peak, pi_pt, lambda);
+        }
+    }
+}
+
 void finalize_pi(SampleDamageProfile& profile) {
     profile.pi = DamageEstimate{};
+    estimate_pi_cooccurrence(profile);   // additive diagnostic; independent of the shape-fit path below
     profile.oxidation_present = false;
 
     // C2: OXIDATION as an INDEPENDENT damage axis — computed unconditionally here (not nested in the
@@ -477,7 +766,16 @@ double end_llr(const TerminalMismatch* s, std::uint32_t n, double lambda, double
 }  // namespace
 
 double damage_evidence_llr(const ReadDamageObs& obs, const SampleDamageProfile& profile) {
-    const double A = D_MAX_CONSERVED;  // imported amplitude (§6.5(1)); NOT the mixture
+    // RANKING amplitude, data-derived (no hardcoded D_MAX_CONSERVED cohort mean): prefer the library's
+    // own constant-free co-occurrence d_max, else its fitted per-end d_max. This score only RANKS reads
+    // (monotone: more terminal deamination ⇒ higher), so the amplitude sets the scale, not a calibrated
+    // rate; a small positive floor keeps the LLR monotone when no amplitude was fitted.
+    // ceiling: floor 0.1 is a ranking scale only (never a reported damage rate); upgrade: drop when a
+    // per-read joint kernel replaces this single-amplitude score.
+    double A = std::max({static_cast<double>(profile.d_max_5prime),
+                         static_cast<double>(profile.d_max_3prime),
+                         profile.d_max_cooccurrence.point});
+    if (!(A > 0.0)) A = 0.1;
 
     // Prefer the per-position decay actually fitted on the ref-free path (pi_shape); fall back to the
     // per-end λ/baseline fields for the reference-anchored path. A flat λ=0.3 default still yields a usable
