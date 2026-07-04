@@ -609,7 +609,22 @@ void finalize_pi(SampleDamageProfile& profile) {
     // fit_pi_shape-gated path mis-abstained on real damage. fit_pi_shape (profile.pi_shape) is retained
     // for the per-read LLR decay (lambda/baseline), NOT as the detection gate here.
     const auto clip01 = [](double x) { return std::clamp(x, 0.0, 1.0); };
-    const double denom = D_MAX_CONSERVED;
+    // Constant-free denominator (PART A): rescale the fitted amplitude A by the library's OWN
+    // fished terminal amplitude (within-read co-occurrence d_max), NOT the hardcoded cohort mean
+    // D_MAX_CONSERVED=0.39. When co-occurrence is non-identifiable (the dilute LOW_ABUNDANCE/DiD
+    // regime, where there is no data-derived amplitude) denom<0 falls through to the existing
+    // abstention paths below (the `denom > 0.0` guards and the `denom <= 0.0` early return) — the
+    // honest behavior is to abstain, never to divide by a magic constant. The DENOM_SD widening
+    // term below is now conservative-only; the reviewable follow-up is to source the denominator CI
+    // from d_max_cooccurrence.ci_lo/hi instead. (combine() at :212 is the byte-identical per-read
+    // mirror; it needs d_max_cooccurrence plumbed into DamageEvidence to match — staged, see report.)
+    const bool cooc_dmax_ident =
+        (profile.d_max_cooccurrence.state == DamageConfidence::DETECTED ||
+         profile.d_max_cooccurrence.state == DamageConfidence::TRACE) &&
+        profile.d_max_cooccurrence.point > 0.0;
+    const double denom = cooc_dmax_ident
+                             ? static_cast<double>(profile.d_max_cooccurrence.point)
+                             : -1.0;
 
     const Channel5 c5 = channel5_eval(profile);
     if (!c5.authentic) {
