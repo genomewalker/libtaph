@@ -404,11 +404,32 @@ struct SampleDamageProfile {
     PiPosCube pi_pos_3prime_ds = {}; // 3' G->A channel (ds library)
     PiPosCube pi_pos_3prime_ss = {}; // 3' C->T channel (ss library)
 
-    // Single scalar both-end co-occurrence feature per (L_bin,C_bin), ONLY for the per-read
-    // artifact-covariance gate (NOT an estimator input). sum_k5k3 = within-read product of 5'
-    // and 3' damage-allele counts; n = reads contributing. ds 3' channel used for k3.
-    struct PiCooc { uint64_t n = 0, sum_k5k3 = 0; };
-    std::array<std::array<PiCooc, N_PI_C>, N_PI_LEN> pi_cooc = {};   // [L][C]
+    // Within-read both-end co-occurrence sufficient statistics per (L_bin,C_bin). Feeds the
+    // CENTERED-covariance pi estimator (estimate_pi_cooccurrence): the raw sum_k5k3 alone is an
+    // UNCENTERED product that collapses to the composition baseline (ratio→1) on diluted/blank
+    // libraries, so the estimator needs the marginals (sum_k5,sum_k3) to center it AND the joint
+    // histogram to build Var(Cov) for the significance gate. k5=#T in the 5' P_PI window, k3=#A in
+    // the 3' P_PI window (ds channel). hist indexed [k5*(P_PI+1)+k3].
+    struct PiCooc {
+        uint64_t n = 0, sum_k5 = 0, sum_k3 = 0, sum_k5k3 = 0;
+        std::array<uint64_t, (P_PI + 1) * (P_PI + 1)> hist = {};
+    };
+    std::array<std::array<PiCooc, N_PI_C>, N_PI_LEN> pi_cooc = {};   // [L][C] terminal (signal)
+    // Interior-window co-occurrence NULL (ds channel), pooled over C. Sampled from two P_PI windows
+    // just inside the padded interior (INTERIOR_TERM_PAD>P_PI ⇒ no terminal-damage leak); supplies the
+    // composition baselines c5,c3 and the no-damage covariance the terminal signal is centered against.
+    // 3' damage-allele identity is library-prep dependent: ds counts #A (G->A), ss counts #T (C->T at both
+    // ends). The counted base is chosen from profile.library_type at accumulate time (damage_estimation_update),
+    // so pi_cooc / pi_cooc_interior_ds serve BOTH preps — k5 (5' #T) is prep-independent.
+    std::array<PiCooc, N_PI_LEN> pi_cooc_interior_ds = {};   // [L] shuffle null (k3 base = prep-dependent)
+
+    // Prep QC cross-check counters (pooled over all L,C). We count BOTH 3' alleles (#A and #T) in the
+    // terminal window and the shuffle null, independent of the forced prep, so the estimator can compute a
+    // data-driven detected prep (larger of the A-excess/T-excess) and compare it to the --library-type
+    // forced call. The forced call ALWAYS drives the computation; detected is a QC flag only (robust to the
+    // noise-floor 3' excess on dilute libraries where auto-detection alone could misclassify).
+    uint64_t cooc_qc_term_n = 0, cooc_qc_term_a3 = 0, cooc_qc_term_t3 = 0;
+    uint64_t cooc_qc_null_n = 0, cooc_qc_null_a3 = 0, cooc_qc_null_t3 = 0;
 
     // Fixed length-bin edges for the pi accumulator (bp). Streaming-safe (no quantiles at accumulate time).
     static int pi_len_bin(int L) {
@@ -1545,6 +1566,17 @@ struct SampleDamageProfile {
     // contract output (point+CI+3-state); set by finalize_pi. Shadow-mode step 1 — coexists with the
     // legacy mixture path, no consumer wired. The per-bin gradient stays available via bulk_damage.bins.
     DamageEstimate pi;
+    // Additive within-read co-occurrence pi (centered-covariance estimator; DIAGNOSTIC — never
+    // overwrites pi and is NOT fed to d_max/mixture_model until blank-panel validated). lift = raw
+    // terminal joint / independence expectation (≈1 on a blank); lift_z = centered-excess significance.
+    DamageEstimate pi_cooccurrence;
+    double pi_cooccurrence_lift   = -1.0;
+    double pi_cooccurrence_lift_z = -1.0;
+    // Intrinsic per-end deamination amplitude d_max recovered FROM the co-occurrence π (sibling of
+    // pi_cooccurrence): d_max = (μ5T−μ5I)/(π·f_C) · (1−λ)/(1−λ^P), i.e. the per-ancient terminal
+    // T-excess de-diluted by π, de-composed to per-C-site rate, then geometry-corrected to position 1.
+    // DIAGNOSTIC — never feeds the mixture d_max path.
+    DamageEstimate d_max_cooccurrence;
 
     // C2: oxidation as an INDEPENDENT damage axis (orthogonal to the pi deamination verdict).
     // Set by finalize_pi from the oxo_two_marker δβ PAIRED contrast (beta1 G→T minus beta2 C→A),

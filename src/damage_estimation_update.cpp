@@ -88,6 +88,15 @@ void FrameSelector::update_sample_profile(
 
     if (seq.length() < 30) return;  // Too short for reliable statistics
 
+    // Resolve the user-forced prep into library_type ONCE, before any accumulation. library_type is
+    // the DOUBLE_STRANDED default until finalize_libtype runs; every stream-time consumer (the ss/ds
+    // 3' co-occurrence base below, and any future one) must see the real prep, not the default. Without
+    // this, a forced-ss library silently streamed as ds and counted the 3' dA-tail (#A) as damage
+    // instead of the ss C->T signal (#T). No-op when unforced (UNKNOWN): library_type stays the default
+    // and finalize_libtype's BIC auto-detect owns it. Idempotent; finalize_libtype overwrites it anyway.
+    if (profile.forced_library_type != SampleDamageProfile::LibraryType::UNKNOWN)
+        profile.library_type = profile.forced_library_type;
+
     size_t len = seq.length();
 
     // Decode entire read once: uppercase and cache so downstream passes
@@ -164,11 +173,19 @@ void FrameSelector::update_sample_profile(
             const char b = decoded[p];
             if (b == 'T') { ++k5; cnum += p; }
         }
-        int k3a = 0;                                  // 3' ds damage-allele count (for the co-occurrence gate)
+        // 3' damage allele is prep-dependent: ss deaminates C->T at BOTH ends (#T), ds shows G->A (#A).
+        // UNKNOWN keeps the ds default 'A' (the rest of the pipeline also treats UNKNOWN as ds-ish).
+        // library_type is authoritative here: the forced prep was resolved into it at the top of this
+        // function (before any accumulation); unforced stays the ds default until finalize resolves it.
+        const char dmg3 = (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED) ? 'T' : 'A';
+        int c3a = 0, c3t = 0;                         // both 3' alleles (QC cross-check, prep-independent)
         for (int p = 0; p < P; ++p) {
             const char b = decoded[len - 1 - p];
-            if (b == 'A') ++k3a;
+            if      (b == 'A') ++c3a;
+            else if (b == 'T') ++c3t;
         }
+        const int k3a = (dmg3 == 'T') ? c3t : c3a;    // 3' damage-allele count for the FORCED co-occurrence gate
+        profile.cooc_qc_term_n += 1; profile.cooc_qc_term_a3 += c3a; profile.cooc_qc_term_t3 += c3t;
         // F_class = 5' C->T decay centroid (overhang proxy): 0=no event, 1=blunt/terminal, 2=broad overhang.
         int C = 0;
         if (k5 > 0)
@@ -189,7 +206,56 @@ void FrameSelector::update_sample_profile(
         }
         auto& cc = profile.pi_cooc[L][C];
         cc.n += 1;
+        cc.sum_k5   += static_cast<uint64_t>(k5);
+        cc.sum_k3   += static_cast<uint64_t>(k3a);
         cc.sum_k5k3 += static_cast<uint64_t>(k5) * k3a;
+        cc.hist[k5 * (P + 1) + k3a] += 1;   // joint (k5,k3) dist for Var(Cov)
+
+        // Composition NULL via WITHIN-READ SHUFFLE (route (b) of the fix design). We recount k5(#T in
+        // the first P) and k3(#A in the last P) after a DETERMINISTIC permutation of THIS read's bases.
+        // The permutation preserves the read's exact base composition (so the between-read compositional
+        // covariance that also drives the terminal covT is reproduced identically) while destroying the
+        // terminal damage localization, so covI is a clean composition-only pedestal measured in the SAME
+        // window geometry as covT. The fixed-budget hypergeometric anti-correlation therefore CANCELS in
+        // covT−covI. Interior sub-windows (the previous null) could NOT be used: on a short read there is
+        // no room to place two damage-free windows at the terminal end-separation, so their covariance
+        // pedestal did not match covT and over-subtracted (covI swung to −0.07..−0.22 at short bins).
+        // Seed is derived from read content → fully reproducible regardless of thread scheduling.
+        if (len <= 512) {                                          // ceiling: >512 bp read skipped (rare, L=5 long bin)
+            uint16_t idx[512];
+            const int n = static_cast<int>(len);
+            for (int i = 0; i < n; ++i) idx[i] = static_cast<uint16_t>(i);
+            uint64_t rng = 0x9E3779B97F4A7C15ULL ^ (static_cast<uint64_t>(len) * 0x100000001B3ULL)
+                           ^ (static_cast<uint64_t>(k5) << 32) ^ static_cast<uint64_t>(k3a)
+                           ^ (static_cast<uint64_t>(static_cast<uint8_t>(decoded[0])) << 8)
+                           ^ static_cast<uint64_t>(static_cast<uint8_t>(decoded[n - 1]));
+            auto next = [&rng]() {                                 // splitmix64
+                rng += 0x9E3779B97F4A7C15ULL;
+                uint64_t z = rng;
+                z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+                z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+                return z ^ (z >> 31);
+            };
+            for (int i = 0; i < 2 * P; ++i) {                      // partial Fisher-Yates: 2P disjoint draws
+                const int j = i + static_cast<int>(next() % static_cast<uint64_t>(n - i));
+                const uint16_t t = idx[i]; idx[i] = idx[j]; idx[j] = t;
+            }
+            int k5n = 0, k3nA = 0, k3nT = 0;
+            for (int p = 0; p < P; ++p)       if (decoded[idx[p]] == 'T') ++k5n;
+            for (int p = P; p < 2 * P; ++p) {
+                const char b = decoded[idx[p]];
+                if      (b == 'A') ++k3nA;
+                else if (b == 'T') ++k3nT;
+            }
+            const int k3n = (dmg3 == 'T') ? k3nT : k3nA;   // null uses the SAME forced prep base
+            profile.cooc_qc_null_n += 1; profile.cooc_qc_null_a3 += k3nA; profile.cooc_qc_null_t3 += k3nT;
+            auto& ci = profile.pi_cooc_interior_ds[L];
+            ci.n += 1;
+            ci.sum_k5   += static_cast<uint64_t>(k5n);
+            ci.sum_k3   += static_cast<uint64_t>(k3n);
+            ci.sum_k5k3 += static_cast<uint64_t>(k5n) * k3n;
+            ci.hist[k5n * (P + 1) + k3n] += 1;
+        }
     }
 
     // Count bases in middle third (undamaged baseline)
@@ -200,6 +266,10 @@ void FrameSelector::update_sample_profile(
     if (len > INTERIOR_TERM_PAD && mid_end + INTERIOR_TERM_PAD > len)
         mid_end = len - INTERIOR_TERM_PAD;
     const bool interior_safe = (mid_start < mid_end);
+
+    // (Composition NULL for the co-occurrence π now comes from the within-read shuffle above, matched to
+    // the terminal read set and window geometry — see the pi_cooc_interior_ds accumulation in the
+    // len>=2P+2 block. The old interior sub-window null was removed: it over-subtracted on short reads.)
 
     // Reference-free oxidation-like contrast. During the streaming pass we do
     // not assign damaged/background weights directly. Instead, each read is
@@ -1661,7 +1731,23 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         mp(dst.pi_pos_3prime_ds[L][C], src.pi_pos_3prime_ds[L][C]);
         mp(dst.pi_pos_3prime_ss[L][C], src.pi_pos_3prime_ss[L][C]);
         dst.pi_cooc[L][C].n        += src.pi_cooc[L][C].n;
+        dst.pi_cooc[L][C].sum_k5    += src.pi_cooc[L][C].sum_k5;
+        dst.pi_cooc[L][C].sum_k3    += src.pi_cooc[L][C].sum_k3;
         dst.pi_cooc[L][C].sum_k5k3 += src.pi_cooc[L][C].sum_k5k3;
+        for (size_t h = 0; h < dst.pi_cooc[L][C].hist.size(); ++h)
+            dst.pi_cooc[L][C].hist[h] += src.pi_cooc[L][C].hist[h];
+        if (C == 0) {   // interior null is [L]-only; merge once per L
+            dst.pi_cooc_interior_ds[L].n        += src.pi_cooc_interior_ds[L].n;
+            dst.pi_cooc_interior_ds[L].sum_k5   += src.pi_cooc_interior_ds[L].sum_k5;
+            dst.pi_cooc_interior_ds[L].sum_k3   += src.pi_cooc_interior_ds[L].sum_k3;
+            dst.pi_cooc_interior_ds[L].sum_k5k3 += src.pi_cooc_interior_ds[L].sum_k5k3;
+            for (size_t h = 0; h < dst.pi_cooc_interior_ds[L].hist.size(); ++h)
+                dst.pi_cooc_interior_ds[L].hist[h] += src.pi_cooc_interior_ds[L].hist[h];
+        }
+      }
+      {   // prep QC counters are pooled scalars — merge once, outside the [L][C] loop
+        dst.cooc_qc_term_n += src.cooc_qc_term_n; dst.cooc_qc_term_a3 += src.cooc_qc_term_a3; dst.cooc_qc_term_t3 += src.cooc_qc_term_t3;
+        dst.cooc_qc_null_n += src.cooc_qc_null_n; dst.cooc_qc_null_a3 += src.cooc_qc_null_a3; dst.cooc_qc_null_t3 += src.cooc_qc_null_t3;
       }
     // Merge upstream-context-aware accumulators
     for (int uctx = 0; uctx < SampleDamageProfile::N_UPSTREAM_CTX; ++uctx) {
@@ -2386,6 +2472,10 @@ void FrameSelector::reset_sample_profile(SampleDamageProfile& profile) {
     profile.pi_pos_3prime_ds = {};
     profile.pi_pos_3prime_ss = {};
     profile.pi_cooc = {};
+    profile.pi_cooc_interior_ds = {};
+    profile.cooc_qc_term_n = profile.cooc_qc_term_a3 = profile.cooc_qc_term_t3 = 0;
+    profile.cooc_qc_null_n = profile.cooc_qc_null_a3 = profile.cooc_qc_null_t3 = 0;
+    profile.d_max_cooccurrence = DamageEstimate{};
 
     profile.max_damage_5prime = 0.0f;
     profile.max_damage_3prime = 0.0f;
