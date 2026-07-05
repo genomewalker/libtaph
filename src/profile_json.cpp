@@ -10,6 +10,12 @@
 #include <sstream>
 #include <string>
 
+// Build-provenance stamp: SHA of the libtaph checkout this object was compiled from,
+// injected at configure time (see CMakeLists.txt). "unknown" if git was unavailable.
+#ifndef LIBTAPH_GIT_SHA
+#define LIBTAPH_GIT_SHA "unknown"
+#endif
+
 namespace taph {
 
 // A1: JSON has no nan/inf literals, but operator<<(double) emits bare `nan`/`inf` tokens that
@@ -192,6 +198,8 @@ void profile_to_json(const SampleDamageProfile& dp,
 
     // ── Top-level ─────────────────────────────────────────────────────────────
     j << "{\n";
+    j << "  \"libtaph_git_sha\": \"" << LIBTAPH_GIT_SHA << "\",\n";  // build-provenance: SHA of the
+    // libtaph the binary was compiled against; a stale FetchContent link is visible here, not silent.
     j << "  \"schema_version\": 10,\n";  // v10: damage_magnitude_recommended block added (schema
     // restructuring, 2026-07-01); deamination.d_max_5prime and by_length[].d_max_5prime renamed
     // to *_raw_ungated (both are ungated position-0/peak estimates, confirmed to false-positive

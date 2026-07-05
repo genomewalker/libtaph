@@ -63,6 +63,23 @@ if(NOT "${TAPH_MARCH}" STREQUAL "")
     target_compile_options(taph PRIVATE -march=${TAPH_MARCH})
 endif()
 
+# ── Build provenance ──────────────────────────────────────────────────────────
+# Stamp the git SHA of THIS libtaph checkout into the binary so it surfaces in
+# every profile JSON. When fqdup links a stale FetchContent clone, the mismatch
+# is visible in the output instead of failing silently. Resolved at configure
+# time from the source tree actually being compiled (local pin or fetched clone).
+execute_process(
+    COMMAND git -C "${CMAKE_CURRENT_SOURCE_DIR}" rev-parse HEAD
+    OUTPUT_VARIABLE LIBTAPH_GIT_SHA
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT LIBTAPH_GIT_SHA)
+    set(LIBTAPH_GIT_SHA "unknown")
+endif()
+message(STATUS "libtaph build provenance: git SHA ${LIBTAPH_GIT_SHA}")
+target_compile_definitions(taph PRIVATE LIBTAPH_GIT_SHA="${LIBTAPH_GIT_SHA}")
+
 # ── Install ───────────────────────────────────────────────────────────────────
 include(GNUInstallDirs)
 
