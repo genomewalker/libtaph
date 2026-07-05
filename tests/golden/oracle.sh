@@ -71,7 +71,7 @@ base = json.load(open(base_p))
 cand = json.load(open(cand_p))
 TOL = 1e-6
 EXACT = ["pi_estimate.state", "channel_b.valid", "channel_b.inverted"]
-FLOAT = ["pi_estimate.point", "deamination.d_max_5prime", "deamination.d_max_3prime",
+FLOAT = ["pi_estimate.point", "deamination.d_max_5prime_raw_ungated", "deamination.d_max_3prime_raw_ungated",
          "deamination.lambda_5prime", "channel_b.d_max"]
 
 def get(d, path):

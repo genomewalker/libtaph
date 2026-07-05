@@ -1,5 +1,159 @@
 {
-  "schema_version": 3,
+  "schema_version": 10,
+  "damage_magnitude_recommended": {
+    "ranking_estimate": 0.000000,
+    "ranking_estimate_source": "bulk_damage.headline_delta",
+    "absolute_estimate": 0.316016,
+    "absolute_estimate_valid": true,
+    "absolute_estimate_source": "mixture_model.damaged.d_max_5prime_fit",
+    "notes": "ranking_estimate for cross-sample comparison; absolute_estimate for a metaDMG-comparable magnitude when valid=true; see schema_version 10 comment in source for validation basis"
+  },
+  "context_primitives": {
+    "oxidation": {
+      "primary": {
+        "delta_beta": 0.041068,
+        "delta_beta_se": 0.001701,
+        "z": 12.000000,
+        "valid": true,
+        "source": "oxo_two_marker"
+      },
+      "estimate": {
+        "ox_theta": 0.333396,
+        "ox_theta_ci_lo": 0.010715,
+        "ox_theta_ci_hi": 0.656077,
+        "ox_like_excess": 0.000000,
+        "ox_like_z": -2.677225,
+        "source": "oxog_estimate"
+      },
+      "context_cosine": 0.402910,
+      "gt_asymmetry": -0.035316,
+      "co_movement": {"s_oxog": -0.005429, "se_s_oxog": 0.000116, "s_ca": 0.000313, "d_oriented": -0.681044, "has_score": true, "q_method": "deam_score"},
+      "by_context": {
+        "oh_radical": {"excess": -0.000401, "se": 0.000000, "n": 2804230.000000},
+        "m1g": {"excess": -0.002278, "se": 0.000000, "n": 1001935.000000},
+        "hole": {"excess": 0.020045, "se": 0.000123, "n": 1303674.000000}
+      },
+      "by_grun": {
+        "GGG": {"excess": 0.026434, "se": 0.000282, "n": 323497.000000},
+        "GG": {"excess": 0.009270, "se": 0.000067, "n": 2042383.000000},
+        "G": {"excess": -0.001735, "se": 0.000000, "n": 2743959.000000},
+        "gradient": {"value": 0.028169, "z": 12.000000}
+      },
+      "like": {
+        "excess": 0.000000,
+        "se": 0.009065,
+        "z": -2.677225
+      },
+      "scission_proxy": {
+        "delta": -0.063239,
+        "delta_5prime": -0.063239,
+        "delta_3prime": -0.012859
+      },
+      "epsilon": {
+        "fitted": true,
+        "epsilon": -0.000658,
+        "epsilon_term": 0.049811
+      }
+    },
+    "deamination": {
+      "methylation_context": {
+        "cpg": 0.135964,
+        "chg": 0.077794,
+        "chh": 0.083463,
+        "meth_select": -0.005669,
+        "meth_select_s34": -0.005639,
+        "meth_select_cpg": 0.052501,
+        "cpg_s34": 0.139834,
+        "chh_s34": 0.085447,
+        "meth_select_cpg_s34": 0.054387
+      },
+      "ct_pathway_split": {
+        "total": -0.000388,
+        "total_se": 0.000186,
+        "hydrolytic": null,
+        "oxidative": null,
+        "oxidative_se": null,
+        "coupling_z": null,
+        "n_cells": 189,
+        "valid": true,
+        "provisional": true,
+        "separable": false,
+        "note": "PROVISIONAL: hydrolytic and oxidative (5-hydroxycytosine) deamination yield the identical C->T substitution and are NOT separable reference-free. oxidative = the interior C->T excess co-moving with the reference-free G->T (8-oxoG) oxidation rate, gated on a marker-consistent oxidation coupling; hydrolytic = total - oxidative. Treat as an oxidation-coupling attribution, not an identified decomposition; needs external (e.g. oxBS/5-hmU) validation. Channel registry id O (oxidative_deamination_5ohc)."
+      },
+      "cpg_context": {
+        "dmax_ct5_cpg": 0.238728,
+        "dmax_ct5_noncpg": 0.039882,
+        "log2_cpg_ratio": 2.581525,
+        "cpg_score_z": 12.000000,
+        "methylation_excess": 0.019565,
+        "source": "deamination.cpg_like"
+      },
+      "stop_codon": {
+        "excess": 0.132881,
+        "valid": true,
+        "quantifiable": true,
+        "inverted": false,
+        "d_max": 0.212381,
+        "d_max_se": 0.127893,
+        "stop_baseline": 0.312238,
+        "d_max_3prime": 0.000000,
+        "stop_baseline_3prime": 0.000000
+      }
+    },
+    "scission": {
+      "fitted": true,
+      "gamma": 0.146624,
+      "ci_lo": 0.146267,
+      "ci_hi": 0.146981,
+      "by_context": {
+        "AG": {"excess": -0.029518, "se": 0.000105, "n": 184063.000000},
+        "GG": {"excess": -0.063239, "se": 0.000102, "n": 175167.000000},
+        "AA": {"excess": -0.016087, "se": 0.000111, "n": 207516.000000},
+        "GA": {"excess": -0.044342, "se": 0.000110, "n": 204145.000000}
+      },
+      "source": "scission"
+    },
+    "clustering": {
+      "interior_ct": {
+        "short_log2oe": 0.016230,
+        "short_asym_log2oe": 0.000288,
+        "reads_used": 995571,
+        "source": "interior_ct_cluster"
+      },
+      "lesion_cooccurrence": {
+        "excess": -0.021667,
+        "z": -12.000000,
+        "obs": 6267271,
+        "exp": 6406070.622041,
+        "reads_used": 992327,
+        "source": "interior_ct_cluster.cross_channel_gt_ct"
+      },
+      "dose_proxy_note": "Correlate lesion_cooccurrence.excess across samples against a mineral-radioactivity dose proxy: K-feldspar (metadata `feldspar` column, K-40 bearing) and, if obtainable, U/Th. U/Th is absent from current metadata (gap flagged). Within-sample the excess cannot be dose-calibrated; it is the radiation-vs-diffuse-chemistry discriminator, not an absolute dose.",
+      "overdispersion_source": "per_read_overdispersion"
+    }
+  },
+  "deprecations": {
+    "oxo_two_marker": "context_primitives.oxidation.primary",
+    "oxog_estimate": "context_primitives.oxidation.estimate",
+    "oxog_context_cosine": "context_primitives.oxidation.context_cosine",
+    "oxidation_like": "context_primitives.oxidation.like",
+    "oxidative_scission": "context_primitives.oxidation.scission_proxy",
+    "oxidation_epsilon": "context_primitives.oxidation.epsilon",
+    "oxog_gt_asymmetry": "context_primitives.oxidation.gt_asymmetry",
+    "oxog_4mer.by_context": "context_primitives.oxidation.by_context",
+    "oxog_4mer.by_grun": "context_primitives.oxidation.by_grun",
+    "deamination.cpg_like": "context_primitives.deamination.cpg_context",
+    "context_primitives.deamination.cpg_context": "context_primitives.deamination.methylation_context",
+    "oxidative_deamination_5ohc": "context_primitives.deamination.ct_pathway_split",
+    "scission": "context_primitives.scission",
+    "oxidative_scission.delta": "context_primitives.scission.by_context.GG",
+    "context_primitives.oxidation.scission_proxy": "context_primitives.scission.by_context",
+    "interior_ct_cluster": "context_primitives.clustering.interior_ct",
+    "lesion_cooccurrence_gt_ct": "context_primitives.clustering.lesion_cooccurrence",
+    "per_read_overdispersion": "context_primitives.clustering.overdispersion_source",
+    "stop_codon_exc": "context_primitives.deamination.stop_codon.excess",
+    "channel_b": "context_primitives.deamination.stop_codon"
+  },
   "input": "/path/to/libtaph/tests/golden/fixture_modern.fq.gz",
   "n_reads": 999993,
   "library_type": "double-stranded",
@@ -41,15 +195,15 @@
   "damage_3prime_mode": "ds_ga",
   "damage_status": "present",
   "verdict": {
-    "deamination":      {"call": "present", "source": "damage_status / deamination.d_max_5prime", "d_max_5prime": 0.323074},
+    "deamination":      {"call": "absent", "authenticated_by": "none", "source": "pi_identifiable OR channel_b(quantifiable,!inverted,d_max-2SE>0)", "d_max_5prime": 0.323074},
     "damaged_fraction": {"state": "ABSTAIN", "source": "pi_estimate", "pi": null},
     "oxidation":        {"call": "artifact", "present": false, "source": "oxo_two_marker delta_beta (paired G->T - C->A, B1 SE gate)", "g_to_t_beta": 0.018248, "delta_beta": 0.041068, "delta_beta_se": 0.001701, "markers_consistent": false, "is_ancient_specific": false},
     "preservation":     {"tier": "modern-like", "source": "preservation.score", "score": 0.094140},
     "note": "Canonical per-axis calls; each `source` points to the authoritative readout. deamination = age-bearing terminal C->T (the only ancient-vs-modern discriminator). damaged_fraction = pi (deamination-defined strata). oxidation = oxo_two_marker G->T, REAL but NOT ancient-specific (also from sample prep). preservation = aggregate index."
   },
   "deamination": {
-    "d_max_5prime": 0.323074,
-    "d_max_3prime": 0.073396,
+    "d_max_5prime_raw_ungated": 0.323074,
+    "d_max_3prime_raw_ungated": 0.073396,
     "terminal_ct_mixture_amp": 0.000154,
     "terminal_ct_mixture_amp_valid_as_point": true,
     "terminal_ct_estimand": {
@@ -101,8 +255,8 @@
       "baseline_noncpg": 0.435899,
       "cov_terminal_cpg": 2300523,
       "cov_terminal_noncpg": 5272742,
-      "effcov_terminal_cpg": 1466539.500000,
-      "effcov_terminal_noncpg": 2974360.250000,
+      "effcov_terminal_cpg": 1466539.480687,
+      "effcov_terminal_noncpg": 2974359.838672,
       "cpg_score_z": 12.000000,
       "cpg_score_p": 0.000000,
       "methylation_excess": 0.019565,
@@ -129,8 +283,8 @@
     "per_pos_3prime": [0.387052,0.453672,0.410386,0.432133,0.435899,0.404592,0.426587,0.410166,0.382433,0.426576,0.416381,0.408686,0.421570,0.399677,0.395049],
     "by_length_method": "auto_gmm",
     "by_length": [
-      {"length_lo":30,"length_hi":101,"n_reads":915914,"d_max_5prime":0.325749,"d_max_3prime":0.059420,"lambda_5prime":0.144931,"lambda_3prime":0.090583,"bg_5prime":0.407807,"bg_3prime":0.407783,"validated":true,"ss_mode":false,"source":"joint_bilateral_inversion","per_pos_5prime_ct":[0.277086,0.545022,0.447775,0.453167,0.600713,0.478776,0.470212,0.431551,0.299803,0.436153,0.483703,0.454679,0.421732,0.351128,0.367838],"per_pos_3prime":[0.392839,0.442972,0.404711,0.426162,0.419615,0.398888,0.421620,0.406848,0.389915,0.423072,0.410269,0.402078,0.419964,0.402704,0.396346],"mixture":{"status":"identified","d_damaged":0.131308,"d_population_highgc":0.131299,"d_population":0.113552,"pi_damaged":0.864772,"n_components":4,"converged":true,"identifiable":true,"applicable":true,"coverage_fraction":null,"conditions":"GC-partitioned mixture; valid only when damaged and non-damaged GC distributions separable"},"gc_d_max":[null,null,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.019756,null],"gc_n_reads":[3,194,5657,39102,124419,261062,358003,121057,6393,24],"gc_p_damaged":[null,null,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,1.000000,null],"gc_per_pos_ct":[[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],[null,0.900901,null,0.805755,0.851485,null,0.913462,null,0.751825,0.890000,null,0.830508,0.847619,0.747573,null],[0.380328,0.691844,0.654068,0.697753,0.823384,0.785092,0.797028,0.731718,0.580655,0.767541,0.768340,0.767777,0.720441,0.665746,0.689696],[0.374218,0.668877,0.604746,0.644391,0.774232,0.709422,0.723965,0.654868,0.483927,0.663756,0.677499,0.690121,0.626645,0.575782,0.600734],[0.338262,0.618465,0.537518,0.570580,0.711876,0.625487,0.619831,0.560561,0.399184,0.577510,0.597462,0.595578,0.542277,0.477022,0.495527],[0.288980,0.559034,0.467402,0.475685,0.619337,0.523853,0.518224,0.474825,0.328123,0.480538,0.512368,0.501625,0.455218,0.381854,0.400018],[0.253588,0.512579,0.414541,0.406602,0.557662,0.425442,0.410234,0.379695,0.262094,0.379278,0.434011,0.400375,0.371133,0.301303,0.318818],[0.221304,0.490302,0.366097,0.355642,0.516325,0.320206,0.286825,0.292138,0.186654,0.293056,0.353725,0.298505,0.292676,0.230411,0.239084],[0.197276,0.440540,0.317144,0.318067,0.487573,0.226336,0.202035,0.211064,0.143233,0.218578,0.240338,0.194999,0.208601,0.160780,0.144715],[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]],"llr":{"n_damaged":468370,"n_undamaged":447544,"d_max_5_damaged":0.325318,"d_max_3_damaged":0.234497,"d_max_5_cpg_damaged":-1.000000,"d_max_5_noncpg_damaged":-1.000000,"s_gt_5_damaged_vs_undamaged":null,"g_to_t_5_damaged":null,"pG_terminal_5_damaged":null,"pG_interior_5_damaged":null,"per_pos_5prime_ct_damaged":[0.272769,0.735900,0.612506,0.595873,0.733806,0.478774,0.470211,0.431550,0.299803,0.436151,0.483701,0.454679,0.421730,0.351126,0.367837],"per_pos_3prime_damaged":[0.629886,0.644894,0.568567,0.587577,0.569417,0.398888,0.421616,0.406848,0.389915,0.423070,0.410269,0.402079,0.419964,0.402703,0.396346],"per_pos_5prime_ct_cpg_damaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000],"per_pos_5prime_ct_noncpg_damaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000],"per_pos_5prime_gt_damaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000],"per_pos_5prime_gt_undamaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000]},"trinuc":{"trinuc_5prime_terminal":[31540,28024,29574,37856,44177,49737,39814,33529,29082,29653,23987,24699,63192,76450,60923,55723,65593,55708,64151,77737,91568,74972,80231,84259,64091,62090,55615,59612,54596,81978,80979,81041,54422,39426,42318,66490,62648,75966,65340,61944,45555,54938,36225,52918,71129,82419,74825,65182,37644,47405,32564,59966,75306,81327,78880,68071,48451,50233,45376,46559,46501,77707,66355,57385],"trinuc_5prime_interior":[34503,44505,44862,38340,39047,66602,70661,34360,44732,86501,61132,40187,29205,79776,63348,40571,56484,68981,70142,67248,71666,71617,125213,63841,118622,184395,130342,101946,25523,79313,80595,59076,58076,72531,68757,76317,85615,132139,173703,84825,64511,134536,72534,74502,37915,89407,87165,54865,23553,38461,24868,36944,66275,80851,126452,55957,72428,116919,91062,65591,25297,76731,69006,48441],"trinuc_3prime_terminal":[51224,38221,57152,45100,42202,45459,71964,24847,48193,54742,58321,35190,30775,52865,56225,44092,61007,47800,71889,56906,68452,43753,112024,39325,108232,100880,115359,71959,23723,49385,52654,54897,69296,54636,68530,73446,75045,81857,136917,49865,66652,83979,61734,62103,32180,51899,60356,48579,24364,26009,25031,30796,57246,46187,104291,33691,58582,54123,70262,39324,23218,49978,58736,49927],"trinuc_3prime_interior":[56600,55704,61343,49315,49414,69972,82526,39946,54802,84675,64659,39969,32393,80995,63402,48907,66581,69250,79466,62233,79256,68752,131252,64493,123916,158406,132115,81958,25431,74053,77496,61209,77215,78518,75014,82314,89689,129072,160967,84449,74351,129205,68306,70498,35085,79181,68150,55681,25459,34551,25364,32057,66501,71795,123368,53926,66610,85994,77627,47346,25493,74630,65149,55516]}},
-      {"length_lo":102,"length_hi":500,"n_reads":84079,"d_max_5prime":0.306659,"d_max_3prime":0.323952,"lambda_5prime":0.119769,"lambda_3prime":0.126377,"bg_5prime":0.429135,"bg_3prime":0.427855,"validated":true,"ss_mode":false,"source":"joint_bilateral_inversion","per_pos_5prime_ct":[0.273344,0.558976,0.460850,0.471849,0.604196,0.495726,0.484870,0.450198,0.310033,0.462440,0.497820,0.478186,0.438284,0.372103,0.388289],"per_pos_3prime":[0.277670,0.556303,0.464454,0.481481,0.613203,0.494051,0.490374,0.453784,0.313771,0.460090,0.497363,0.474237,0.438936,0.370591,0.380181],"mixture":{"status":"identified","d_damaged":0.120000,"d_population_highgc":0.119731,"d_population":0.101570,"pi_damaged":0.815695,"n_components":2,"converged":true,"identifiable":true,"applicable":true,"coverage_fraction":null,"conditions":"GC-partitioned mixture; valid only when damaged and non-damaged GC distributions separable"},"gc_d_max":[null,null,null,0.000000,0.000000,0.000000,0.000000,0.000000,null,null],"gc_n_reads":[0,32,576,5545,14337,26021,30262,7178,128,0],"gc_p_damaged":[null,null,null,0.000000,0.000000,0.000000,0.000000,0.000000,null,null],"gc_per_pos_ct":[[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],[0.406393,0.715013,0.712074,0.775309,0.777778,0.790323,0.785714,0.782979,0.637500,0.785276,0.734177,0.771331,0.692063,0.647590,0.703297],[0.366509,0.686810,0.638981,0.665696,0.769286,0.687003,0.697867,0.638095,0.492629,0.662209,0.660049,0.700975,0.634282,0.565231,0.605894],[0.321350,0.625113,0.548060,0.590554,0.706120,0.620682,0.624365,0.574362,0.389010,0.596893,0.585397,0.606566,0.528063,0.497786,0.506691],[0.281250,0.560493,0.471179,0.488717,0.615947,0.531707,0.513514,0.466315,0.318155,0.482370,0.503384,0.492935,0.452845,0.380384,0.394863],[0.236240,0.524153,0.402475,0.392814,0.541987,0.404996,0.387242,0.371187,0.254324,0.383373,0.434713,0.402394,0.372124,0.299797,0.321732],[0.212568,0.453524,0.358716,0.328902,0.482109,0.331669,0.288213,0.313854,0.198234,0.294351,0.380287,0.309863,0.296264,0.239524,0.236155],[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]],"llr":{"n_damaged":50055,"n_undamaged":34024,"d_max_5_damaged":0.310051,"d_max_3_damaged":0.316849,"d_max_5_cpg_damaged":-1.000000,"d_max_5_noncpg_damaged":-1.000000,"s_gt_5_damaged_vs_undamaged":null,"g_to_t_5_damaged":null,"pG_terminal_5_damaged":null,"pG_interior_5_damaged":null,"per_pos_5prime_ct_damaged":[0.270766,0.720634,0.599702,0.601709,0.723796,0.495681,0.484833,0.450193,0.310013,0.462427,0.497827,0.478178,0.438267,0.372108,0.388258],"per_pos_3prime_damaged":[0.441612,0.727247,0.611953,0.622802,0.738462,0.494075,0.490360,0.453750,0.313745,0.460090,0.497323,0.474210,0.438946,0.370578,0.380148],"per_pos_5prime_ct_cpg_damaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000],"per_pos_5prime_ct_noncpg_damaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000],"per_pos_5prime_gt_damaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000],"per_pos_5prime_gt_undamaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000]},"trinuc":{"trinuc_5prime_terminal":[3264,2791,2637,3733,4386,4717,3382,3305,2701,2839,2086,2535,6559,6894,5509,5595,6161,5384,5548,7276,8208,6589,6887,7400,5432,5254,4557,5144,5401,7043,7233,7352,4860,3564,4041,5958,5858,6616,5521,5499,4324,4765,3247,4813,6761,7241,7103,6285,4032,4556,3230,6038,6762,6954,6580,6333,4509,4379,4074,4747,4889,6866,6156,5953],"trinuc_5prime_interior":[3920,4533,4451,3884,4588,6039,6185,3439,4392,7909,5614,4160,3351,7277,6116,4365,5550,6500,6562,6480,6449,6248,10580,5659,10006,15065,10747,9038,2634,6839,7256,5646,5672,6390,6045,6976,7727,11098,14435,7373,5856,11132,6103,6727,3904,8037,8381,5250,2729,3896,2637,4225,6267,7360,10649,5466,7001,10583,8278,6895,2996,7068,6672,5085],"trinuc_3prime_terminal":[6057,6382,7551,5826,5048,4785,4871,2348,6319,5528,7721,3317,6882,6014,7291,3853,6243,7150,7167,5455,3957,3126,4554,2035,6565,5413,6783,3319,3127,3825,5443,2489,6918,7226,7336,6843,4483,4930,5288,2485,7088,6771,6699,4331,4433,3401,5225,2577,5297,6940,5402,6998,4317,3947,5404,2628,6809,5544,8323,4325,3897,4826,6042,3139],"trinuc_3prime_interior":[5137,5232,5734,4313,7270,6697,8700,4069,5496,7678,5775,3293,4081,6773,6305,4096,6830,8411,7411,5801,8256,6172,10775,5510,10674,14306,10866,6209,2685,6218,6461,4146,7095,7922,7065,7161,10492,11303,15420,7753,7379,11330,6269,6158,3620,6574,6589,4473,2849,3826,2573,3242,6972,5766,10104,4460,6473,7578,6521,4386,2691,5481,5662,3828]}}
+      {"length_lo":30,"length_hi":101,"n_reads":915914,"d_max_5prime_raw_ungated":0.325749,"d_max_3prime_raw_ungated":0.059420,"lambda_5prime":0.144931,"lambda_3prime":0.090583,"bg_5prime":0.407807,"bg_3prime":0.407783,"validated":true,"ss_mode":false,"source":"joint_bilateral_inversion","per_pos_5prime_ct":[0.277086,0.545022,0.447775,0.453167,0.600713,0.478776,0.470212,0.431551,0.299803,0.436153,0.483703,0.454679,0.421732,0.351128,0.367838],"per_pos_3prime":[0.392839,0.442972,0.404711,0.426162,0.419615,0.398888,0.421620,0.406848,0.389915,0.423072,0.410269,0.402078,0.419964,0.402704,0.396346],"mixture":{"status":"identified","d_damaged":0.131308,"d_population_highgc":0.131299,"d_population":0.113552,"pi_damaged":0.864772,"n_components":4,"converged":true,"identifiable":true,"applicable":true,"coverage_fraction":null,"conditions":"GC-partitioned mixture; valid only when damaged and non-damaged GC distributions separable"},"gc_d_max":[null,null,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.019756,null],"gc_n_reads":[3,194,5657,39102,124419,261062,358003,121057,6393,24],"gc_p_damaged":[null,null,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,1.000000,null],"gc_per_pos_ct":[[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],[null,0.900901,null,0.805755,0.851485,null,0.913462,null,0.751825,0.890000,null,0.830508,0.847619,0.747573,null],[0.380328,0.691844,0.654068,0.697753,0.823384,0.785092,0.797028,0.731718,0.580655,0.767541,0.768340,0.767777,0.720441,0.665746,0.689696],[0.374218,0.668877,0.604746,0.644391,0.774232,0.709422,0.723965,0.654868,0.483927,0.663756,0.677499,0.690121,0.626645,0.575782,0.600734],[0.338262,0.618465,0.537518,0.570580,0.711876,0.625487,0.619831,0.560561,0.399184,0.577510,0.597462,0.595578,0.542277,0.477022,0.495527],[0.288980,0.559034,0.467402,0.475685,0.619337,0.523853,0.518224,0.474825,0.328123,0.480538,0.512368,0.501625,0.455218,0.381854,0.400018],[0.253588,0.512579,0.414541,0.406602,0.557662,0.425442,0.410234,0.379695,0.262094,0.379278,0.434011,0.400375,0.371133,0.301303,0.318818],[0.221304,0.490302,0.366097,0.355642,0.516325,0.320206,0.286825,0.292138,0.186654,0.293056,0.353725,0.298505,0.292676,0.230411,0.239084],[0.197276,0.440540,0.317144,0.318067,0.487573,0.226336,0.202035,0.211064,0.143233,0.218578,0.240338,0.194999,0.208601,0.160780,0.144715],[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]],"llr":{"n_damaged":468370,"n_undamaged":447544,"d_max_5_damaged":0.325318,"d_max_3_damaged":0.234497,"d_max_5_cpg_damaged":-1.000000,"d_max_5_noncpg_damaged":-1.000000,"s_gt_5_damaged_vs_undamaged":null,"g_to_t_5_damaged":null,"pG_terminal_5_damaged":null,"pG_interior_5_damaged":null,"per_pos_5prime_ct_damaged":[0.272769,0.735900,0.612506,0.595873,0.733806,0.478774,0.470211,0.431550,0.299803,0.436151,0.483701,0.454679,0.421730,0.351126,0.367837],"per_pos_3prime_damaged":[0.629886,0.644894,0.568567,0.587577,0.569417,0.398888,0.421616,0.406848,0.389915,0.423070,0.410269,0.402079,0.419964,0.402703,0.396346],"per_pos_5prime_ct_cpg_damaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000],"per_pos_5prime_ct_noncpg_damaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000],"per_pos_5prime_gt_damaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000],"per_pos_5prime_gt_undamaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000]},"trinuc":{"trinuc_5prime_terminal":[31540,28024,29574,37856,44177,49737,39814,33529,29082,29653,23987,24699,63192,76450,60923,55723,65593,55708,64151,77737,91568,74972,80231,84259,64091,62090,55615,59612,54596,81978,80979,81041,54422,39426,42318,66490,62648,75966,65340,61944,45555,54938,36225,52918,71129,82419,74825,65182,37644,47405,32564,59966,75306,81327,78880,68071,48451,50233,45376,46559,46501,77707,66355,57385],"trinuc_5prime_interior":[34503,44505,44862,38340,39047,66602,70661,34360,44732,86501,61132,40187,29205,79776,63348,40571,56484,68981,70142,67248,71666,71617,125213,63841,118622,184395,130342,101946,25523,79313,80595,59076,58076,72531,68757,76317,85615,132139,173703,84825,64511,134536,72534,74502,37915,89407,87165,54865,23553,38461,24868,36944,66275,80851,126452,55957,72428,116919,91062,65591,25297,76731,69006,48441],"trinuc_3prime_terminal":[51224,38221,57152,45100,42202,45459,71964,24847,48193,54742,58321,35190,30775,52865,56225,44092,61007,47800,71889,56906,68452,43753,112024,39325,108232,100880,115359,71959,23723,49385,52654,54897,69296,54636,68530,73446,75045,81857,136917,49865,66652,83979,61734,62103,32180,51899,60356,48579,24364,26009,25031,30796,57246,46187,104291,33691,58582,54123,70262,39324,23218,49978,58736,49927],"trinuc_3prime_interior":[56600,55704,61343,49315,49414,69972,82526,39946,54802,84675,64659,39969,32393,80995,63402,48907,66581,69250,79466,62233,79256,68752,131252,64493,123916,158406,132115,81958,25431,74053,77496,61209,77215,78518,75014,82314,89689,129072,160967,84449,74351,129205,68306,70498,35085,79181,68150,55681,25459,34551,25364,32057,66501,71795,123368,53926,66610,85994,77627,47346,25493,74630,65149,55516]}},
+      {"length_lo":102,"length_hi":500,"n_reads":84079,"d_max_5prime_raw_ungated":0.306659,"d_max_3prime_raw_ungated":0.323952,"lambda_5prime":0.119769,"lambda_3prime":0.126377,"bg_5prime":0.429135,"bg_3prime":0.427855,"validated":true,"ss_mode":false,"source":"joint_bilateral_inversion","per_pos_5prime_ct":[0.273344,0.558976,0.460850,0.471849,0.604196,0.495726,0.484870,0.450198,0.310033,0.462440,0.497820,0.478186,0.438284,0.372103,0.388289],"per_pos_3prime":[0.277670,0.556303,0.464454,0.481481,0.613203,0.494051,0.490374,0.453784,0.313771,0.460090,0.497363,0.474237,0.438936,0.370591,0.380181],"mixture":{"status":"identified","d_damaged":0.120000,"d_population_highgc":0.119731,"d_population":0.101570,"pi_damaged":0.815695,"n_components":2,"converged":true,"identifiable":true,"applicable":true,"coverage_fraction":null,"conditions":"GC-partitioned mixture; valid only when damaged and non-damaged GC distributions separable"},"gc_d_max":[null,null,null,0.000000,0.000000,0.000000,0.000000,0.000000,null,null],"gc_n_reads":[0,32,576,5545,14337,26021,30262,7178,128,0],"gc_p_damaged":[null,null,null,0.000000,0.000000,0.000000,0.000000,0.000000,null,null],"gc_per_pos_ct":[[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],[0.406393,0.715013,0.712074,0.775309,0.777778,0.790323,0.785714,0.782979,0.637500,0.785276,0.734177,0.771331,0.692063,0.647590,0.703297],[0.366509,0.686810,0.638981,0.665696,0.769286,0.687003,0.697867,0.638095,0.492629,0.662209,0.660049,0.700975,0.634282,0.565231,0.605894],[0.321350,0.625113,0.548060,0.590554,0.706120,0.620682,0.624365,0.574362,0.389010,0.596893,0.585397,0.606566,0.528063,0.497786,0.506691],[0.281250,0.560493,0.471179,0.488717,0.615947,0.531707,0.513514,0.466315,0.318155,0.482370,0.503384,0.492935,0.452845,0.380384,0.394863],[0.236240,0.524153,0.402475,0.392814,0.541987,0.404996,0.387242,0.371187,0.254324,0.383373,0.434713,0.402394,0.372124,0.299797,0.321732],[0.212568,0.453524,0.358716,0.328902,0.482109,0.331669,0.288213,0.313854,0.198234,0.294351,0.380287,0.309863,0.296264,0.239524,0.236155],[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]],"llr":{"n_damaged":50055,"n_undamaged":34024,"d_max_5_damaged":0.310051,"d_max_3_damaged":0.316849,"d_max_5_cpg_damaged":-1.000000,"d_max_5_noncpg_damaged":-1.000000,"s_gt_5_damaged_vs_undamaged":null,"g_to_t_5_damaged":null,"pG_terminal_5_damaged":null,"pG_interior_5_damaged":null,"per_pos_5prime_ct_damaged":[0.270766,0.720634,0.599702,0.601709,0.723796,0.495681,0.484833,0.450193,0.310013,0.462427,0.497827,0.478178,0.438267,0.372108,0.388258],"per_pos_3prime_damaged":[0.441612,0.727247,0.611953,0.622802,0.738462,0.494075,0.490360,0.453750,0.313745,0.460090,0.497323,0.474210,0.438946,0.370578,0.380148],"per_pos_5prime_ct_cpg_damaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000],"per_pos_5prime_ct_noncpg_damaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000],"per_pos_5prime_gt_damaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000],"per_pos_5prime_gt_undamaged":[-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000,-1.000000]},"trinuc":{"trinuc_5prime_terminal":[3264,2791,2637,3733,4386,4717,3382,3305,2701,2839,2086,2535,6559,6894,5509,5595,6161,5384,5548,7276,8208,6589,6887,7400,5432,5254,4557,5144,5401,7043,7233,7352,4860,3564,4041,5958,5858,6616,5521,5499,4324,4765,3247,4813,6761,7241,7103,6285,4032,4556,3230,6038,6762,6954,6580,6333,4509,4379,4074,4747,4889,6866,6156,5953],"trinuc_5prime_interior":[3920,4533,4451,3884,4588,6039,6185,3439,4392,7909,5614,4160,3351,7277,6116,4365,5550,6500,6562,6480,6449,6248,10580,5659,10006,15065,10747,9038,2634,6839,7256,5646,5672,6390,6045,6976,7727,11098,14435,7373,5856,11132,6103,6727,3904,8037,8381,5250,2729,3896,2637,4225,6267,7360,10649,5466,7001,10583,8278,6895,2996,7068,6672,5085],"trinuc_3prime_terminal":[6057,6382,7551,5826,5048,4785,4871,2348,6319,5528,7721,3317,6882,6014,7291,3853,6243,7150,7167,5455,3957,3126,4554,2035,6565,5413,6783,3319,3127,3825,5443,2489,6918,7226,7336,6843,4483,4930,5288,2485,7088,6771,6699,4331,4433,3401,5225,2577,5297,6940,5402,6998,4317,3947,5404,2628,6809,5544,8323,4325,3897,4826,6042,3139],"trinuc_3prime_interior":[5137,5232,5734,4313,7270,6697,8700,4069,5496,7678,5775,3293,4081,6773,6305,4096,6830,8411,7411,5801,8256,6172,10775,5510,10674,14306,10866,6209,2685,6218,6461,4146,7095,7922,7065,7161,10492,11303,15420,7753,7379,11330,6269,6158,3620,6574,6589,4473,2849,3826,2573,3242,6972,5766,10104,4460,6473,7578,6521,4386,2691,5481,5662,3828]}}
     ],
     "by_length_joint": {
       "d_damaged": 0.002442,
@@ -139,8 +293,8 @@
       "converged": true,
       "separated": false,
       "applicable": false,
-      "coverage_fraction": -1.0,
       "conditions": "length x damage joint mixture; identifies damaged fraction from fragment-length prior",
+      "coverage_fraction": null,
       "cell_w_damaged": []
     }
   },
@@ -756,10 +910,21 @@
   "mixture_model": {
     "valid": true,
     "identity_amplified": false,
+    "diagnostics": {"converged":true,"identifiable":true,"pi_damaged":0.859605,"d_damaged":0.130617,"d_population":0.112279,"n_components":4},
     "damaged": {
       "d_max_5prime": 0.623179,
       "d_max_3prime": 0.141574,
       "d_max_5prime_fit": 0.316016,
+      "d_max_5prime_raw": 0.316016,
+      "d_max_5prime_pval": 0.217614,
+      "debug_anc_t5": [51091,239602,180561,209409,197119,82203,101905],
+      "debug_anc_tc5": [187437,326236,295379,351102,268978,171102,216071],
+      "debug_bg5_var": 0.000000,
+      "ct_diff_d5_fit": 0.116436,
+      "ct_diff_d5_lambda": 0.126654,
+      "ct_diff_d5_npts": 6,
+      "bg5": 0.403475,
+      "bg3": 0.407053,
       "lambda_5prime": 0.208065,
       "d_max_3prime_fit": 0.301850,
       "lambda_3prime": 0.215196,
@@ -813,6 +978,7 @@
   },
   "library_qc": {
     "adapter_stubs_clipped": ["GTATTA","GTATAG","GTATAT","GTTCTA","ATATAA"],
+    "adapter_stubs_clipped_3prime": [],
     "adapter_stub5_read_fraction": 0.005079,
     "adapter_stub3_read_fraction": 0.000000,
     "adapter_stub_reads_checked": 1000000,
@@ -883,6 +1049,13 @@
         "artifact_overcall_3p": false,
         "artifact_g_excess_5p": 0.000000,
         "artifact_g_excess_3p": 0.005662
+      },
+      "ss_end_asymmetry": {
+        "d5_suppressed": false,
+        "d3_selection_biased": false,
+        "no_reliable_estimate": false,
+        "recommended_estimate": "none",
+        "note": ""
       }
     },
     "output_effects": {
@@ -903,7 +1076,7 @@
     "cpg_context_score": 1.000000,
     "dipyrimidine_context_score": 0.000000,
     "oxidative_context_score": 0.012701,
-    "purine_endpoint_context_score": 0.850337,
+    "purine_endpoint_context_score": 0.832330,
     "fragmentation_context_score": 0.850337,
     "library_artifact_score": 1.000000,
     "evidence": {
@@ -912,7 +1085,7 @@
       "lambda_5": 0.145661,
       "lambda_3": 0.116023,
       "log2_cpg_ratio": 2.581525,
-      "cpg_z": 2558.495605,
+      "cpg_z": 2558.495361,
       "dipyr_contrast": -0.210874,
       "ox_gt_asymmetry": -0.000635,
       "s_oxog_mean": -0.000263,

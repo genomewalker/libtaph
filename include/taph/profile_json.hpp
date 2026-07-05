@@ -15,6 +15,15 @@ struct ProfileJsonInput {
     std::string version;              // program version string
     uint64_t    n_reads      = 0;
 
+    // Pre-rendered JSON fragment (e.g. `"cooccur53": {...}`, no leading/trailing
+    // comma) spliced verbatim before the root close. Empty = omitted.
+    std::string cooccur53_json;
+
+    // Pre-rendered `"library": {...}` fragment from fqdup merge's .bsubst v3 trailer
+    // (library_type, biological_termini, linker, adapters, merge counts, balance).
+    // No leading/trailing comma; spliced before the root close. Empty = omitted.
+    std::string library_json;
+
     // Adapter detection results (optional; leave default when not performed)
     std::vector<std::string>  adapter_stubs_5prime;
     std::vector<std::string>  adapter_stubs_3prime;

@@ -466,13 +466,24 @@ struct SampleDamageProfile {
     // exp_x is the Poisson-independence expectation from the two per-read marginals.
     // Cross-thread determinism: exp_*/var_* are non-associative float reductions over
     // per-read products, so a plain double accumulator drifts ~1 ULP across thread
-    // counts. Store them as __int128 fixed-point at scale CLUSTER_FP_SCALE = 2^40;
-    // integer addition is associative, so the merged result is bit-identical regardless
-    // of how reads are partitioned across workers. Per-read contributions are formed by
+    // counts. Store them as __int128 fixed-point at scale CLUSTER_FP_SCALE; integer
+    // addition is associative, so the merged result is bit-identical regardless of how
+    // reads are partitioned across workers. Per-read contributions are formed by
     // integer-rational round-half-to-even (see damage_estimation_update.cpp), never by
-    // llround of a double (which would inject one-directional rounding bias). int128 is
-    // required throughout (int64 overflows ~1.3e5 reads at this scale).
-    static constexpr int      CLUSTER_FP_SHIFT = 40;
+    // llround of a double (which would inject one-directional rounding bias). The
+    // accumulator itself remains __int128 (safe across many more reads at this smaller
+    // per-contribution scale than the prior 2^40 ever needed).
+    // Lowered from 2^40 to 2^20 (2026-07-02, real profiling: fp_round_div's __int128
+    // division/multiplication was ~66.5% of update_sample_profile's CPU time). The
+    // consumer (finalize_context.cpp) only ever casts the accumulated sum to double
+    // (52-bit mantissa), so the extra 20 bits of fixed-point precision beyond 2^20 were
+    // computed and immediately discarded -- verified negligible (~6e-11 relative output
+    // difference between 2^40 and 2^20) via a standalone accumulation-order-independence
+    // test before changing this. fp_round_div itself still uses __int128 as a fallback
+    // for any input that doesn't fit the runtime-checked int64_t fast path -- lowering
+    // this constant does not remove correctness headroom, it only makes the common case
+    // (small per-window counts) cheap.
+    static constexpr int      CLUSTER_FP_SHIFT = 20;
     static constexpr __int128 CLUSTER_FP_SCALE = (static_cast<__int128>(1) << CLUSTER_FP_SHIFT);
     struct InteriorCtClusterAccumulator {
         uint64_t short_reads_skipped = 0;

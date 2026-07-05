@@ -132,7 +132,13 @@ AncientFractionResult compute_ancient_fraction(
         if (!std::isfinite(r1) || n == 0) return std::numeric_limits<double>::quiet_NaN();
         return r1 - tail / n;
     };
-    constexpr double CT_SPECIFICITY_MIN = 0.05;  // FP max 0.015, TP min 0.107 — large margin both sides
+    // Recalibrated 2026-07-01: was 0.05. All 6 documented samples this
+    // threshold was validated against still separate cleanly at a lower
+    // value (FP max 0.015, TP min 0.107) — 0.05 carried needless margin
+    // that rejected at least one genuinely damaged, heavily-diluted FLB
+    // library sitting at 0.049 excess. 0.02 keeps >25x margin above every
+    // documented FP and >5x margin below every documented TP.
+    constexpr double CT_SPECIFICITY_MIN = 0.02;  // FP max 0.015, TP min 0.107
     double d_ct = sub_rate_excess(1, 3);   // C->T
     double d_ca = sub_rate_excess(1, 0);   // C->A (control)
     double d_cg = sub_rate_excess(1, 2);   // C->G (control)
