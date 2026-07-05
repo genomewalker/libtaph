@@ -315,6 +315,14 @@ static void estimate_pi_cooccurrence(SampleDamageProfile& profile) {
     constexpr int P = SampleDamageProfile::P_PI;
     constexpr double PI_COOC_THR = 0.005;
     constexpr uint64_t MIN_N = 200;   // per-bin read floor for a stable second moment
+    // ss deaminates C->T at BOTH termini, so the 5'-T and 3'-T co-occurrence counts share ONE base (T):
+    // within a fixed-length read they compete for the same finite T budget, making the composition
+    // covariance GENUINELY NEGATIVE at both the terminal (covT) and the shuffle null (covI). That negative
+    // pedestal must be SUBTRACTED (covT − covI), not clipped: flooring covI→0 deletes the cancellation and
+    // drives y = covT − 0 < 0 on real ss damage. ds counts DIFFERENT 3' bases (5'-T vs 3'-A) so its
+    // pedestal sign assumption (covI ≥ 0, covT > 0) is a ds-only premise. profile.library_type is the
+    // channel that actually drove pi_cooc accumulation (see PREP PRECEDENCE note above).
+    const bool is_ss = profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED;
 
     auto moments = [](const SampleDamageProfile::PiCooc& c,
                       double& mu5, double& mu3, double& cov, double& var_cov) {
@@ -364,7 +372,9 @@ static void estimate_pi_cooccurrence(SampleDamageProfile& profile) {
         // covI is more negative than covT's true pedestal and would over-subtract (→ π biased low). The
         // pedestal is floored at 0 per the fix design ("covI must be ≈0 or ≥0, a clean compositional
         // pedestal"): a negative composition covariance cannot masquerade as extra damage covariance.
-        const double covI_eff = std::max(0.0, covI);
+        // ss EXCEPTION (is_ss): both termini count T, so the pedestal is legitimately negative and must be
+        // subtracted raw — flooring it deletes the base-competition cancellation and sinks y below 0.
+        const double covI_eff = is_ss ? covI : std::max(0.0, covI);
         const double y  = covT - covI_eff;     // ∝ π(1−π)δ5δ3
         const double vy = vcT + vcI;
         if (!(vy > 0.0) || !std::isfinite(x) || !std::isfinite(y)) continue;
@@ -377,7 +387,11 @@ static void estimate_pi_cooccurrence(SampleDamageProfile& profile) {
         // consistent with 0 cannot identify α (y/x explodes) and its inverse-variance weight x²/vy is
         // negligible anyway, so excluding it changes the fit by ~0 while removing the pathology.
         constexpr double X_MIN = 1e-4;
-        const bool admit = d5 > 0.0 && d3 > 0.0 && covT > 0.0 && y > 0.0 && std::fabs(x) >= X_MIN;
+        // covT > 0.0 is a ds sign-assumption (its pedestal is ~0/positive). For ss the terminal covT is
+        // itself negative from the shared-T base competition; the damage signal lives in the pedestal-
+        // subtracted excess y = covT − covI > 0, which is already required below. So ss admits on y > 0
+        // without the covT > 0 term; the other backstops (d5>0, d3>0, |x|>=X_MIN) are prep-independent.
+        const bool admit = d5 > 0.0 && d3 > 0.0 && (is_ss || covT > 0.0) && y > 0.0 && std::fabs(x) >= X_MIN;
         const double alpha_L = (x > 0.0) ? y / x : -1.0;   // per-bin (1−π)/π (diagnostic; fit uses Sxy/Sxx)
 
         // lift_z aggregates ALL usable bins (diagnostic; NOT gated on admission) so its emitted value is

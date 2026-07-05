@@ -48,6 +48,15 @@ void LengthBinStats::update(std::string_view seq, int length) {
     FrameSelector::update_sample_profile(profiles[idx], seq);
 }
 
+void LengthBinStats::update_paired(std::string_view r1, std::string_view r2) {
+    if (n_bins == 0) {
+        return;
+    }
+    const std::size_t idx = n_bins - 1;  // unmerged = longest fragments -> top stratum
+    profiles[idx].forced_library_type = forced_library_type;
+    FrameSelector::update_sample_profile_paired(profiles[idx], r1, r2);
+}
+
 void LengthBinStats::merge(const LengthBinStats& other) {
     if (n_bins != other.n_bins || edges != other.edges) {
         throw std::invalid_argument("LengthBinStats merge requires identical bin edges");
