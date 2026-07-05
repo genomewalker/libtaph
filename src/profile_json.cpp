@@ -137,6 +137,32 @@ void profile_to_json(const SampleDamageProfile& dp,
     auto pres    = compute_preservation_summary(dp, is_ss,
                        in.adapter_clipped, in.flag_hex_artifact,
                        cpg.z, oxog_is.z, otr.cosine, hs.shift_p);
+    // Stop-codon excess (Channel B input scalar): hoisted here so both the legacy
+    // top-level `stop_codon_exc` emission and the new context_primitives.deamination.
+    // stop_codon.excess emission reference the SAME computed value (schema
+    // consolidation invariant: emission-site relabel, never independent recomputation).
+    // Mean terminal-vs-interior C->T excess for CAA/CAG/CGA codon contexts from the
+    // 4-mer ct_5prime accumulator. Encoding: index = p*64 + mid*16 + n1*4 + n2 (A=0,C=1,G=2,T=3).
+    double stop_codon_exc_val;
+    {
+        static constexpr int IR_BASES[3] = {16, 18, 24};   // C as mid_ref (idx 1)
+        static constexpr int ID_BASES[3] = {48, 50, 56};   // T as mid_dam (idx 3)
+        double sc_exc = 0.0; int valid_ctx = 0;
+        for (int ci = 0; ci < 3; ++ci) {
+            double sum = 0.0; int cnt = 0;
+            for (int p = 0; p < 4; ++p) {
+                int ir = p*64 + IR_BASES[ci];
+                int id = p*64 + ID_BASES[ci];
+                uint64_t tn = dp.tetra_5prime_terminal[ir] + dp.tetra_5prime_terminal[id];
+                uint64_t xn = dp.tetra_5prime_interior[ir] + dp.tetra_5prime_interior[id];
+                if (!tn || !xn) continue;
+                sum += (double)dp.tetra_5prime_terminal[id]/tn - (double)dp.tetra_5prime_interior[id]/xn;
+                cnt++;
+            }
+            if (cnt > 0) { sc_exc += sum/cnt; valid_ctx++; }
+        }
+        stop_codon_exc_val = valid_ctx > 0 ? sc_exc/valid_ctx : -999.0;
+    }
     auto dcp     = compute_damage_context_profile(dp,
                        cpg.z, hs.shift_z,
                        in.adapter_clipped, in.adapter3_clipped,
@@ -166,7 +192,31 @@ void profile_to_json(const SampleDamageProfile& dp,
 
     // ── Top-level ─────────────────────────────────────────────────────────────
     j << "{\n";
-    j << "  \"schema_version\": 9,\n";  // v9: F5 clustering.lesion_cooccurrence (cross-channel G->T x C->T co-occurrence excess; ionizing-radiation signature) + dose_proxy_note
+    j << "  \"schema_version\": 10,\n";  // v10: damage_magnitude_recommended block added (schema
+    // restructuring, 2026-07-01); deamination.d_max_5prime and by_length[].d_max_5prime renamed
+    // to *_raw_ungated (both are ungated position-0/peak estimates, confirmed to false-positive
+    // on clean samples ~0.07-0.17 "damage" on true damage ~0.01 -- the old unqualified name was
+    // the single field someone would reach for first and get silently wrong numbers from).
+    // Two validated, safe fields for actual use, surfaced under one clearly-named block instead
+    // of scattered across mixture_model/bulk_damage with overlapping "d_max_5prime" names:
+    //   - ranking_estimate (= bulk_damage.headline_delta): best for RELATIVE ranking across
+    //     samples (only field with positive within-damaged-range correlation, r=+0.463 on a
+    //     31-sample metaDMG benchmark); pure length+position stratification, no per-read
+    //     classification, so no false positives, but a different absolute scale.
+    //   - absolute_estimate (= mixture_model.damaged.d_max_5prime_fit): best absolute accuracy
+    //     (MAE=6.65 vs metaDMG on the same benchmark) when it resolves; CT-specificity gated
+    //     (recalibrated 2026-07-01, CT_SPECIFICITY_MIN 0.05->0.02: same benchmark separation,
+    //     rescues genuinely damaged/heavily-diluted samples the old threshold wrongly rejected).
+    //     null when the gate does not clear -- absolute_estimate_valid distinguishes "rejected"
+    //     from "genuinely near zero".
+    j << "  \"damage_magnitude_recommended\": {\n";
+    j << "    \"ranking_estimate\": " << nan_or(dp.bulk_headline_delta) << ",\n";
+    j << "    \"ranking_estimate_source\": \"bulk_damage.headline_delta\",\n";
+    j << "    \"absolute_estimate\": " << nan_or(dp.damaged_fraction_d5_fit) << ",\n";
+    j << "    \"absolute_estimate_valid\": " << (std::isfinite(dp.damaged_fraction_d5_fit) ? "true" : "false") << ",\n";
+    j << "    \"absolute_estimate_source\": \"mixture_model.damaged.d_max_5prime_fit\",\n";
+    j << "    \"notes\": \"ranking_estimate for cross-sample comparison; absolute_estimate for a metaDMG-comparable magnitude when valid=true; see schema_version 10 comment in source for validation basis\"\n";
+    j << "  },\n";
     // ── Context-resolved damage primitives (schema v4 consolidation) ──────────
     // Map the EXISTING scattered computations into four damage-process parents. No new
     // computation, no verdict change — pure layout. Legacy top-level blocks remain emitted
@@ -301,6 +351,26 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "        \"cpg_score_z\": " << nan_or(clamp_z(cpg.z)) << ",\n";
         j << "        \"methylation_excess\": " << nan_or(dp.cpg_methylation_excess) << ",\n";
         j << "        \"source\": \"deamination.cpg_like\"\n";
+        j << "      },\n";
+        // stop_codon: Channel B, the composition-immune deamination validator (stop-codon
+        // conversion at CAA/CAG/CGA contexts). A validator/QC signal (inverted=true means
+        // terminal stops BELOW interior baseline = terminal artifact, not damage), not a
+        // parallel magnitude estimate like oxidation/scission/clustering — hence nested
+        // under deamination rather than promoted to a context_primitives.channel_b sibling.
+        // Every field here reads the SAME already-computed source (stop_codon_exc_val,
+        // dp.channel_b_*, dp.d_max_from_channel_b*, dp.stop_conversion_rate_baseline*) that
+        // the legacy stop_codon_exc/channel_b keys below emit — pure emission-site relabel,
+        // no recomputation.
+        j << "      \"stop_codon\": {\n";
+        j << "        \"excess\": " << std::fixed << std::setprecision(6) << stop_codon_exc_val << ",\n";
+        j << "        \"valid\": "        << (dp.channel_b_valid ? "true" : "false") << ",\n";
+        j << "        \"quantifiable\": " << (dp.channel_b_quantifiable ? "true" : "false") << ",\n";
+        j << "        \"inverted\": "     << (dp.channel_b_inverted ? "true" : "false") << ",\n";
+        j << "        \"d_max\": "        << dp.d_max_from_channel_b << ",\n";
+        j << "        \"d_max_se\": "     << dp.d_max_from_channel_b_se << ",\n";
+        j << "        \"stop_baseline\": " << dp.stop_conversion_rate_baseline << ",\n";
+        j << "        \"d_max_3prime\": "  << dp.d_max_from_channel_b3 << ",\n";
+        j << "        \"stop_baseline_3prime\": " << dp.stop_conversion_rate_baseline_3prime << "\n";
         j << "      }\n";
         j << "    },\n";
 
@@ -399,7 +469,9 @@ void profile_to_json(const SampleDamageProfile& dp,
         // F5: discoverability pointer for the new cross-channel co-occurrence readout (not a
         // superseded legacy key — the statistic is new; maps its mnemonic to the canonical path).
         j << "    \"lesion_cooccurrence_gt_ct\": \"context_primitives.clustering.lesion_cooccurrence\",\n";
-        j << "    \"per_read_overdispersion\": \"context_primitives.clustering.overdispersion_source\"\n";
+        j << "    \"per_read_overdispersion\": \"context_primitives.clustering.overdispersion_source\",\n";
+        j << "    \"stop_codon_exc\": \"context_primitives.deamination.stop_codon.excess\",\n";
+        j << "    \"channel_b\": \"context_primitives.deamination.stop_codon\"\n";
         j << "  },\n";
     }
     j << "  \"input\": \"" << json_escape(in.sample_name) << "\",\n";
@@ -554,8 +626,15 @@ void profile_to_json(const SampleDamageProfile& dp,
     // deamination" (which conflates undetectable with genuinely absent and corrupts downstream stats).
     j << std::setprecision(6);
     const bool dmax_detected = (dp.d_max_source != SampleDamageProfile::DmaxSource::NONE);
-    j << "    \"d_max_5prime\": " << (dmax_detected ? std::to_string(dp.d_max_5prime) : "null") << ",\n";
-    j << "    \"d_max_3prime\": " << (dmax_detected ? std::to_string(dp.d_max_3prime) : "null") << ",\n";
+    // Renamed from unqualified "d_max_5prime"/"d_max_3prime" (schema v10): this is the
+    // field most likely to be reached for first, and it is the one proven to false-positive
+    // on clean samples -- the ungated name now says so. See damage_magnitude_recommended
+    // at the top of this document for the validated, safe field to use instead.
+    j << "    \"d_max_5prime_raw_ungated\": " << (dmax_detected ? std::to_string(dp.d_max_5prime) : "null") << ",\n";
+    j << "    \"d_max_3prime_raw_ungated\": " << (dmax_detected ? std::to_string(dp.d_max_3prime) : "null") << ",\n";
+    // Kept ungated here (only gated on fit convergence, not CT-specificity) because
+    // fqdup's own internal read masking legitimately uses this field this way
+    // (roughly-conservative locally is fine there, unlike a cross-sample damage call).
     // schema v3: removed the misnamed "d_max_combined" key. It was byte-identical to
     // terminal_ct_mixture_amp below but its name implied a metaDMG-style terminal Dmax (~0.2) when it
     // actually carries pi_dmg*A_b (~3 orders of magnitude smaller) -> silent wrong-number reads. The
@@ -760,6 +839,11 @@ void profile_to_json(const SampleDamageProfile& dp,
     if (in.lsd && !in.lsd->bins.empty()) {
         const auto& lsd = *in.lsd;
         j << "    \"by_length_method\": \"" << lsd.method << "\",\n";
+        // Same caveat as the top-level d_max_5prime: each bin's d_max_5prime
+        // uses the same per-read LLR-classifier machinery (not the pure
+        // length+position stratification bulk_damage.headline_delta uses),
+        // so it inherits the same false-positive vulnerability confirmed
+        // for the top-level field. Noted once here rather than per-bin.
         j << "    \"by_length\": [";
         for (size_t b = 0; b < lsd.bins.size(); ++b) {
             const auto& lb = lsd.bins[b];
@@ -768,8 +852,8 @@ void profile_to_json(const SampleDamageProfile& dp,
             j << "\"length_lo\":" << lb.length_lo
               << ",\"length_hi\":" << lb.length_hi
               << ",\"n_reads\":" << lb.n_reads
-              << ",\"d_max_5prime\":" << std::setprecision(6) << lb.d_max_5prime
-              << ",\"d_max_3prime\":" << lb.d_max_3prime
+              << ",\"d_max_5prime_raw_ungated\":" << std::setprecision(6) << lb.d_max_5prime
+              << ",\"d_max_3prime_raw_ungated\":" << lb.d_max_3prime
               << ",\"lambda_5prime\":" << lb.lambda_5prime
               << ",\"lambda_3prime\":" << lb.lambda_3prime
               << ",\"bg_5prime\":" << lb.bg_5prime
@@ -2040,28 +2124,10 @@ void profile_to_json(const SampleDamageProfile& dp,
     // the 4-mer ct_5prime accumulator. Range: ~-0.015 (non-damaged/anti-damage) to
     // +0.05 (strongly damaged reads). Crosses zero at ~9% KapK damaged fraction
     // in FLB/KapK mixtures. -999 = insufficient data.
-    // Encoding: index = p*64 + mid*16 + n1*4 + n2  (A=0,C=1,G=2,T=3)
-    //   CAA → ir_base=16, id_base=48 | CAG → ir_base=18, id_base=50 | CGA → ir_base=24, id_base=56
-    {
-        static constexpr int IR_BASES[3] = {16, 18, 24};   // C as mid_ref (idx 1)
-        static constexpr int ID_BASES[3] = {48, 50, 56};   // T as mid_dam (idx 3)
-        double sc_exc = 0.0; int valid = 0;
-        for (int ci = 0; ci < 3; ++ci) {
-            double sum = 0.0; int cnt = 0;
-            for (int p = 0; p < 4; ++p) {
-                int ir = p*64 + IR_BASES[ci];
-                int id = p*64 + ID_BASES[ci];
-                uint64_t tn = dp.tetra_5prime_terminal[ir] + dp.tetra_5prime_terminal[id];
-                uint64_t xn = dp.tetra_5prime_interior[ir] + dp.tetra_5prime_interior[id];
-                if (!tn || !xn) continue;
-                sum += (double)dp.tetra_5prime_terminal[id]/tn - (double)dp.tetra_5prime_interior[id]/xn;
-                cnt++;
-            }
-            if (cnt > 0) { sc_exc += sum/cnt; valid++; }
-        }
-        j << "  \"stop_codon_exc\": " << std::fixed << std::setprecision(6)
-          << (valid > 0 ? sc_exc/valid : -999.0) << ",\n";
-    }
+    // Value computed once, above (stop_codon_exc_val) — this legacy key and
+    // context_primitives.deamination.stop_codon.excess emit the same variable.
+    j << "  \"stop_codon_exc\": " << std::fixed << std::setprecision(6)
+      << stop_codon_exc_val << ",\n";
 
     // Channel B (stop-codon conversion) internals — the composition-immune deamination
     // validator (dart Methods-and-Model §"Two-channel damage validation"). Exposed so the
@@ -3441,6 +3507,8 @@ void profile_to_json(const SampleDamageProfile& dp,
         }
         j << "  }";
     }
+    if (!in.cooccur53_json.empty()) j << ",\n" << in.cooccur53_json;
+    if (!in.library_json.empty())   j << ",\n" << in.library_json;
     j << "\n}\n";
 }
 
