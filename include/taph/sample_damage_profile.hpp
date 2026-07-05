@@ -917,6 +917,16 @@ struct SampleDamageProfile {
     float   ct_diff_d5_fit    = 0.0f;  // fit_ct_specific_decay amplitude (diagnostic, pending validation)
     float   ct_diff_d5_lambda = 0.0f;
     int32_t ct_diff_d5_npts   = 0;
+    // Diagnostic (pending validation, not yet production): d_max_5prime_fit
+    // recomputed from a per-read classifier that adds depurination evidence
+    // (position-0 purine/pyrimidine LLR) to the existing deamination LLR,
+    // instead of deamination alone. Depurination (N-glycosidic-bond hydrolysis
+    // / abasic-site strand breakage) is a chemically distinct taphonomic
+    // process from cytosine deamination, though both occur preferentially in
+    // the same single-strand overhang region. Same units/scale as
+    // damaged_fraction_d5_fit, computed via a separate reconstruction pass so
+    // it can be compared side by side without changing production behavior.
+    float   purine_joint_d5_fit = 0.0f;
     float   damaged_fraction_d3_fit  = 0.0f;
     float   damaged_fraction_lambda3 = 0.0f;
     float   nondamaged_fraction_d5_fit   = 0.0f;

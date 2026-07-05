@@ -84,6 +84,19 @@ bool lsd_classify_read(const std::string& seq, const LsdClassifyParams& p)
     return lsd_llr_score(seq, p) > 0.0;
 }
 
+double purine_llr_score(char base0, const PurineClassifyParams& p)
+{
+    constexpr double EPS = 1e-10;
+    char c = (base0 >= 'a' && base0 <= 'z') ? static_cast<char>(base0 - 32) : base0;
+    const bool is_purine     = (c == 'A' || c == 'G');
+    const bool is_pyrimidine = (c == 'C' || c == 'T');
+    if (!is_purine && !is_pyrimidine) return 0.0;
+    const double pa = std::clamp(p.bg + p.p_anc, EPS, 1.0 - EPS);
+    const double pm = std::clamp(p.bg, EPS, 1.0 - EPS);
+    return is_purine ? (std::log(pa) - std::log(pm))
+                      : (std::log(1.0 - pa) - std::log(1.0 - pm));
+}
+
 void lsd_accumulate(const std::string& seq, LsdLlrBinAccum& acc,
                     bool ancient, bool is_ss)
 {

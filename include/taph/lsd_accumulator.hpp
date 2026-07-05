@@ -104,6 +104,22 @@ double lsd_llr_score(const std::string& seq, const LsdClassifyParams& p);
 // Classify one read as ancient (true) or modern (false) using the LLR.
 bool lsd_classify_read(const std::string& seq, const LsdClassifyParams& p);
 
+// Depurination channel: per-read purine-enrichment LLR, independent chemistry
+// from deamination (N-glycosidic-bond hydrolysis / abasic-site strand breakage,
+// not cytosine deamination). Uses ONLY the read's terminal (position-0) base,
+// matching the bulk purine_enrichment_5prime/purine_rate_interior statistic
+// (see damage_estimation_finalize_init.cpp's compute_purine_stats). Intended
+// to be combined additively with lsd_llr_score (deamination) in a joint
+// per-read classifier — depurination-driven strand breaks and cytosine
+// deamination are chemically distinct processes, though both occur
+// preferentially in the same single-strand overhang region, so not fully
+// independent.
+struct PurineClassifyParams {
+    double p_anc = 0.0;  // terminal purine-rate excess over baseline (signed; can be a depletion)
+    double bg    = 0.5;  // baseline (interior) purine rate: (A+G)/(A+G+C+T)
+};
+double purine_llr_score(char base0, const PurineClassifyParams& p);
+
 // Accumulate terminal stats for one read into an LsdLlrBinAccum.
 void lsd_accumulate(const std::string& seq, LsdLlrBinAccum& acc,
                     bool ancient, bool is_ss);

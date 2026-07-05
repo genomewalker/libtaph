@@ -2380,6 +2380,7 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "      \"d_max_5prime_fit\": " << nan_or(dp.damaged_fraction_d5_fit) << ",\n";
     j << "      \"d_max_5prime_raw\": " << nan_or(dp.damaged_fraction_d5_raw) << ",\n";
     j << "      \"d_max_5prime_pval\": " << dp.damaged_fraction_d5_pval << ",\n";
+    j << "      \"purine_joint_d5_fit\": " << nan_or(dp.purine_joint_d5_fit) << ",\n";
     j << "      \"debug_anc_t5\": [";
     for (int i=0;i<7;++i) { if(i) j<<","; j<<dp.debug_anc_t5[i]; }
     j << "],\n";
