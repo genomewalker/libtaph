@@ -196,11 +196,48 @@ void profile_to_json(const SampleDamageProfile& dp,
     j.imbue(std::locale(j.getloc(), new NonfiniteNumPut));
     j << std::fixed;
 
+    // ── v11 section buffers ────────────────────────────────────────────────────
+    // Each emit block below writes into one of six section buffers instead of `j`
+    // directly, via a `std::ostream& j = s_<section>;` alias at the head of a wrapping
+    // scope (so the existing block code and its [&]-capturing number lambdas are
+    // untouched and simply retarget to the buffer). The buffers are assembled into the
+    // six-section v11 schema at the end of this function. Each buffer mirrors `j`'s
+    // facet + std::fixed exactly, so NaN/Inf still render as null and numeric precision
+    // is identical — the refactor is numerically inert vs v10 (values unchanged, layout only).
+    std::ostringstream s_identity, s_qc, s_libcall, s_channels, s_charact, s_diag;
+    for (std::ostringstream* s : {&s_identity, &s_qc, &s_libcall, &s_channels, &s_charact, &s_diag}) {
+        s->imbue(std::locale(s->getloc(), new NonfiniteNumPut));
+        *s << std::fixed;
+    }
+    // Indent every line of a section body by 2 spaces (top-level keys 2->4, and their
+    // nested content proportionally), so the assembled document is cleanly nested.
+    auto v11_indent = [](const std::string& body) {
+        std::string out; out.reserve(body.size() + body.size() / 16 + 4);
+        out += "  ";
+        for (char c : body) { out += c; if (c == '\n') out += "  "; }
+        return out;
+    };
+    // Wrap one section buffer as `"name": { <indented body> }`, trimming the block's
+    // trailing separator so the last member has no dangling comma.
+    auto v11_section = [&](const char* name, std::ostringstream& buf, bool last) {
+        std::string body = buf.str();
+        while (!body.empty() && (body.back() == '\n' || body.back() == ',' ||
+                                 body.back() == ' ' || body.back() == '\t'))
+            body.pop_back();
+        j << "  \"" << name << "\": {\n" << v11_indent(body) << "\n  }" << (last ? "\n" : ",\n");
+    };
+
     // ── Top-level ─────────────────────────────────────────────────────────────
     j << "{\n";
+    {   // v11: identity
+    std::ostream& j = s_identity;
     j << "  \"libtaph_git_sha\": \"" << LIBTAPH_GIT_SHA << "\",\n";  // build-provenance: SHA of the
     // libtaph the binary was compiled against; a stale FetchContent link is visible here, not silent.
-    j << "  \"schema_version\": 10,\n";  // v10: damage_magnitude_recommended block added (schema
+    j << "  \"schema_version\": 11,\n";  // v11: sample-characterization schema — six top-level sections
+    // (identity/qc/library_call/channels/characterization/diagnostics), channel-uniform contract,
+    // ZERO deprecated fields (deprecations block + flat library_* dupes + all aliases dropped; clean
+    // break, consumer-side migrate only), single canonical pi. Values unchanged from v10 — pure layout.
+    // v10: damage_magnitude_recommended block added (schema
     // restructuring, 2026-07-01); deamination.d_max_5prime and by_length[].d_max_5prime renamed
     // to *_raw_ungated (both are ungated position-0/peak estimates, confirmed to false-positive
     // on clean samples ~0.07-0.17 "damage" on true damage ~0.01 -- the old unqualified name was
@@ -217,6 +254,9 @@ void profile_to_json(const SampleDamageProfile& dp,
     //     rescues genuinely damaged/heavily-diluted samples the old threshold wrongly rejected).
     //     null when the gate does not clear -- absolute_estimate_valid distinguishes "rejected"
     //     from "genuinely near zero".
+    }   // end v11 identity
+    {   // v11: characterization.recommended_estimate
+    std::ostream& j = s_charact;
     j << "  \"damage_magnitude_recommended\": {\n";
     j << "    \"ranking_estimate\": " << nan_or(dp.bulk_headline_delta) << ",\n";
     j << "    \"ranking_estimate_source\": \"bulk_damage.headline_delta\",\n";
@@ -225,13 +265,14 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"absolute_estimate_source\": \"mixture_model.damaged.d_max_5prime_fit\",\n";
     j << "    \"notes\": \"ranking_estimate for cross-sample comparison; absolute_estimate for a metaDMG-comparable magnitude when valid=true; see schema_version 10 comment in source for validation basis\"\n";
     j << "  },\n";
+    }   // end v11 characterization.recommended_estimate
     // ── Context-resolved damage primitives (schema v4 consolidation) ──────────
     // Map the EXISTING scattered computations into four damage-process parents. No new
-    // computation, no verdict change — pure layout. Legacy top-level blocks remain emitted
-    // as deprecated aliases for one release; the `deprecations` map below points each legacy
-    // key at its new canonical path. Every float is NaN-guarded by the NonfiniteNumPut facet
-    // (non-finite -> null), the same guard the rest of this document relies on.
-    {
+    // computation, no verdict change — pure layout. Every float is NaN-guarded by the
+    // NonfiniteNumPut facet (non-finite -> null), the same guard the rest of this document
+    // relies on. v11: this whole block is the clustering/primitives evidence under channels.
+    {   // v11: channels (context_primitives)
+        std::ostream& j = s_channels;
         j << "  \"context_primitives\": {\n";
 
         // oxidation: consolidates oxo_two_marker (primary), oxog_estimate, oxog_trinuc/cosine,
@@ -448,98 +489,46 @@ void profile_to_json(const SampleDamageProfile& dp,
 
         j << "  },\n";
 
-        // deprecations: legacy top-level key -> new canonical path. Legacy keys stay emitted
-        // (as aliases) for one release; consumers should migrate to the mapped paths.
-        j << "  \"deprecations\": {\n";
-        j << "    \"oxo_two_marker\": \"context_primitives.oxidation.primary\",\n";
-        j << "    \"oxog_estimate\": \"context_primitives.oxidation.estimate\",\n";
-        j << "    \"oxog_context_cosine\": \"context_primitives.oxidation.context_cosine\",\n";
-        j << "    \"oxidation_like\": \"context_primitives.oxidation.like\",\n";
-        j << "    \"oxidative_scission\": \"context_primitives.oxidation.scission_proxy\",\n";
-        j << "    \"oxidation_epsilon\": \"context_primitives.oxidation.epsilon\",\n";
-        // F1: the flat oxog_4mer cosine/asymmetry view is superseded by the source-attributed
-        // by_context/by_grun excesses; legacy keys stay emitted as aliases for one release.
-        j << "    \"oxog_gt_asymmetry\": \"context_primitives.oxidation.gt_asymmetry\",\n";
-        j << "    \"oxog_4mer.by_context\": \"context_primitives.oxidation.by_context\",\n";
-        j << "    \"oxog_4mer.by_grun\": \"context_primitives.oxidation.by_grun\",\n";
-        j << "    \"deamination.cpg_like\": \"context_primitives.deamination.cpg_context\",\n";
-    j << "    \"context_primitives.deamination.cpg_context\": \"context_primitives.deamination.methylation_context\",\n";
-        // F4: discoverability pointer for the 5-OH-C oxidative-deamination channel (registry id O).
-        // Not a superseded legacy key (the split is new) — maps the channel name to its canonical
-        // provisional readout path so consumers can find it from the channel registry id.
-        j << "    \"oxidative_deamination_5ohc\": \"context_primitives.deamination.ct_pathway_split\",\n";
-        j << "    \"scission\": \"context_primitives.scission\",\n";
-        // F3: the single-number GG-breakpoint readout is superseded by the purine-context-resolved
-        // excess (GG.excess == the legacy delta_5prime). Legacy keys stay emitted for one release.
-        j << "    \"oxidative_scission.delta\": \"context_primitives.scission.by_context.GG\",\n";
-        j << "    \"context_primitives.oxidation.scission_proxy\": \"context_primitives.scission.by_context\",\n";
-        j << "    \"interior_ct_cluster\": \"context_primitives.clustering.interior_ct\",\n";
-        // F5: discoverability pointer for the new cross-channel co-occurrence readout (not a
-        // superseded legacy key — the statistic is new; maps its mnemonic to the canonical path).
-        j << "    \"lesion_cooccurrence_gt_ct\": \"context_primitives.clustering.lesion_cooccurrence\",\n";
-        j << "    \"per_read_overdispersion\": \"context_primitives.clustering.overdispersion_source\",\n";
-        j << "    \"stop_codon_exc\": \"context_primitives.deamination.stop_codon.excess\",\n";
-        j << "    \"channel_b\": \"context_primitives.deamination.stop_codon\"\n";
-        j << "  },\n";
+        // v11 clean break: the `deprecations` legacy-alias pointer map is dropped entirely.
+        // Backward-compat is handled consumer-side (migrate map), never by emitting aliases.
     }
-    j << "  \"input\": \"" << json_escape(in.sample_name) << "\",\n";
-    j << "  \"n_reads\": " << in.n_reads << ",\n";
-    j << "  \"library_type\": \"" << dp.library_type_str() << "\",\n";
-    j << "  \"library_bic_call\": \"" << libtype_cstr(dp.library_bic_call) << "\",\n";  // Wave-2: frozen pure-BIC call
-    j << "  \"library_call_overridden\": "
-      << ((dp.library_bic_call != SampleDamageProfile::LibraryType::UNKNOWN
-           && dp.library_bic_call != dp.library_type) ? "true" : "false") << ",\n";
-    // Wave-2b: the override ledger -- one {rule, from, to} record per post-hoc rescue/veto
-    // that moved library_type away from library_bic_call (empty [] when BIC stands).
-    j << "  \"library_overrides\": [";
-    for (size_t i = 0; i < dp.library_overrides.size(); ++i) {
-        const auto& ov = dp.library_overrides[i];
-        if (i) j << ", ";
-        j << "{\"rule\": \"" << ov.rule_id
-          << "\", \"from\": \"" << libtype_human(ov.from)
-          << "\", \"to\": \"" << libtype_human(ov.to) << "\"}";
+    {   // v11: identity
+        std::ostream& j = s_identity;
+        j << "  \"input\": \"" << json_escape(in.sample_name) << "\",\n";
+        j << "  \"n_reads\": " << in.n_reads << ",\n";
     }
-    j << "],\n";
-    j << "  \"library_type_auto\": " << (dp.library_type_auto_detected ? "true" : "false") << ",\n";
-    j << "  \"library_type_rescued\": " << (dp.library_type_rescued ? "true" : "false") << ",\n";
-    j << "  \"library_type_evaluable\": " << (dp.library_type_evaluable ? "true" : "false") << ",\n";
-    j << "  \"library_p_ds\": " << nan_or(dp.library_p_ds) << ",\n";
-    j << "  \"library_p_ss\": " << nan_or(dp.library_p_ss) << ",\n";
-    j << "  \"library_p_bias\": " << nan_or(dp.library_p_bias) << ",\n";
-    j << "  \"library_p_winner\": " << nan_or(dp.library_p_winner) << ",\n";
-    j << "  \"library_p_ds_final\": " << nan_or(dp.library_p_ds_final) << ",\n";
-    j << "  \"library_p_ss_final\": " << nan_or(dp.library_p_ss_final) << ",\n";
-    j << "  \"library_p_bias_final\": " << nan_or(dp.library_p_bias_final) << ",\n";
-    j << "  \"library_p_winner_final\": " << nan_or(dp.library_p_winner_final) << ",\n";
-    j << "  \"library_auto_type\": \"" << libtype_cstr(dp.library_auto_type) << "\",\n";
-    j << "  \"library_auto_evaluable\": " << (dp.library_auto_evaluable ? "true" : "false") << ",\n";
-    j << "  \"library_forced_type\": \"" << libtype_cstr(dp.library_forced_type) << "\",\n";
-    j << "  \"library_bic_winner_model\": \"" << dp.library_bic_winner_model << "\",\n";
-    j << "  \"library_bic_winner_model_class\": \"" << dp.library_bic_winner_model_class << "\",\n";
-    j << "  \"library_p_is_pre_override\": " << (dp.library_p_is_pre_override ? "true" : "false") << ",\n";
-    j << "  \"library_bic_second_model\": \"" << dp.library_bic_second_model << "\",\n";
-    j << "  \"library_bic_margin\": " << nan_or(dp.library_bic_margin) << ",\n";
-    j << "  \"library_bic_margin_per_obs\": " << std::setprecision(6) << nan_or(dp.library_bic_margin_per_obs) << ",\n";
-    j << "  \"library_bic_saturated\": " << (dp.library_bic_saturated ? "true" : "false") << ",\n";
-    j << "  \"library_p_ds_class_min\": " << nan_or(dp.library_p_ds_class_min) << ",\n";
-    j << "  \"library_p_ss_class_min\": " << nan_or(dp.library_p_ss_class_min) << ",\n";
-    j << "  \"library_p_bias_class_min\": " << nan_or(dp.library_p_bias_class_min) << ",\n";
-    j << "  \"library_artifact_contaminated\": " << (artifact_reasons.empty() ? "false" : "true") << ",\n";
-    j << "  \"library_artifact_reasons\": [";
-    for (size_t i = 0; i < artifact_reasons.size(); ++i) {
-        if (i) j << ",";
-        j << "\"" << artifact_reasons[i] << "\"";
+    {   // v11: library_call — the canonical library-prep call + override ledger. The frozen
+        // pure-BIC call, per-model BIC evidence and all the flat library_* dupes of it now
+        // live ONLY under library_call.bic (v11 dedup; zero flat library_* at top level).
+        std::ostream& j = s_libcall;
+        j << "  \"library_type\": \"" << dp.library_type_str() << "\",\n";
+        j << "  \"library_call_overridden\": "
+          << ((dp.library_bic_call != SampleDamageProfile::LibraryType::UNKNOWN
+               && dp.library_bic_call != dp.library_type) ? "true" : "false") << ",\n";
+        // Wave-2b: the override ledger -- one {rule, from, to} record per post-hoc rescue/veto
+        // that moved library_type away from library_bic_call (empty [] when BIC stands).
+        j << "  \"library_overrides\": [";
+        for (size_t i = 0; i < dp.library_overrides.size(); ++i) {
+            const auto& ov = dp.library_overrides[i];
+            if (i) j << ", ";
+            j << "{\"rule\": \"" << ov.rule_id
+              << "\", \"from\": \"" << libtype_human(ov.from)
+              << "\", \"to\": \"" << libtype_human(ov.to) << "\"}";
+        }
+        j << "],\n";
     }
-    j << "],\n";
-    j << "  \"library_M_SS_orig_active\": " << (dp.library_M_SS_orig_active ? "true" : "false") << ",\n";
-    j << "  \"library_M_SS_asym_active\": " << (dp.library_M_SS_asym_active ? "true" : "false") << ",\n";
-    j << "  \"library_spike_is_ss\": " << (dp.library_spike_is_ss ? "true" : "false") << ",\n";
-    j << "  \"library_spike_gate_ga0_amp\": " << std::setprecision(6) << dp.library_spike_gate_ga0_amp << ",\n";
-    j << "  \"library_spike_gate_structural_bilateral\": "
-      << (dp.library_spike_gate_structural_bilateral ? "true" : "false") << ",\n";
-    j << "  \"library_joint_lambda_restricted\": "
-      << (dp.library_joint_lambda_restricted ? "true" : "false") << ",\n";
-    {
+    {   // v11: qc — artifact-contamination source flags
+        std::ostream& j = s_qc;
+        j << "  \"library_artifact_contaminated\": " << (artifact_reasons.empty() ? "false" : "true") << ",\n";
+        j << "  \"library_artifact_reasons\": [";
+        for (size_t i = 0; i < artifact_reasons.size(); ++i) {
+            if (i) j << ",";
+            j << "\"" << artifact_reasons[i] << "\"";
+        }
+        j << "],\n";
+    }
+    {   // v11: damage_3prime_mode -> library_call
+        std::ostream& j = s_libcall;
         const char* m = "neutral";
         switch (dp.library_type) {
             case SP::LibraryType::DOUBLE_STRANDED: m = "ds_ga"; break;
@@ -548,6 +537,8 @@ void profile_to_json(const SampleDamageProfile& dp,
         }
         j << "  \"damage_3prime_mode\": \"" << m << "\",\n";
     }
+    {   // v11: characterization (damage_status + verdict)
+    std::ostream& j = s_charact;
     const char* ds_str =
         (dp.damage_status == SP::DamageStatus::PRESENT) ? "present" :
         (dp.damage_status == SP::DamageStatus::WEAK)    ? "weak"    : "absent";
@@ -634,9 +625,72 @@ void profile_to_json(const SampleDamageProfile& dp,
              "NOT ancient-specific (also from sample prep). preservation = aggregate index.\"\n";
         j << "  },\n";
     }
+    }   // end v11 characterization (damage_status + verdict)
 
+    {   // v11: route to s_channels
+        std::ostream& j = s_channels;
     // ── Deamination ───────────────────────────────────────────────────────────
     j << "  \"deamination\": {\n";
+    // v11 π round (ruling): channel-uniform contract fed from the co-occurrence π estimator;
+    // legacy shape-fit π demoted to diagnostics.pi_shape (never feeds the channel estimate);
+    // cpg_delta_bilateral / cpg_authenticated deduped — canonical copy lives in deam_context_spectrum.
+    {
+        const auto& e = dp.pi_cooccurrence;
+        const bool ident = e.state == DamageConfidence::DETECTED || e.state == DamageConfidence::TRACE;
+        const char* st = e.state == DamageConfidence::DETECTED    ? "DETECTED" :
+                         e.state == DamageConfidence::TRACE       ? "TRACE" :
+                         e.state == DamageConfidence::BELOW_FLOOR ? "BELOW_FLOOR" : "UNDETERMINED";
+        auto jn2 = [&](double v){ if (std::isfinite(v) && v >= 0.0) j << std::setprecision(6) << v; else j << "null"; };
+        j << "    \"estimate\": ";     if (ident) jn2(e.point); else j << "null"; j << ",\n";
+        j << "    \"ci_lo\": ";        jn2(e.lo); j << ",\n";
+        j << "    \"ci_hi\": ";        jn2(e.hi); j << ",\n";
+        j << "    \"identifiable\": " << (ident ? "true" : "false") << ",\n";
+        j << "    \"state\": \"" << st << "\",\n";
+        j << "    \"evidence\": {\"lift\": "; jn2(dp.pi_cooccurrence_lift);
+        j << ", \"lift_z\": "; (dp.pi_cooccurrence_lift >= 0.0 && std::isfinite(dp.pi_cooccurrence_lift_z))
+                                   ? (j << std::setprecision(6) << dp.pi_cooccurrence_lift_z) : (j << "null");
+        j << "},\n";
+    }
+    {   // legacy per-position shape-fit π — demoted diagnostic, gates nothing in the channel estimate.
+        const auto& pi = dp.pi;
+        const char* pi_state_str =
+            (pi.state == DamageConfidence::DETECTED)    ? "DETECTED"    :
+            (pi.state == DamageConfidence::TRACE)       ? "TRACE"       :
+            (pi.state == DamageConfidence::ANCIENT_CPG) ? "ANCIENT_CPG" :
+            (pi.state == DamageConfidence::LOW_ABUNDANCE)? "LOW_ABUNDANCE":
+            (pi.state == DamageConfidence::BELOW_FLOOR)  ? "BELOW_FLOOR"  :
+            (pi.state == DamageConfidence::NOT_DETECTED)? "NOT_DETECTED":
+                                                          "UNDETERMINED";
+        auto jn = [&](double v){ if (std::isfinite(v) && v >= 0.0) j << std::setprecision(6) << v; else j << "null"; };
+        const bool pi_range_ok = std::isfinite(pi.lo) && std::isfinite(pi.hi) &&
+                                 pi.lo >= 0.0 && pi.hi >= pi.lo;
+        const bool pi_identifiable = std::isfinite(pi.point) && pi.point >= 0.0 &&
+                                     pi_range_ok && pi.point >= pi.lo && pi.point <= pi.hi;
+        const bool pi_upper_bound_only = pi.state == DamageConfidence::BELOW_FLOOR &&
+                                         std::isfinite(pi.hi) && pi.hi >= 0.0;
+        const char* pi_state_out = pi_identifiable     ? pi_state_str :
+                                   pi_upper_bound_only  ? "BELOW_FLOOR" :
+                                                          "ABSTAIN";
+        const auto& sh = dp.pi_shape;
+        j << "    \"diagnostics\": {\n";
+        j << "      \"pi_shape\": {\n";
+        j << "        \"point\": ";  if (pi_identifiable) jn(pi.point); else j << "null"; j << ",\n";
+        j << "        \"ci_lo\": ";  jn(pi.lo);  j << ",\n";
+        j << "        \"ci_hi\": ";  jn(pi.hi);  j << ",\n";
+        j << "        \"identifiable\": " << (pi_identifiable ? "true" : "false") << ",\n";
+        j << "        \"state\": \"" << pi_state_out << "\",\n";
+        j << "        \"shape_fit\": {\n";
+        j << "          \"fitted\": "   << (sh.fitted   ? "true" : "false") << ",\n";
+        j << "          \"detected\": " << (sh.detected ? "true" : "false") << ",\n";
+        j << "          \"amplitude\": "; jn(sh.A);        j << ",\n";
+        j << "          \"amplitude_se\": "; jn(sh.A_se);  j << ",\n";
+        j << "          \"lambda\": ";    jn(sh.lambda);   j << ",\n";
+        j << "          \"baseline\": ";  jn(sh.baseline); j << ",\n";
+        j << "          \"shape_lrt\": "; jn(sh.lrt);      j << "\n";
+        j << "        }\n";
+        j << "      }\n";
+        j << "    },\n";
+    }
     // An undetectable fit (lower-boundary collapse / artifact) sets d_max_source=NONE and zeroes
     // d_max as an internal sentinel; emit null so consumers do not read 0.0 as "measured zero
     // deamination" (which conflates undetectable with genuinely absent and corrupts downstream stats).
@@ -1021,7 +1075,10 @@ void profile_to_json(const SampleDamageProfile& dp,
     }
 
     j << "  },\n";  // end deamination
+    }   // v11: end s_channels (deamination)
 
+    {   // v11: route to s_diag
+        std::ostream& j = s_diag;
     // ── Complement asymmetry ──────────────────────────────────────────────────
     j << "  \"complement_asymmetry\": {\n";
     j << "    \"D\": " << nan_or(dp.ox_gt_asymmetry) << ",\n";
@@ -1249,7 +1306,10 @@ void profile_to_json(const SampleDamageProfile& dp,
     }
     j << "    \"fgh_adapter_prefixes_excluded\": " << dp.fgh_adapter_prefixes_excluded << "\n";
     j << "  },\n";
+    }   // v11: end s_diag (complement_asymmetry)
 
+    {   // v11: route to s_channels
+        std::ostream& j = s_channels;
     // ── OxoG unified estimate ─────────────────────────────────────────────────
     j << "  \"oxog_estimate\": {\n";
     j << "    \"oxo_schema\": " << OxoGEstimate::oxo_schema << ",\n";
@@ -1395,7 +1455,10 @@ void profile_to_json(const SampleDamageProfile& dp,
     j
       << std::fixed << std::setprecision(6) << "\n";
     j << "  },\n";
+    }   // v11: end s_channels (oxog_estimate..depurination)
 
+    {   // v11: route to s_diag
+        std::ostream& j = s_diag;
     // ── Trinucleotide spectrum ─────────────────────────────────────────────────
     {
         auto emit_arr = [&](const char* name, const std::array<uint64_t, 64>& v, bool trailing) {
@@ -1438,7 +1501,10 @@ void profile_to_json(const SampleDamageProfile& dp,
         }
         j << "  },\n";
     }
+    }   // v11: end s_diag (trinuc_spectrum..4mer_pos_spectrum)
 
+    {   // v11: route to s_qc
+        std::ostream& j = s_qc;
     // ── Terminal dinucleotide composition index (5'/3' ends vs interior) ──────
     // log2(terminal_freq/interior_freq) per base per terminal position.
     // Primarily reflects C→T (5') and G→A (3') deamination-driven composition
@@ -1500,7 +1566,10 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"rc_symmetry_discordance_pos1\": " << std::setprecision(4) << rc_disc / 4.0 << "\n";
         j << "  },\n";
     }
+    }   // v11: end s_qc (end_motif_enrichment)
 
+    {   // v11: route to s_channels
+        std::ostream& j = s_channels;
     // ── Per-read deamination overdispersion ──────────────────────────────────
     // CV² of per-read deam_score: high overdispersion flags mixed sources/ages.
     {
@@ -1609,7 +1678,10 @@ void profile_to_json(const SampleDamageProfile& dp,
         }
         j << "  },\n";
     }
+    }   // v11: end s_channels (per_read_overdispersion..depurination_deconvolution)
 
+    {   // v11: route to s_diag
+        std::ostream& j = s_diag;
     // ── Per-position substitution rates (all 12 types) ────────────────────────
     // rate(X→Y, pos) = alt/(ref+alt) collapsed over flanking context.
     // Allows detection of damage types beyond C→T/G→A: AP-site A-rule (G→T
@@ -2159,7 +2231,10 @@ void profile_to_json(const SampleDamageProfile& dp,
       << "    \"d_max_3prime\": "  << dp.d_max_from_channel_b3 << ",\n"
       << "    \"stop_baseline_3prime\": " << dp.stop_conversion_rate_baseline_3prime << "\n"
       << "  },\n";
+    }   // v11: end s_diag (substitution_pos_profiles..channel_b)
 
+    {   // v11: route to s_channels
+        std::ostream& j = s_channels;
     // ── Context-modulated deamination profile ─────────────────────────────────
     // Reference-free per-NXN terminal deamination excess (terminal_rate −
     // interior_rate). Interior positions are the self-normalising background.
@@ -2266,83 +2341,8 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "  },\n";
     }
 
-    // ── Reference-free π estimate ─────────────────────────────────────────────
-    {
-        const auto& pi = dp.pi;
-        const char* pi_state_str =
-            (pi.state == DamageConfidence::DETECTED)    ? "DETECTED"    :
-            (pi.state == DamageConfidence::TRACE)       ? "TRACE"       :
-            (pi.state == DamageConfidence::ANCIENT_CPG) ? "ANCIENT_CPG" :
-            (pi.state == DamageConfidence::LOW_ABUNDANCE)? "LOW_ABUNDANCE":
-            (pi.state == DamageConfidence::BELOW_FLOOR)  ? "BELOW_FLOOR"  :
-            (pi.state == DamageConfidence::NOT_DETECTED)? "NOT_DETECTED":
-                                                          "UNDETERMINED";
-        auto jn = [&](double v) {
-            if (std::isfinite(v) && v >= 0.0) j << std::setprecision(6) << v;
-            else                               j << "null";
-        };
-        // π is a GATED RANGE+STATE, never a bare point. The point is honest only when it is
-        // finite and lies inside its own 95% CI; otherwise the estimate is not identifiable
-        // (e.g. CI excludes the point) → null the point and abstain, but always keep the range.
-        const bool pi_range_ok = std::isfinite(pi.lo) && std::isfinite(pi.hi) &&
-                                 pi.lo >= 0.0 && pi.hi >= pi.lo;
-        const bool pi_identifiable = std::isfinite(pi.point) && pi.point >= 0.0 &&
-                                     pi_range_ok && pi.point >= pi.lo && pi.point <= pi.hi;
-        // BELOW_FLOOR is an UPPER-BOUND verdict by construction: point/lo are null and only hi is set, so it
-        // is (correctly) not "identifiable". It must still report its own state — the abstain override applies
-        // only to states that PROMISE a point but failed to land it inside their CI.
-        const bool pi_upper_bound_only = pi.state == DamageConfidence::BELOW_FLOOR &&
-                                         std::isfinite(pi.hi) && pi.hi >= 0.0;
-        const char* pi_state_out = pi_identifiable     ? pi_state_str :
-                                   pi_upper_bound_only  ? "BELOW_FLOOR" :
-                                                          "ABSTAIN";
-        j << "  \"pi_estimate\": {\n";
-        j << "    \"point\": ";  if (pi_identifiable) jn(pi.point); else j << "null"; j << ",\n";
-        j << "    \"ci_lo\": ";  jn(pi.lo);    j << ",\n";
-        j << "    \"ci_hi\": ";  jn(pi.hi);    j << ",\n";
-        j << "    \"identifiable\": " << (pi_identifiable ? "true" : "false") << ",\n";
-        j << "    \"state\": \"" << pi_state_out << "\",\n";
-        j << "    \"cpg_delta_bilateral\": ";
-        if (!std::isnan(dp.cpg_delta_bilateral)) j << std::setprecision(6) << dp.cpg_delta_bilateral;
-        else                                      j << "null";
-        j << ",\n";
-        j << "    \"cpg_authenticated\": "
-          << ((!std::isnan(dp.cpg_delta_bilateral) &&
-               (double)dp.cpg_delta_bilateral >= CPG_BILATERAL_ANCIENT_THR) ? "true" : "false")
-          << ",\n";
-        // Per-position terminal-decay fit (PiShapeFit) that gates the range above.
-        const auto& sh = dp.pi_shape;
-        j << "    \"shape_fit\": {\n";
-        j << "      \"fitted\": "   << (sh.fitted   ? "true" : "false") << ",\n";
-        j << "      \"detected\": " << (sh.detected ? "true" : "false") << ",\n";
-        j << "      \"amplitude\": "; jn(sh.A);        j << ",\n";
-        j << "      \"amplitude_se\": "; jn(sh.A_se);  j << ",\n";
-        j << "      \"lambda\": ";    jn(sh.lambda);   j << ",\n";
-        j << "      \"baseline\": ";  jn(sh.baseline); j << ",\n";
-        j << "      \"shape_lrt\": "; jn(sh.lrt);      j << "\n";
-        j << "    }\n";
-        j << "  },\n";
-    }
-
-    {   // Within-read co-occurrence π (centered-covariance; additive diagnostic, never feeds d_max).
-        const auto& e = dp.pi_cooccurrence;
-        const bool ident = e.state == DamageConfidence::DETECTED || e.state == DamageConfidence::TRACE;
-        const char* st = e.state == DamageConfidence::DETECTED    ? "DETECTED" :
-                         e.state == DamageConfidence::TRACE       ? "TRACE" :
-                         e.state == DamageConfidence::BELOW_FLOOR ? "BELOW_FLOOR" : "UNDETERMINED";
-        auto jn2 = [&](double v){ if (std::isfinite(v) && v >= 0.0) j << std::setprecision(6) << v; else j << "null"; };
-        j << "  \"pi_cooccurrence\": {\n";
-        j << "    \"point\": ";  if (ident) jn2(e.point); else j << "null"; j << ",\n";
-        j << "    \"ci_lo\": ";  jn2(e.lo);  j << ",\n";
-        j << "    \"ci_hi\": ";  jn2(e.hi);  j << ",\n";
-        j << "    \"identifiable\": " << (ident ? "true" : "false") << ",\n";
-        j << "    \"state\": \"" << st << "\",\n";
-        j << "    \"lift\": ";   jn2(dp.pi_cooccurrence_lift); j << ",\n";
-        j << "    \"lift_z\": "; (dp.pi_cooccurrence_lift >= 0.0 && std::isfinite(dp.pi_cooccurrence_lift_z))
-                                     ? (j << std::setprecision(6) << dp.pi_cooccurrence_lift_z) : (j << "null");
-        j << "\n";
-        j << "  },\n";
-    }
+    // v11 π round: former standalone "pi_estimate" and "pi_cooccurrence" channel siblings relocated
+    // into channels.deamination (contract fed from co-occurrence; shape-fit → diagnostics.pi_shape).
 
     {   // Intrinsic d_max recovered from the co-occurrence π (sibling diagnostic; never feeds mixture d_max).
         const auto& e = dp.d_max_cooccurrence;
@@ -2457,7 +2457,10 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    }\n";
     }
     j << "  },\n";
+    }   // v11: end s_channels (deam_context_spectrum..mixture_model)
 
+    {   // v11: route to s_qc
+        std::ostream& j = s_qc;
     // ── Preservation ──────────────────────────────────────────────────────────
     j << "  \"preservation\": {\n";
     j << "    \"score\": " << std::setprecision(6) << dp.preservation_score << ",\n";
@@ -2768,7 +2771,10 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"flags\": []\n";
         j << "  },\n";
     }
+    }   // v11: end s_qc (preservation..library_qc)
 
+    {   // v11: route to s_charact
+        std::ostream& j = s_charact;
     // ── Damage context ────────────────────────────────────────────────────────
     {
         j << "  \"damage_context\": {\n";
@@ -2819,7 +2825,10 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    }\n";
         j << "  },\n";
     }
+    }   // v11: end s_charact (damage_context)
 
+    {   // v11: route to s_libcall
+        std::ostream& j = s_libcall;
     // ── BIC tournament metadata ───────────────────────────────────────────────
     j << "  \"bic\": {\n";
     j << "    \"bias\": " << std::setprecision(2) << dp.library_bic_bias << ",\n";
@@ -2936,9 +2945,34 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "    \"ds_symm_lambda_used\": " << std::setprecision(6) << dp.library_ds_symm_lambda_used << ",\n";
     j << "    \"ds_symm_amp\": " << dp.library_ds_symm_amp << ",\n";
     j << "    \"ds_symm_ct5_resid\": " << dp.library_ds_symm_ct5_resid << ",\n";
-    j << "    \"ds_symm_ga3_resid\": " << dp.library_ds_symm_ga3_resid << "\n";
+    j << "    \"ds_symm_ga3_resid\": " << dp.library_ds_symm_ga3_resid << ",\n";
+    // v11: relocated from dropped flat top-level library_* keys — unique diagnostics kept per
+    // review (margin-per-obs, per-class p-floors, SS-submodel activation, spike-gate internals).
+    j << "    \"library_type_rescued\": " << (dp.library_type_rescued ? "true" : "false") << ",\n";
+    j << "    \"library_bic_margin_per_obs\": " << std::setprecision(6) << nan_or(dp.library_bic_margin_per_obs) << ",\n";
+    j << "    \"library_p_ds_class_min\": " << nan_or(dp.library_p_ds_class_min) << ",\n";
+    j << "    \"library_p_ss_class_min\": " << nan_or(dp.library_p_ss_class_min) << ",\n";
+    j << "    \"library_p_bias_class_min\": " << nan_or(dp.library_p_bias_class_min) << ",\n";
+    j << "    \"library_M_SS_orig_active\": " << (dp.library_M_SS_orig_active ? "true" : "false") << ",\n";
+    j << "    \"library_M_SS_asym_active\": " << (dp.library_M_SS_asym_active ? "true" : "false") << ",\n";
+    j << "    \"library_spike_gate_ga0_amp\": " << std::setprecision(6) << dp.library_spike_gate_ga0_amp << ",\n";
+    j << "    \"library_spike_gate_structural_bilateral\": "
+      << (dp.library_spike_gate_structural_bilateral ? "true" : "false") << ",\n";
+    j << "    \"library_bic_saturated\": " << (dp.library_bic_saturated ? "true" : "false") << ",\n";
+    j << "    \"library_spike_is_ss\": " << (dp.library_spike_is_ss ? "true" : "false") << ",\n";
+    // v11: relocated from dropped flat top-level keys — call/override provenance + evaluability
+    // (pre-override auto-detection, override state) and post-cascade BIC winner class; each is
+    // unique once override diverges from library_type / raw-winner-class per review ruling.
+    j << "    \"library_type_auto\": " << (dp.library_type_auto_detected ? "true" : "false") << ",\n";
+    j << "    \"library_type_evaluable\": " << (dp.library_type_evaluable ? "true" : "false") << ",\n";
+    j << "    \"library_auto_evaluable\": " << (dp.library_auto_evaluable ? "true" : "false") << ",\n";
+    j << "    \"library_p_is_pre_override\": " << (dp.library_p_is_pre_override ? "true" : "false") << ",\n";
+    j << "    \"library_bic_winner_model_class\": \"" << dp.library_bic_winner_model_class << "\"\n";
     j << "  },\n";
+    }   // v11: end s_libcall (bic)
 
+    {   // v11: route to s_channels
+        std::ostream& j = s_channels;
     // ── Bulk damage law (Phase 1): threshold-free δ(L) ─────────────────────────
     // Count-level binomial GLM over data-driven length bins. Emits continuous,
     // uncertainty-bearing quantities only (δ̂, K_eff, R_damage, Δℓ0/S0 and the
@@ -3265,13 +3299,23 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "]\n";
         j << "  },\n";
     }
+    }   // v11: end s_channels (bulk_damage..fragmentation)
 
+    {   // v11: route to s_charact
+        std::ostream& j = s_charact;
     // ── Damage types ──────────────────────────────────────────────────────────
     {
         auto jbool = [](bool v) -> const char* { return v ? "true" : "false"; };
         auto jfloat = [&](double v) {
             if (std::isfinite(v)) j << std::setprecision(6) << v;
             else j << "null";
+        };
+        // v11: local redeclaration — the original emit_z (declared in the deamination
+        // section, now routed to s_channels) went out of scope when that section was
+        // wrapped; this section (routed to s_charact) needs its own copy of the same logic.
+        auto emit_z = [&](double z, bool computed) {
+            if (computed && std::isfinite(z)) j << std::setprecision(6) << clamp_z(z);
+            else                              j << "null";
         };
 
         double cf_ratio = (dp.channel_c_valid && dp.channel_f_valid
@@ -3563,9 +3607,31 @@ void profile_to_json(const SampleDamageProfile& dp,
         }
         j << "  }";
     }
-    if (!in.cooccur53_json.empty()) j << ",\n" << in.cooccur53_json;
-    if (!in.library_json.empty())   j << ",\n" << in.library_json;
-    j << "\n}\n";
+    }   // v11: end s_charact (damage_types)
+    // fqdup-injected sub-objects belong to the channels section (cross-read co-occurrence
+    // clustering, and the merged/unmerged length-contrast streams). The channel emit blocks
+    // leave a trailing comma (v11_section trims it later); strip it here so the leading-comma
+    // splice below does not produce a double comma before the injected objects.
+    if (!in.cooccur53_json.empty() || !in.library_json.empty()) {
+        std::string cb = s_channels.str();
+        while (!cb.empty() && (cb.back() == '\n' || cb.back() == ',' ||
+                               cb.back() == ' ' || cb.back() == '\t'))
+            cb.pop_back();
+        s_channels.str(cb);
+        s_channels.clear();
+        s_channels.seekp(0, std::ios::end);
+    }
+    if (!in.cooccur53_json.empty()) s_channels << ",\n" << in.cooccur53_json;
+    if (!in.library_json.empty())   s_channels << ",\n" << in.library_json;
+
+    // ── Assemble the six-section v11 document ──────────────────────────────────
+    v11_section("identity",         s_identity, false);
+    v11_section("qc",               s_qc,       false);
+    v11_section("library_call",     s_libcall,  false);
+    v11_section("channels",         s_channels, false);
+    v11_section("characterization", s_charact,  false);
+    v11_section("diagnostics",      s_diag,     true);
+    j << "}\n";
 }
 
 void count_tables_to_jsonl(const SampleDamageProfile& dp, std::ostream& out) {
