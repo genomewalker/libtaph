@@ -367,12 +367,16 @@ void profile_to_json(const SampleDamageProfile& dp,
     {   // v11: characterization.recommended_estimate
     std::ostream& j = s_charact;
     j << "  \"damage_magnitude_recommended\": {\n";
-    j << "    \"ranking_estimate\": " << nan_or(dp.bulk_headline_delta) << ",\n";
-    j << "    \"ranking_estimate_source\": \"bulk_damage.headline_delta\",\n";
     j << "    \"absolute_estimate\": " << nan_or(dp.damaged_fraction_d5_fit) << ",\n";
     j << "    \"absolute_estimate_valid\": " << (std::isfinite(dp.damaged_fraction_d5_fit) ? "true" : "false") << ",\n";
+    j << "    \"absolute_estimate_method\": \"" << (dp.damaged_fraction_d5_fallback ? "terminal_excess_fallback" : "decay_fit") << "\",\n";
+    j << "    \"decay_identified\": " << ((std::isfinite(dp.damaged_fraction_d5_fit) && !dp.damaged_fraction_d5_fallback) ? "true" : "false") << ",\n";
     j << "    \"absolute_estimate_source\": \"mixture_model.damaged.d_max_5prime_fit\",\n";
-    j << "    \"notes\": \"ranking_estimate for cross-sample comparison; absolute_estimate for a metaDMG-comparable magnitude when valid=true; see schema_version 10 comment in source for validation basis\"\n";
+    j << "    \"fallback_terminal_rate\": " << nan_or(dp.damaged_fraction_d5_terminal_rate) << ",\n";
+    j << "    \"fallback_bg_subtracted\": " << nan_or(dp.damaged_fraction_bg5) << ",\n";
+    j << "    \"length_contrast_delta\": " << nan_or(dp.bulk_headline_delta) << ",\n";
+    j << "    \"length_contrast_delta_source\": \"bulk_damage.headline_delta\",\n";
+    j << "    \"notes\": \"absolute_estimate is the headline damage magnitude (metaDMG-comparable terminal C->T amplitude) when valid=true; null distinguished from near-zero by absolute_estimate_valid. length_contrast_delta is a SECONDARY short-vs-longest-fragment length-contrast diagnostic (isotonic non-increasing length-DiD, longest bin anchored to 0) -- it collapses to 0 when damage is length-flat and over-calls compositional length contrast, so it is NOT an amplitude and must not be read as one\"\n";
     j << "  },\n";
     }   // end v11 characterization.recommended_estimate
     // ── Context-resolved damage primitives (schema v4 consolidation) ──────────

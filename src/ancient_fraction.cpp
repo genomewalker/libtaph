@@ -116,36 +116,55 @@ AncientFractionResult compute_ancient_fraction(
     // CA/CG control excess by a margin. Validated on 6 documented samples:
     // false positives score -0.003 to +0.015; true positives score +0.107 to
     // +0.112 — a ~7x gap with zero overlap. Threshold set well inside the gap.
-    auto sub_rate_excess = [&](int from, int to) -> double {
-        auto rate_at = [&](int p) -> double {
+    // Returns {excess, Var(excess)} for the terminal-excess statistic
+    // pos1 minus mean(pos4..6) of the from->to substitution rate. The
+    // variance is the binomial propagation used for the per-library
+    // significance gate below.
+    auto sub_rate_excess = [&](int from, int to) -> std::pair<double,double> {
+        auto rate_at = [&](int p, uint64_t& N) -> double {
             uint64_t nf = 0, nt = 0;
             for (int prev = 0; prev < 4; ++prev)
                 for (int next = 0; next < 4; ++next) {
                     nf += dp.tri_5prime_pos[p][prev * 16 + from * 4 + next];
                     nt += dp.tri_5prime_pos[p][prev * 16 + to   * 4 + next];
                 }
-            return (nf + nt > 0) ? static_cast<double>(nt) / (nf + nt)
-                                  : std::numeric_limits<double>::quiet_NaN();
+            N = nf + nt;
+            return N > 0 ? static_cast<double>(nt) / N
+                         : std::numeric_limits<double>::quiet_NaN();
         };
-        double r1 = rate_at(1), tail = 0.0; int n = 0;
-        for (int p = 4; p <= 6; ++p) { double r = rate_at(p); if (std::isfinite(r)) { tail += r; ++n; } }
-        if (!std::isfinite(r1) || n == 0) return std::numeric_limits<double>::quiet_NaN();
-        return r1 - tail / n;
+        uint64_t N1 = 0; double r1 = rate_at(1, N1);
+        double tail = 0.0, tail_var = 0.0; int n = 0;
+        for (int p = 4; p <= 6; ++p) {
+            uint64_t Np = 0; double r = rate_at(p, Np);
+            if (std::isfinite(r) && Np > 0) { tail += r; tail_var += r * (1.0 - r) / Np; ++n; }
+        }
+        if (!std::isfinite(r1) || N1 == 0 || n == 0)
+            return {std::numeric_limits<double>::quiet_NaN(),
+                    std::numeric_limits<double>::quiet_NaN()};
+        double var1   = r1 * (1.0 - r1) / N1;
+        double excess = r1 - tail / n;
+        double var_ex = var1 + tail_var / (static_cast<double>(n) * n);  // Var(mean of n tail rates)
+        return {excess, var_ex};
     };
-    // Recalibrated 2026-07-01: was 0.05. All 6 documented samples this
-    // threshold was validated against still separate cleanly at a lower
-    // value (FP max 0.015, TP min 0.107) — 0.05 carried needless margin
-    // that rejected at least one genuinely damaged, heavily-diluted FLB
-    // library sitting at 0.049 excess. 0.02 keeps >25x margin above every
-    // documented FP and >5x margin below every documented TP.
-    constexpr double CT_SPECIFICITY_MIN = 0.02;  // FP max 0.015, TP min 0.107
-    double d_ct = sub_rate_excess(1, 3);   // C->T
-    double d_ca = sub_rate_excess(1, 0);   // C->A (control)
-    double d_cg = sub_rate_excess(1, 2);   // C->G (control)
+    // Per-library significance replaces the former hardcoded CT_SPECIFICITY_MIN
+    // magnitude floor (0.05 -> 0.02, a truth-tuned constant): require the
+    // composition-controlled CT-specific excess to be significantly positive at
+    // ~2 SE. Z=2 is a fixed statistical convention, not fit to any truth. SE is
+    // the binomial propagation of the three per-channel excesses, treated as
+    // independent (conservative: the shared C->C denominator makes them
+    // positively correlated, so the true SE of the difference is smaller).
+    auto [d_ct, v_ct] = sub_rate_excess(1, 3);   // C->T
+    auto [d_ca, v_ca] = sub_rate_excess(1, 0);   // C->A (control)
+    auto [d_cg, v_cg] = sub_rate_excess(1, 2);   // C->G (control)
     double ct_specific_excess = std::numeric_limits<double>::quiet_NaN();
-    if (std::isfinite(d_ct) && std::isfinite(d_ca) && std::isfinite(d_cg))
+    double ct_specific_se     = std::numeric_limits<double>::quiet_NaN();
+    if (std::isfinite(d_ct) && std::isfinite(d_ca) && std::isfinite(d_cg)) {
         ct_specific_excess = d_ct - 0.5 * (d_ca + d_cg);
-    const bool ct_specific = std::isfinite(ct_specific_excess) && ct_specific_excess >= CT_SPECIFICITY_MIN;
+        ct_specific_se     = std::sqrt(v_ct + 0.25 * (v_ca + v_cg));
+    }
+    const bool ct_specific = std::isfinite(ct_specific_excess) &&
+                             std::isfinite(ct_specific_se) && ct_specific_se > 0.0 &&
+                             ct_specific_excess > 2.0 * ct_specific_se;
     dp.damaged_fraction_d5_raw  = static_cast<float>(ad5);  // pre-gate value
     if (!ct_specific) {
         ad5 = std::numeric_limits<double>::quiet_NaN();
@@ -167,6 +186,32 @@ AncientFractionResult compute_ancient_fraction(
         dp.ct_diff_d5_npts   = cf.n_points;
     }
 
+    // Terminal-excess fallback: when the exp-decay fit is unidentifiable (a flat
+    // terminal C->T plateau makes the shape unfittable -> ad5 NaN) but the library
+    // IS CT-specific, report the decay-free terminal amplitude instead of a silent
+    // null: the ancient terminal C->T rate (pos1, matching the fit's FIT_START=1
+    // pos0-exclusion) minus the same modern-interior background the decay fit uses.
+    // Fires ONLY on decay-fit NaN AND ct_specific, so it never fires for the blank
+    // (its decay fit succeeds and is nulled by the CT gate) and never for libraries
+    // whose decay fit resolved (their ad5 is finite). Keep-vs-UNDETERMINED is gated
+    // downstream on positive-and-below-metaDMG-A, not here.
+    // Guard against a degenerate fallback where the background is ~0: then
+    // rate - bg is just the raw ~0.75 terminal plateau, not a bg-subtracted
+    // amplitude. Only trust the subtraction when the background we subtract is
+    // itself significantly positive (same 2 SE convention, using mod_bg5.var).
+    // Otherwise leave ad5 NaN -> emitted as UNDETERMINED, not the plateau.
+    const bool bg5_trustworthy = std::isfinite(mod_bg5.mean) && mod_bg5.var >= 0.0 &&
+                                 mod_bg5.mean > 2.0 * std::sqrt(mod_bg5.var);
+    double d5_terminal_rate = std::numeric_limits<double>::quiet_NaN();
+    if (!std::isfinite(ad5) && ct_specific && anc_tc5[1] > 0 && bg5_trustworthy) {
+        d5_terminal_rate = static_cast<double>(anc_t5[1]) / anc_tc5[1];
+        double fb = d5_terminal_rate - mod_bg5.mean;
+        if (std::isfinite(fb) && fb > 0.0) {
+            ad5 = fb;
+            dp.damaged_fraction_d5_fallback = true;
+        }
+    }
+    dp.damaged_fraction_d5_terminal_rate = static_cast<float>(d5_terminal_rate);
     dp.damaged_fraction_d5_fit  = static_cast<float>(ad5);
     dp.damaged_fraction_lambda5 = static_cast<float>(al5);
     dp.damaged_fraction_bg5     = static_cast<float>(mod_bg5.mean);

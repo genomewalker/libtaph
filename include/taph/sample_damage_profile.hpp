@@ -911,6 +911,8 @@ struct SampleDamageProfile {
     float   damaged_fraction_bg3     = 0.0f;  // modern-interior baseline used by the d3 fit
     float   damaged_fraction_d5_pval = -1.0f; // permutation-gate p-value (debug diagnostic)
     float   damaged_fraction_d5_raw  = 0.0f;  // pre-gate fit value (debug diagnostic)
+    bool    damaged_fraction_d5_fallback = false;   // true = d5_fit came from the terminal-excess fallback (decay fit was NaN), false = decay_fit
+    float   damaged_fraction_d5_terminal_rate = 0.0f; // ancient terminal C->T rate used by the fallback (over damaged_fraction_bg5)
     std::array<int64_t,7> debug_anc_t5  = {}; // raw counts pos0-6 (debug diagnostic)
     std::array<int64_t,7> debug_anc_tc5 = {};
     float   damaged_fraction_bg5_var = 0.0f;  // bg variance used by the d5 fit (debug diagnostic)
@@ -1572,7 +1574,7 @@ struct SampleDamageProfile {
     bool   bulk_attempted = false;     // fit ran (>= 1 valid length bin)
 
     // Validated reference-free damaged fraction (SOLUTION_pi_delta_dmax.md §6.3): pi_l = clip(δ_0 /
-    // D_MAX_CONSERVED) for the shortest live bin, w_length-gated, with a profile-likelihood CI. First-class
+    // damaged-class amplitude) for the shortest live bin, w_length-gated, with a profile-likelihood CI. First-class
     // contract output (point+CI+3-state); set by finalize_pi. Shadow-mode step 1 — coexists with the
     // legacy mixture path, no consumer wired. The per-bin gradient stays available via bulk_damage.bins.
     DamageEstimate pi;
