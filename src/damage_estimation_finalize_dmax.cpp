@@ -89,16 +89,14 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
                 double t_terminal = static_cast<double>(b.t_counts[0]) /
                                    (b.t_counts[0] + b.c_counts[0] + 1);
 
-                // For SS libraries the damage signal also appears as C→T at the 3' end;
-                // take the max of the two terminal rates to avoid losing signal when the
-                // 3' end is dominant (as on typical ssDNA ancient libraries).
-                const bool is_ss_bin = (profile.forced_library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED) ||
-                                       (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED);
-                if (is_ss_bin) {
-                    double t_terminal_3 = static_cast<double>(b.t_counts_3prime[0]) /
-                                          (b.t_counts_3prime[0] + b.c_counts_3prime[0] + 1);
-                    t_terminal = std::max(t_terminal, t_terminal_3);
-                }
+                // SS damage is also C→T at the 3' end, but the ss 3' TERMINUS carries a
+                // library-prep artifact (a clean-looking C→T decay) that the composition-immune
+                // codon DiD scores NEGATIVE on real ss ancients (did_3prime≈−0.04..−0.12) while
+                // scoring a low-complexity blank POSITIVE — see read_ancient_llr.cpp:606. The
+                // authentication layer anchors ss on the 5' end only (did_5prime); the headline
+                // amplitude mirrors it. Folding the 3' terminal rate would inject that artifact,
+                // so it is NOT admitted: t_terminal stays the 5' C→T rate for ss. ds is
+                // unaffected — its 3' is the G→A channel, handled on a separate path.
 
                 if (c_baseline > 0.1) {
                     b.d_max = std::clamp(static_cast<float>((t_terminal - t_baseline) / c_baseline),
