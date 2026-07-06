@@ -180,16 +180,17 @@ EndDecayLRT live_end_decay_lrt(const SampleDamageProfile::PiPosCube& cube) {
 // Gated reference-free pi RANGE from the per-position terminal-decay fit (PiShapeFit). pi is a
 // GATED RANGE+STATE, never a bare point (the point is the range midpoint, kept only for the legacy
 // downstream consumer; the JSON emitter nulls it unless it sits inside its own CI).
-//   pi ≈ A_obs / (D_MAX_CONSERVED − η),  A_obs = fitted BULK 5′ amplitude,  η = 0 (conservative).
+//   pi ≈ A_obs / (denom − η),  A_obs = fitted BULK 5′ amplitude,  η = 0 (conservative).
 // Range from ±1.96·A_se propagated through the same divisor.
 // State:
 //   DETECTED    channel-5 AUTHENTIC ∧ shape LRT DETECTED ∧ pi_lo > 0.005
 //   TRACE       channel-5 AUTHENTIC ∧ shape LRT DETECTED ∧ pi_lo ≤ 0.005 ≤ pi_hi
 //   ANCIENT_CPG gate not met but bilateral CpG fingerprint authenticated (dilute/UDG ancient)
 //   UNDETERMINED otherwise (ABSTAIN: no range emitted)
-// D_MAX_CONSERVED (damage_estimate.hpp:12) is the cohort-conserved per-ancient terminal amplitude;
-// A_obs/D_MAX_CONSERVED rescales the bulk amplitude to a damaged-read fraction. η held at 0
-// (no attenuation subtracted) — the lo edge already carries the conservative band via A_se.
+// denom is the library's OWN co-occurrence-fished damaged-class terminal amplitude (ev.cooc_dmax_point,
+// mirroring finalize_pi's profile.d_max_cooccurrence.point — no hardcoded cohort constant); A_obs/denom
+// rescales the bulk amplitude to a damaged-read fraction. η held at 0 (no attenuation subtracted) — the
+// lo edge already carries the conservative band via A_se. denom ≤ 0 ⇒ non-identifiable ⇒ abstain.
 // Pure byte-identical copy of finalize_pi's body that returns a PiVerdict from a DamageEvidence view
 // instead of mutating profile.pi. NOT called yet — added as the consolidation seam so finalize_pi can
 // later delegate to it. Control flow / arithmetic mirror finalize_pi line-for-line: the only changes are
@@ -209,7 +210,7 @@ PiVerdict combine(const DamageEvidence& ev) {
     };
 
     const auto clip01 = [](double x) { return std::clamp(x, 0.0, 1.0); };
-    const double denom = D_MAX_CONSERVED;
+    const double denom = (ev.cooc_dmax_point > 0.0) ? ev.cooc_dmax_point : -1.0;
 
     const Channel5 c5 = { ev.channel5_authentic, ev.channel5_amp, ev.channel5_resid, ev.channel5_amp_se };
     if (!c5.authentic) {
@@ -624,8 +625,8 @@ void finalize_pi(SampleDamageProfile& profile) {
     // for the per-read LLR decay (lambda/baseline), NOT as the detection gate here.
     const auto clip01 = [](double x) { return std::clamp(x, 0.0, 1.0); };
     // Constant-free denominator (PART A): rescale the fitted amplitude A by the library's OWN
-    // fished terminal amplitude (within-read co-occurrence d_max), NOT the hardcoded cohort mean
-    // D_MAX_CONSERVED=0.39. When co-occurrence is non-identifiable (the dilute LOW_ABUNDANCE/DiD
+    // fished terminal amplitude (within-read co-occurrence d_max), NOT a hardcoded cohort mean
+    // (~0.39). When co-occurrence is non-identifiable (the dilute LOW_ABUNDANCE/DiD
     // regime, where there is no data-derived amplitude) denom<0 falls through to the existing
     // abstention paths below (the `denom > 0.0` guards and the `denom <= 0.0` early return) — the
     // honest behavior is to abstain, never to divide by a magic constant. The DENOM_SD widening
@@ -662,9 +663,9 @@ void finalize_pi(SampleDamageProfile& profile) {
                 const EndDecayLRT le = live_end_decay_lrt(
                     live_is_3p ? profile.pi_pos_3prime_ds : profile.pi_pos_5prime);
                 const double A = live_is_3p ? profile.d_max_3prime : profile.d_max_5prime;
-                // NOTE: an amplitude ceiling (A < D_MAX_CONSERVED) is WRONG for deep time — at ~4 Myr
-                // deamination can saturate, so a genuine d_max of 0.5-0.7 is plausible; D_MAX_CONSERVED=0.39
-                // is a YOUNG-aDNA cohort mean. Discrimination of real-saturated vs artifact must be by SHAPE,
+                // NOTE: a hardcoded amplitude ceiling is WRONG for deep time — at ~4 Myr deamination can
+                // saturate, so a genuine d_max of 0.5-0.7 is plausible; a young-aDNA cohort mean (~0.39)
+                // is not a valid cap. Discrimination of real-saturated vs artifact must be by SHAPE,
                 // not amplitude (see assessment: per-position window shape does NOT separate them here either).
                 if (A > 0.0) {
                     // A_se: prefer the bulk damaged-split SE; else the LRT's own A_se; else 20% of A.
@@ -672,8 +673,8 @@ void finalize_pi(SampleDamageProfile& profile) {
                                          profile.bulk_damage.d_max_se > 0.0)
                                             ? profile.bulk_damage.d_max_se
                                             : (le.A_se > 0.0 ? le.A_se : 0.2 * A);
-                    // Propagate a denominator-uncertainty term too: D_MAX_CONSERVED is a cohort mean,
-                    // not sample-specific, so widen by its documented spread (0.34-0.48 ⇒ ~0.035 sd).
+                    // Propagate a denominator-uncertainty term too: the co-occurrence amplitude is itself
+                    // estimated, so widen the pi band by a conservative fixed denom spread (~0.035 sd).
                     constexpr double DENOM_SD = 0.035;
                     const double rel = std::sqrt((A_se * A_se) / (A * A) +
                                                  (DENOM_SD * DENOM_SD) / (denom * denom));
@@ -751,9 +752,9 @@ void finalize_pi(SampleDamageProfile& profile) {
     // (FLB ancients +0.05, ROCS +0.018, estuary relic +0.01–0.03), so this keeps them.
     if (profile.did_valid && !did_confirms) { profile.pi = DamageEstimate{}; try_ancient_cpg(); return; }
 
-    // pi VALUE from the Briggs per-end d_max (position-peak amplitude, COMMENSURATE with D_MAX_CONSERVED).
+    // pi VALUE from the Briggs per-end d_max (position-peak amplitude, COMMENSURATE with the co-occurrence denom).
     // channel-5 above is the authenticity GATE ONLY — its context-scale amp (~0.03) is NOT used for the pi
-    // value: amp/D_MAX_CONSERVED mixed a context-axis numerator with a position-peak denominator and put pi
+    // value: amp/(cohort constant) mixed a context-axis numerator with a position-peak denominator and put pi
     // on the wrong scale (~0.07 for a clearly-damaged library). d_max_combined is unreliable here (zeroed by
     // the bilateral-inversion combiner), so use the larger per-end d_max; the gate already enforced strand
     // symmetry, so the larger end is not an artifact.
@@ -795,7 +796,7 @@ double end_llr(const TerminalMismatch* s, std::uint32_t n, double lambda, double
 }  // namespace
 
 double damage_evidence_llr(const ReadDamageObs& obs, const SampleDamageProfile& profile) {
-    // RANKING amplitude, data-derived (no hardcoded D_MAX_CONSERVED cohort mean): prefer the library's
+    // RANKING amplitude, data-derived (no hardcoded cohort mean): prefer the library's
     // own constant-free co-occurrence d_max, else its fitted per-end d_max. This score only RANKS reads
     // (monotone: more terminal deamination ⇒ higher), so the amplitude sets the scale, not a calibrated
     // rate; a small positive floor keeps the LLR monotone when no amplitude was fitted.

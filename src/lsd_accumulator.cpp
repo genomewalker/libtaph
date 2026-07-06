@@ -30,7 +30,7 @@ LsdClassifyParams make_lsd_classify_params(const BulkDamageForClassify& bulk)
     }
     // d_anc_contract is data-derived from the library's OWN fitted amplitude (no hardcoded cohort
     // constant): the per-read classifier's ancient-hypothesis amplitude is the same d_anc the bulk fit
-    // recovered, not an imported D_MAX_CONSERVED. contract_gated_off follows the pi_detected gate.
+    // recovered, not an imported cohort constant. contract_gated_off follows the pi_detected gate.
     p.d_anc_contract     = p.d_anc;
     p.contract_gated_off = !bulk.pi_detected;
     return p;

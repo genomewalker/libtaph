@@ -126,6 +126,115 @@ void profile_to_json(const SampleDamageProfile& dp,
         d_metamatch_out = dp.d_max_5prime;
     }
 
+    // ── Terminal amplitude A_b: decomposition, identifiability guard, decay authentication ──────
+    // The library-level estimand is A_b = π_damaged · d_damaged (damaged-read fraction × per-damaged
+    // terminal intensity), computed jointly over the GC×length panel (lsd.{pi,d}_joint_damaged).
+    // Two failure modes, both handled calibration-free:
+    //   (1) NON-IDENTIFIABLE (nS<2): a single length stratum cannot separate short-fragment damage
+    //       enrichment from a length-flat composition artifact (e.g. a low-input blank). ⇒ NO-CALL
+    //       (estimate null, state UNIDENTIFIED_INSUFFICIENT_LENGTH_STRUCTURE), never assert zero.
+    //   (2) UNAUTHENTICATED (nS≥2 but no length-decay): the GC×length mixture will still fit a
+    //       "damaged" class to a composition/oxidation background (fabricating A_b≈0.18 for the
+    //       near-blank 21S and for composition-dominated libraries whose terminal rate RISES with
+    //       fragment length). The only reference-free authenticator is a genuine short→long decay of
+    //       the RAW terminal excess on the BIOLOGICAL damage end(s): 5′ C→T for ss (the ss 3′ raw is
+    //       dA-tail contaminated), both ends for ds. Decay is tested overdispersion-aware: short-
+    //       stratum rate must exceed long-stratum rate by more than the combined binomial SE
+    //       (sqrt(p(1-p)/n) per end), so the ~1e8-read tightness alone can't pass a flat profile.
+    //       No decay ⇒ A_b credited as 0 (authentic absence), not the fabricated mixture value.
+    int    n_length_strata = 0;
+    double amp_decay_5prime = 0.0, amp_decay_3prime = 0.0;
+    double d_amplitude_lenstrat = -1.0;   // read-weighted mean over strata of the non-negative per-end max
+    bool   decay_5prime = false, decay_3prime = false;   // authentic short→long decay per end
+    bool   present_5prime = false, present_3prime = false; // material terminal excess per end (≥2 strata)
+    // Short/long biological-end raw excess, hoisted for the length_trend emission and the qualified tier.
+    double short_5 = -1.0, long_5 = -1.0, short_3 = -1.0, long_3 = -1.0;
+    int64_t n_short = 0, n_long = 0;
+    bool   rising_5prime = false, rising_3prime = false;  // long-stratum excess exceeds a materially-present short base
+    const double pi_damaged_joint = in.lsd ? in.lsd->pi_joint_damaged : 0.0;
+    const double d_damaged_joint  = in.lsd ? in.lsd->d_joint_damaged  : 0.0;
+    const double amplitude_Ab_joint = pi_damaged_joint * d_damaged_joint;
+    if (in.lsd && !in.lsd->bins.empty()) {
+        std::vector<const LengthBinDamageProfile*> live;
+        for (const auto& b : in.lsd->bins)
+            if (b.source != "insufficient_reads" && b.n_reads > 0 && std::isfinite(b.d_max_5prime))
+                live.push_back(&b);
+        std::sort(live.begin(), live.end(),
+                  [](const LengthBinDamageProfile* a, const LengthBinDamageProfile* b){ return a->length_lo < b->length_lo; });
+        n_length_strata = static_cast<int>(live.size());
+        if (n_length_strata >= 1) {
+            long double num = 0.0L, den = 0.0L;
+            for (const auto* b : live) {
+                const double end = std::max(0.0, std::max(b->d_max_5prime, b->d_max_3prime));
+                num += static_cast<long double>(end) * static_cast<long double>(b->n_reads);
+                den += static_cast<long double>(b->n_reads);
+            }
+            if (den > 0.0L) d_amplitude_lenstrat = static_cast<double>(num / den);
+        }
+        // Materially-present terminal excess (reference-free, calibration-free): a per-end raw excess
+        // is credited as REAL only if it is reproduced across ≥2 length strata beyond each stratum's own
+        // binomial noise. A one-stratum spike (blank) or a flat zero (21S) fails; a genuine multi-stratum
+        // excess (18S-C composition-rise, and real decaying libs) passes. This is the overdispersion-robust
+        // substitute for a fitted SE (bulk d_max_se is often non-converged):
+        // require ≥2 supported strata when nS≥3, and both strata when nS==2.
+        auto supported_count = [&](double LengthBinDamageProfile::*end){
+            int c = 0;
+            for (const auto* b : live) {
+                const double p = b->*end;
+                const double se = std::sqrt(std::max(p*(1.0-p), 1e-12)/std::max<int64_t>(b->n_reads,1));
+                if (p > se) ++c;
+            }
+            return c;
+        };
+        if (n_length_strata >= 2) {
+            const int need = (n_length_strata >= 3) ? 2 : n_length_strata;   // nS==2 ⇒ both strata
+            present_5prime = supported_count(&LengthBinDamageProfile::d_max_5prime) >= need;
+            present_3prime = supported_count(&LengthBinDamageProfile::d_max_3prime) >= need;
+            const auto* s = live.front(); const auto* l = live.back();
+            amp_decay_5prime = std::max(0.0, s->d_max_5prime - l->d_max_5prime);
+            amp_decay_3prime = std::max(0.0, s->d_max_3prime - l->d_max_3prime);
+            // Overdispersion-aware short→long decay: drop must exceed combined binomial SE (K=1σ).
+            // ceiling: binomial SE at n~1e8 is a noise floor only (~2e-4), so this is effectively
+            // ps>pl for clearly-separated libs; it will over-credit tiny positive slopes from
+            // composition/adapter artifacts. upgrade: replace SE with a fragment/read-hash block
+            // bootstrap sd(Δ)/√B over Δ_b=p_short−p_long, keeping K=1.
+            auto authentic_decay = [](double ps, int64_t ns, double pl, int64_t nl){
+                if (!(ps > pl)) return false;
+                const double se = std::sqrt(std::max(ps*(1.0-ps), 1e-12)/std::max<int64_t>(ns,1)
+                                          + std::max(pl*(1.0-pl), 1e-12)/std::max<int64_t>(nl,1));
+                return (ps - pl) > se;
+            };
+            decay_5prime = authentic_decay(s->d_max_5prime, s->n_reads, l->d_max_5prime, l->n_reads);
+            decay_3prime = authentic_decay(s->d_max_3prime, s->n_reads, l->d_max_3prime, l->n_reads);
+            short_5 = s->d_max_5prime; long_5 = l->d_max_5prime;
+            short_3 = s->d_max_3prime; long_3 = l->d_max_3prime;
+            n_short = s->n_reads; n_long = l->n_reads;
+            // "Rises with length" = long excess exceeds the short by more than combined SE, AND the short
+            // stratum is itself materially present (short > its own binomial SE). This separates a composition
+            // confound rising from a present base (18S-C: short 5′ ≈0.08, long ≈0.17) from a flat near-zero
+            // profile whose front-vs-back contrast is only noise (21S ss 5′: short 0, long 6e-4). Calibration-
+            // free — each stratum judged against its own binomial SE, no magnitude constant.
+            rising_5prime = authentic_decay(l->d_max_5prime, l->n_reads, s->d_max_5prime, s->n_reads)
+                          && (s->d_max_5prime > std::sqrt(std::max(s->d_max_5prime*(1.0-s->d_max_5prime),1e-12)/std::max<int64_t>(s->n_reads,1)));
+            rising_3prime = authentic_decay(l->d_max_3prime, l->n_reads, s->d_max_3prime, s->n_reads)
+                          && (s->d_max_3prime > std::sqrt(std::max(s->d_max_3prime*(1.0-s->d_max_3prime),1e-12)/std::max<int64_t>(s->n_reads,1)));
+        }
+    }
+    const bool amp_identified = (n_length_strata >= 2);
+    // Biological damage end(s): 5′ only for ss (3′ = dA-tail artifact), either end for ds. A call is
+    // authenticated only when the SAME end is both materially present AND shows short→long decay.
+    const bool authentic_5prime = present_5prime && decay_5prime;
+    const bool authentic_3prime = present_3prime && decay_3prime;
+    const bool excess_present     = is_ss ? present_5prime   : (present_5prime   || present_3prime);
+    const bool decay_authenticated= is_ss ? authentic_5prime : (authentic_5prime || authentic_3prime);
+    // Credited A_b: the joint A_b only on an authenticated end, else 0. The headline `estimate` splits the
+    // unauthenticated case further (present-but-non-decaying ⇒ no-call/null; not-present ⇒ genuine 0).
+    const double amplitude_Ab_decaygated = decay_authenticated ? amplitude_Ab_joint : 0.0;
+    // Headline estimand (uniform ss+ds): reference-free damaged-class terminal intensity, credited only on
+    // an authenticated end (mirror of amplitude_Ab_decaygated). d_damaged is dilution-free (fixes the ss
+    // long-fragment collapse) and metaDMG-d_max-ANALOGOUS in scale — no fit to any external caller.
+    const double d_damaged_decaygated = decay_authenticated ? d_damaged_joint : 0.0;
+
     // ── Pre-compute all derived scores ────────────────────────────────────────
     auto cpg     = compute_cpg_score(dp);
     auto oxog_is = compute_oxog_interior_score(dp);
@@ -598,7 +707,7 @@ void profile_to_json(const SampleDamageProfile& dp,
           << ", \"d_max_5prime\": ";
         jn(dp.d_max_5prime); j << "},\n";
         // CANONICAL damaged-fraction pi routes through the CONSTANT-FREE within-read co-occurrence
-        // estimator (centered covariance; no D_MAX_CONSERVED denominator), NOT the legacy A/0.39
+        // estimator (centered covariance; no hardcoded cohort denominator), NOT the legacy A/0.39
         // pi_estimate. The co-occurrence point identifies pi only when it authenticates (DETECTED/TRACE);
         // otherwise the fraction is UNQUANTIFIED (state carries detection, pi is null). See pi_cooccurrence
         // block for CI/lift_z; the legacy pi_estimate/dp.pi remains only as the per-read ranking prior.
@@ -635,17 +744,104 @@ void profile_to_json(const SampleDamageProfile& dp,
     // legacy shape-fit π demoted to diagnostics.pi_shape (never feeds the channel estimate);
     // cpg_delta_bilateral / cpg_authenticated deduped — canonical copy lives in deam_context_spectrum.
     {
-        const auto& e = dp.pi_cooccurrence;
-        const bool ident = e.state == DamageConfidence::DETECTED || e.state == DamageConfidence::TRACE;
-        const char* st = e.state == DamageConfidence::DETECTED    ? "DETECTED" :
-                         e.state == DamageConfidence::TRACE       ? "TRACE" :
-                         e.state == DamageConfidence::BELOW_FLOOR ? "BELOW_FLOOR" : "UNDETERMINED";
+        // Headline deamination estimate = decay-authenticated terminal amplitude A_b = π_damaged·d_damaged.
+        //   nS<2                            → null, UNIDENTIFIED_INSUFFICIENT_LENGTH_STRUCTURE (no-call)
+        //   nS≥2 ∧ present ∧ decay          → A_b,  DETECTED
+        //   nS≥2 ∧ present ∧ no decay       → null, EXCESS_PRESENT_DECAY_UNAUTHENTICATED (no-call): a real
+        //                                     terminal excess exists but rises/flat with length, so it can't
+        //                                     be authenticated as damage reference-free (18S-C) — DECLINE,
+        //                                     don't assert zero (an aligner may still confirm it).
+        //   nS≥2 ∧ not present              → 0.0,  NOT_DETECTED (genuine absence: excess ~0 within noise).
+        // The explicit decomposition (bulk_amplitude_obs, d_damaged, pi_damaged, amplitude_Ab) is emitted
+        // alongside so the headline is auditable and comparable across ds/ss. pi_cooccurrence demoted.
         auto jn2 = [&](double v){ if (std::isfinite(v) && v >= 0.0) j << std::setprecision(6) << v; else j << "null"; };
-        j << "    \"estimate\": ";     if (ident) jn2(e.point); else j << "null"; j << ",\n";
-        j << "    \"ci_lo\": ";        jn2(e.lo); j << ",\n";
-        j << "    \"ci_hi\": ";        jn2(e.hi); j << ",\n";
-        j << "    \"identifiable\": " << (ident ? "true" : "false") << ",\n";
-        j << "    \"state\": \"" << st << "\",\n";
+        const bool amp_nocall = !amp_identified || (excess_present && !decay_authenticated);
+        const char* amp_state = !amp_identified                     ? "UNIDENTIFIED_INSUFFICIENT_LENGTH_STRUCTURE"
+                              : decay_authenticated                 ? "DETECTED"
+                              : excess_present                      ? "EXCESS_PRESENT_DECAY_UNAUTHENTICATED"
+                                                                    : "NOT_DETECTED";
+        j << "    \"estimate\": ";     if (!amp_nocall) jn2(d_damaged_decaygated); else j << "null"; j << ",\n";
+        j << "    \"ci_lo\": null,\n";
+        j << "    \"ci_hi\": null,\n";
+        j << "    \"identifiable\": " << ((amp_identified && !amp_nocall) ? "true" : "false") << ",\n";
+        j << "    \"state\": \"" << amp_state << "\",\n";
+        // Machine-readable scale contract: headline is a reference-free damage INTENSITY, never calibrated
+        // to an external caller. calibration_target=null makes the calibration-free mandate downstream-checkable.
+        j << "    \"estimate_kind\": \"reference_free_damage_intensity\",\n";
+        j << "    \"calibrated\": false,\n";
+        j << "    \"calibration_target\": null,\n";
+        // ── Qualified-characterization tier (report-only; gates nothing, headline contract untouched) ──
+        // Uses all information we generate to characterize a sample WITHOUT laundering a headline: a no-call
+        // library still carries its exposed (unauthenticated) intensity + why it was declined. Tiers mirror
+        // the state machine 1:1 — this is a pure relabel, no new decision.
+        //   AUTHENTICATED           (DETECTED)      : headline estimate is the characterization. Full confidence.
+        //   UNAUTHENTICATED_EXCESS  (EXCESS_…UNAUTH): terminal excess is real but not decay-authenticated —
+        //     expose qualified_intensity=d_damaged + why (RISES_WITH_LENGTH ⇒ composition/selection confound
+        //     e.g. 18S-C; FLAT_LOW_MAGNITUDE ⇒ present but negligible e.g. 21S ss). NOT a headline.
+        //   INDETERMINATE_LOW_COMPLEXITY (UNIDENTIFIED): nS<2, no length contrast — no quantitative claim.
+        //   ABSENT                  (NOT_DETECTED)  : terminal excess absent within noise. estimate=0.0.
+        // ss caveat: qualified_intensity on ss is more contamination-exposed than ds — a single biological end
+        // (5′; ss 3′ is dA-tail and discarded, so no second-end corroboration), terminal-concentrated
+        // contamination does not cancel in the excess-over-interior metric, and adapter fraction rises as the
+        // insert shortens so it can mimic short→long decay. Read ss qualified_intensity as an unauthenticated,
+        // contamination-exposed magnitude, never as characterization.
+        const bool rising_bio = is_ss ? rising_5prime : (rising_5prime || rising_3prime);
+        const char* conf_tier = !amp_identified            ? "INDETERMINATE_LOW_COMPLEXITY"
+                              : decay_authenticated         ? "AUTHENTICATED"
+                              : excess_present              ? "UNAUTHENTICATED_EXCESS"
+                                                            : "ABSENT";
+        const bool is_unauth = amp_identified && excess_present && !decay_authenticated;
+        j << "    \"confidence_tier\": \"" << conf_tier << "\",\n";
+        j << "    \"qualified_intensity\": "; if (is_unauth) jn2(d_damaged_joint); else j << "null"; j << ",\n";
+        j << "    \"qualified_intensity_ss_contamination_exposed\": " << ((is_unauth && is_ss) ? "true" : "false") << ",\n";
+        j << "    \"unauthenticated_reason\": "; if (is_unauth) { j << "\"" << (rising_bio ? "RISES_WITH_LENGTH" : "FLAT_LOW_MAGNITUDE") << "\""; } else j << "null"; j << ",\n";
+        {   // Per-end length trend of the raw terminal excess (short→long): the evidence behind the tier.
+            auto trend = [&](bool dec, bool ris)->const char*{ return dec ? "decaying" : ris ? "rising" : "flat"; };
+            j << "    \"length_trend\": ";
+            if (amp_identified) {
+                j << "{\"5prime\": {\"trend\": \"" << trend(decay_5prime, rising_5prime)
+                  << "\", \"short\": "; jn2(short_5); j << ", \"long\": "; jn2(long_5); j << "}"
+                  << ", \"3prime\": {\"trend\": \"" << trend(decay_3prime, rising_3prime)
+                  << "\", \"short\": "; jn2(short_3); j << ", \"long\": "; jn2(long_3); j << "}}";
+            } else j << "null";
+            j << ",\n";
+        }
+        // ── Explicit A_b decomposition (ASK-1 auditability; same shape ds+ss) ─────────────────────
+        j << "    \"bulk_amplitude_obs\": "; jn2(static_cast<double>(d_max_combined_out)); j << ",\n";
+        j << "    \"d_damaged\": ";    jn2(d_damaged_joint);  j << ",\n";
+        j << "    \"pi_damaged\": ";   jn2(pi_damaged_joint); j << ",\n";
+        j << "    \"amplitude_Ab\": "; jn2(amplitude_Ab_joint); j << ",\n";
+        j << "    \"interpretation\": \"Reference-free terminal C->T damage intensity on the damaged read "
+             "class. metaDMG-d_max-ANALOGOUS scale but NOT metaDMG-calibrated: no fit to any external caller. "
+             "Magnitude has a ~0.10-0.15 reference-free floor (long-fragment/selection dilution), so it ranks "
+             "damage correctly but reads systematically below alignment-based d_max. pi_damaged = damaged-class "
+             "fraction; amplitude_Ab = pi_damaged*d_damaged is the population amplitude comparable to metaDMG "
+             "global A. estimate=null means undetermined reference-free (not zero damage); estimate=0.0 means "
+             "terminal excess is absent within noise.\",\n";
+        j << "    \"amplitude_Ab_decaygated\": "; if (amp_identified) jn2(amplitude_Ab_decaygated); else j << "null"; j << ",\n";
+        // ── Length-decay authentication (ASK-2; biological end: 5′ ss, either-end ds) ─────────────
+        j << "    \"excess_present\": " << (excess_present ? "true" : "false") << ",\n";
+        j << "    \"decay_authenticated\": " << (decay_authenticated ? "true" : "false") << ",\n";
+        j << "    \"present_5prime\": " << (present_5prime ? "true" : "false") << ",\n";
+        j << "    \"present_3prime\": " << (present_3prime ? "true" : "false") << ",\n";
+        j << "    \"decay_5prime\": " << (decay_5prime ? "true" : "false") << ",\n";
+        j << "    \"decay_3prime\": " << (decay_3prime ? "true" : "false") << ",\n";
+        j << "    \"biological_end\": \"" << (is_ss ? "5prime" : "both") << "\",\n";
+        j << "    \"n_length_strata\": " << n_length_strata << ",\n";
+        j << "    \"amp_length_decay_5prime\": "; jn2(amp_decay_5prime); j << ",\n";
+        j << "    \"amp_length_decay_3prime\": "; jn2(amp_decay_3prime); j << ",\n";
+        // Read-weighted length-stratified amplitude (non-negative per-end visibility, length-collapsed):
+        // Σ_s n_s·max(0,max(d5_s,d3_s)) / Σ_s n_s — a decay-free comparator for the gated headline.
+        j << "    \"d_amplitude_lenstrat\": "; if (amp_identified) jn2(d_amplitude_lenstrat); else j << "null"; j << ",\n";
+        const auto& e = dp.pi_cooccurrence;
+        const bool pident = e.state == DamageConfidence::DETECTED || e.state == DamageConfidence::TRACE;
+        const char* pst = e.state == DamageConfidence::DETECTED    ? "DETECTED" :
+                          e.state == DamageConfidence::TRACE       ? "TRACE" :
+                          e.state == DamageConfidence::BELOW_FLOOR ? "BELOW_FLOOR" : "UNDETERMINED";
+        j << "    \"pi_cooccurrence\": {\"estimate\": "; if (pident) jn2(e.point); else j << "null";
+        j << ", \"ci_lo\": "; jn2(e.lo); j << ", \"ci_hi\": "; jn2(e.hi);
+        j << ", \"identifiable\": " << (pident ? "true" : "false");
+        j << ", \"state\": \"" << pst << "\"},\n";
         j << "    \"evidence\": {\"lift\": "; jn2(dp.pi_cooccurrence_lift);
         j << ", \"lift_z\": "; (dp.pi_cooccurrence_lift >= 0.0 && std::isfinite(dp.pi_cooccurrence_lift_z))
                                    ? (j << std::setprecision(6) << dp.pi_cooccurrence_lift_z) : (j << "null");
@@ -1038,6 +1234,59 @@ void profile_to_json(const SampleDamageProfile& dp,
         }
         if (!lsd.bins.empty()) j << "\n    ";
         j << "],\n";
+
+        // modern_baseline: the low-damage asymptote of the damage-vs-length
+        // decay = terminal substitution rate of the longest length strata.
+        // Terminal deamination decays monotonically toward long fragments, so
+        // the longest bins carry the per-library modern/background rate —
+        // data-derived, no assumed modern value. Pool the contiguous flat tail
+        // (bins whose d5 sits within 2 SE of the longest valid bin's own
+        // binomial noise) so a sparse top bin is down-weighted rather than
+        // trusted alone; fall back to that single top bin when only one stratum
+        // qualifies (source says which). Bins gated out upstream carry
+        // source=="insufficient_reads" and are skipped. In combined mode this
+        // stratum also contains the unmerged long reads, so it is better
+        // populated than merged-only.
+        {
+            auto ok = [](const LengthBinDamageProfile& b) {
+                return b.source != std::string("insufficient_reads") && b.n_reads > 0 &&
+                       std::isfinite(b.d_max_5prime) && std::isfinite(b.d_max_3prime);
+            };
+            const LengthBinDamageProfile* top = nullptr;
+            for (size_t i = lsd.bins.size(); i-- > 0; )
+                if (ok(lsd.bins[i])) { top = &lsd.bins[i]; break; }
+            if (!top) {
+                j << "    \"modern_baseline\": {\"d5\":null,\"d3\":null,\"n_reads\":0,"
+                     "\"length_lo\":null,\"length_hi\":null,\"n_strata_used\":0,"
+                     "\"source\":\"none\"},\n";
+            } else {
+                double p   = top->d_max_5prime < 0.0 ? 0.0
+                           : (top->d_max_5prime > 1.0 ? 1.0 : top->d_max_5prime);
+                double var = p * (1.0 - p); if (var < 1e-6) var = 1e-6;
+                double tol = 2.0 * std::sqrt(var / static_cast<double>(top->n_reads));
+                double sd5 = 0.0, sd3 = 0.0; int64_t sn = 0;
+                int lo = top->length_lo, hi = top->length_hi, k = 0;
+                for (size_t i = lsd.bins.size(); i-- > 0; ) {
+                    const auto& b = lsd.bins[i];
+                    if (!ok(b)) continue;
+                    if (k > 0 && std::fabs(b.d_max_5prime - top->d_max_5prime) > tol) break;
+                    sd5 += b.d_max_5prime * b.n_reads;
+                    sd3 += b.d_max_3prime * b.n_reads;
+                    sn  += b.n_reads;
+                    if (b.length_lo < lo) lo = b.length_lo;
+                    if (b.length_hi > hi) hi = b.length_hi;
+                    ++k;
+                }
+                j << "    \"modern_baseline\": {\"d5\":" << std::setprecision(6) << (sd5 / sn)
+                  << ",\"d3\":" << (sd3 / sn)
+                  << ",\"n_reads\":" << sn
+                  << ",\"length_lo\":" << lo
+                  << ",\"length_hi\":" << hi
+                  << ",\"n_strata_used\":" << k
+                  << ",\"source\":\"" << (k > 1 ? "decay_asymptote" : "top_bin") << "\"},\n";
+            }
+        }
+
         j << "    \"by_length_joint\": {\n";
         j << "      \"d_damaged\": "   << std::setprecision(6) << lsd.d_joint_damaged << ",\n";
         j << "      \"pi_damaged\": "  << lsd.pi_joint_damaged << ",\n";

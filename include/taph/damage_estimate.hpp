@@ -7,12 +7,6 @@
 
 namespace taph {
 
-// Cohort-conserved per-ancient terminal C→T amplitude (mapping A_b cohort mean; SOLUTION §2).
-// Denominator of pi_l = clip(delta_l / D_MAX_CONSERVED, 0, 1) AND the imported amplitude for
-// read_ancient_llr (fixed, NOT estimated — keeps the β=π·A confound out of the per-read score, §6.5(1)).
-// TODO(later step): expose via CLI/config; documented range 0.34–0.48.
-constexpr double D_MAX_CONSERVED = 0.39;
-
 // Length-coupling gate: nulls cluster at w_length≈0.5, positives push toward 1 (SOLUTION §6.5(3)).
 // Point-gate at 0.6 (matches finalize_dmax C2); the consumer applies the hysteresis band on w's CI.
 constexpr double W_LENGTH_GATE = 0.6;
@@ -23,15 +17,28 @@ constexpr double W_LENGTH_GATE = 0.6;
 // LOW_ABUNDANCE: end-asymmetric recovery. Fired ONLY when channel-5 strand symmetry FAILED because
 // one terminus is ->G-overcall artifact-dead (artifact_overcall_Xp) AND the OPPOSITE (live) end passes a
 // two-model decay LRT (Briggs exp decay vs position-fixed spike/flat null) on its merged per-position
-// histogram. pi is then formed from the live end alone (A = live_end_d_max, denom = D_MAX_CONSERVED).
+// histogram. pi is then formed from the live end alone (A = live_end_d_max, denom = the library's own
+// co-occurrence-fished damaged-class amplitude, NOT a hardcoded cohort constant).
 // Distinct from DETECTED (both ends clean, strand-symmetric) and ABSTAIN (no recoverable signal).
 // BELOW_FLOOR: detection floor. Entered on the SAME end-asymmetric path as LOW_ABUNDANCE (exactly one
 // terminus artifact-dead) but the surviving end FAILS to authenticate as a live decay channel — either
 // its two-model decay LRT does not clear significance, or its terminal-window eligible-site count is
 // below PI_FLOOR_MIN_ELIG. This is the honest output for a truly-undetectable / artifact-only library:
 // no point estimate is identifiable, so only an UPPER BOUND on pi is emitted (pi.hi set; point/lo null).
+// UNIDENTIFIED_INSUFFICIENT_LENGTH_STRUCTURE: a NO-CALL (never zero). The per-library terminal amplitude
+// A_b = π_dmg·d_dmg is only identifiable when the fragment-length axis has ≥2 populated strata (a single
+// stratum cannot separate a short-fragment damage enrichment from a length-flat composition artifact —
+// e.g. the low-input blank with all reads in one length bin). We DECLINE to call, we do not assert
+// no-damage.
+// EXCESS_PRESENT_DECAY_UNAUTHENTICATED: a NO-CALL (never zero). ≥2 length strata exist and a MATERIAL raw
+// terminal excess is present on the biological end, but it does NOT decay short→long (flat or rising with
+// fragment length). Reference-free, a non-decaying terminal excess cannot be authenticated as deamination
+// vs a length-correlated composition artifact — but neither can it be asserted absent (an alignment-based
+// caller may still confirm real damage). We DECLINE to call. Distinct from NOT_DETECTED, which is reserved
+// for the case where the raw terminal excess is itself ~0 within noise (a genuine absence → zero).
 enum class DamageConfidence { DETECTED, TRACE, NOT_DETECTED, UNDETERMINED, ANCIENT_CPG, LOW_ABUNDANCE,
-                              BELOW_FLOOR };
+                              BELOW_FLOOR, UNIDENTIFIED_INSUFFICIENT_LENGTH_STRUCTURE,
+                              EXCESS_PRESENT_DECAY_UNAUTHENTICATED };
 
 // Bilateral CpG Δ threshold: min(cpgΔ_5′, cpgΔ_3′GA) ≥ this → ANCIENT_CPG when δ-decay model
 // returns zero (sharp-spike or dilute-signal profiles that evade the exponential fit).
@@ -48,7 +55,7 @@ constexpr double PI_SHAPE_LRT_THR = 9.21;
 // ceiling: 0.015 is a placeholder calibrated on n=2 real libraries (FLB03mAds3 authentic amp~+0.027 vs
 // FLB57md artifact amp~-0.017 — the sign cleanly separates; the channel-5 per-context-averaged amp is
 // ~5x smaller-scale than a summed-position excess, so the original 0.03 clipped genuine damage). upgrade:
-// recalibrate via a gargammel damage titration (plan), and fix the amp↔D_MAX_CONSERVED scale for the pi value.
+// recalibrate via a gargammel damage titration (plan), and fix the amp↔damaged-class-amplitude scale for pi.
 constexpr double PI_CH5_AMP_THR = 0.015;
 
 // SS channel-5 strand-asymmetry ceiling. DS deamination is strand-symmetric by mechanism (5' C->T mirrors
@@ -146,8 +153,9 @@ inline SplitPolicy split_policy(const DamageEstimate& est) {
 // linearisation (WLS on logit-detrended per-position rates with binomial weights); NOT an EM. The
 // shape LRT (binomial deviance of the decay model vs a flat constant-rate null, df = 2) gives the
 // DETECTED/ABSTAIN verdict that finalize_pi requires before it may emit a pi range. A is the BULK
-// terminal amplitude (averaged over modern+ancient reads); pi = A / D_MAX_CONSERVED is formed in
-// finalize_pi. All −1 / false when too few eligible sites or the fit did not converge.
+// terminal amplitude (averaged over modern+ancient reads); pi = A / (the library's own co-occurrence
+// damaged-class amplitude) is formed in finalize_pi. All −1 / false when too few eligible sites or the
+// fit did not converge.
 struct PiShapeFit {
     double A         = -1.0;  // bulk terminal C→T amplitude at p=0 above baseline (∈[0,1])
     double A_se      = -1.0;  // SE of A (binomial delta-method through the WLS)

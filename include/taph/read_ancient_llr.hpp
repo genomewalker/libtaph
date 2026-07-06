@@ -54,6 +54,10 @@ struct DamageEvidence {
     bool                              bulk_d_max_damaged_valid = false;
     const SampleDamageProfile::PiPosCube* pi_pos_5prime     = nullptr;
     const SampleDamageProfile::PiPosCube* pi_pos_3prime_ds  = nullptr;
+    // Constant-free pi denominator: the library's OWN co-occurrence-fished damaged-class terminal
+    // amplitude (finalize_pi uses profile.d_max_cooccurrence.point). <=0 ⇒ non-identifiable ⇒ abstain
+    // (never divide by a hardcoded cohort constant). Mirrors finalize_pi's denom exactly.
+    double                            cooc_dmax_point       = -1.0;
 };
 
 // The per-sample verdict finalize_pi writes: the four fields that serialize to JSON pi_estimate
@@ -70,8 +74,9 @@ struct PiVerdict {
 PiVerdict combine(const DamageEvidence& ev);
 
 // PRIOR-FREE per-read both-end, position-resolved log-likelihood-ratio: log P(obs | damaged) − log P(obs |
-// non-damaged) under the VALIDATED δ/c model — amplitude A = D_MAX_CONSERVED imported (not estimated),
-// λ/baseline from the fitted per-position decay; NOT the non-identifiable mixture (§6.5(1)). This is the
+// non-damaged) under the VALIDATED δ/c model — amplitude A is the library's OWN fitted terminal amplitude
+// (data-derived, no hardcoded cohort constant), λ/baseline from the fitted per-position decay; NOT the
+// non-identifiable mixture (§6.5(1)). This is the
 // RANKING primitive: it returns a finite score for EVERY read (no refuse, no prior) so a consumer can sort
 // reads by ancient evidence even before the sample-level π gate fires. For single-stranded libraries the two
 // ends share one lesion chemistry (5′ C→T and 3′ C→T are the same deamination event read off opposite
