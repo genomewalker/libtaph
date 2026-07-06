@@ -369,11 +369,15 @@ void profile_to_json(const SampleDamageProfile& dp,
     j << "  \"damage_magnitude_recommended\": {\n";
     j << "    \"absolute_estimate\": " << nan_or(dp.damaged_fraction_d5_fit) << ",\n";
     j << "    \"absolute_estimate_valid\": " << (std::isfinite(dp.damaged_fraction_d5_fit) ? "true" : "false") << ",\n";
-    j << "    \"absolute_estimate_method\": \"" << (dp.damaged_fraction_d5_fallback ? "terminal_excess_fallback" : "decay_fit") << "\",\n";
-    j << "    \"decay_identified\": " << ((std::isfinite(dp.damaged_fraction_d5_fit) && !dp.damaged_fraction_d5_fallback) ? "true" : "false") << ",\n";
+    j << "    \"absolute_estimate_method\": \"" << (dp.damaged_fraction_d5_shallow ? "pinned_shallow_decay" : "decay_fit") << "\",\n";
+    j << "    \"decay_identified\": " << (std::isfinite(dp.damaged_fraction_d5_fit) ? "true" : "false") << ",\n";
+    j << "    \"shallow\": " << (dp.damaged_fraction_d5_shallow ? "true" : "false") << ",\n";
+    j << "    \"half_life_5prime\": " << nan_or(dp.damaged_fraction_half_life5) << ",\n";
+    j << "    \"lambda_5prime\": " << nan_or(dp.damaged_fraction_lambda5) << ",\n";
+    j << "    \"lambda_5prime_se\": " << nan_or(dp.damaged_fraction_lambda5_se) << ",\n";
     j << "    \"absolute_estimate_source\": \"mixture_model.damaged.d_max_5prime_fit\",\n";
-    j << "    \"fallback_terminal_rate\": " << nan_or(dp.damaged_fraction_d5_terminal_rate) << ",\n";
-    j << "    \"fallback_bg_subtracted\": " << nan_or(dp.damaged_fraction_bg5) << ",\n";
+    j << "    \"terminal_rate\": " << nan_or(dp.damaged_fraction_d5_terminal_rate) << ",\n";
+    j << "    \"bg_subtracted\": " << nan_or(dp.damaged_fraction_bg5) << ",\n";
     j << "    \"length_contrast_delta\": " << nan_or(dp.bulk_headline_delta) << ",\n";
     j << "    \"length_contrast_delta_source\": \"bulk_damage.headline_delta\",\n";
     j << "    \"notes\": \"absolute_estimate is the headline damage magnitude (metaDMG-comparable terminal C->T amplitude) when valid=true; null distinguished from near-zero by absolute_estimate_valid. length_contrast_delta is a SECONDARY short-vs-longest-fragment length-contrast diagnostic (isotonic non-increasing length-DiD, longest bin anchored to 0) -- it collapses to 0 when damage is length-flat and over-calls compositional length contrast, so it is NOT an amplitude and must not be read as one\"\n";
@@ -702,12 +706,32 @@ void profile_to_json(const SampleDamageProfile& dp,
                                std::isfinite(dp.d_max_from_channel_b) &&
                                std::isfinite(dp.d_max_from_channel_b_se) &&
                                (dp.d_max_from_channel_b - 2.0 * dp.d_max_from_channel_b_se) > 0.0;
-        const bool deam_authentic = pi_ident || chanb_sig;
-        const char* deam_via = pi_ident ? "pi_estimate" : (chanb_sig ? "channel_b" : "none");
+        // Coherence lift (B7): a shallow-but-real ss terminal C->T plateau that the
+        // headline recovers via the pinned-baseline shallow fit is authenticated on
+        // the IDENTICAL 2-SE CT-specificity gate that produced that headline, so the
+        // verdict cannot say "absent" while the magnitude says ~0.25 present. This is
+        // an OR-only lift (absent -> present); it never demotes an authenticated call.
+        // The blank never enters (shallow fit fires only when ct_specific, which the
+        // blank fails). Confidence: pi/channel_b paths are "high"; the shallow path is
+        // inherently low (the free-lambda fit could not resolve the decay), refined by
+        // its lambda CI -- steeper-than-flat (lambda > 2 SE) reads "shallow" (recovered),
+        // a CI spanning 0 reads "low_shallow" (indistinguishable from a flat plateau).
+        const bool shallow_auth = dp.damaged_fraction_d5_shallow && dp.damaged_fraction_d5_ct_significant;
+        const bool deam_authentic = pi_ident || chanb_sig || shallow_auth;
+        const char* deam_via = pi_ident ? "pi_estimate"
+                             : (chanb_sig ? "channel_b"
+                             : (shallow_auth ? "pinned_shallow_ct" : "none"));
+        const bool shallow_ci_excl0 = dp.damaged_fraction_d5_shallow &&
+            std::isfinite(dp.damaged_fraction_lambda5_se) && dp.damaged_fraction_lambda5_se > 0.0f &&
+            dp.damaged_fraction_lambda5 > 2.0f * dp.damaged_fraction_lambda5_se;
+        const char* deam_conf = !deam_authentic ? "none"
+                              : (shallow_auth ? (shallow_ci_excl0 ? "shallow" : "low_shallow") : "high");
         j << "  \"verdict\": {\n";
         j << "    \"deamination\":      {\"call\": \"" << (deam_authentic ? "present" : "absent")
           << "\", \"authenticated_by\": \"" << deam_via
-          << "\", \"source\": \"pi_identifiable OR channel_b(quantifiable,!inverted,d_max-2SE>0)\""
+          << "\", \"confidence\": \"" << deam_conf
+          << "\", \"confidence_levels\": \"high = pi or channel_b identified; shallow = pinned-shallow decay, lambda CI excludes 0 (decay recovered); low_shallow = pinned-shallow, lambda CI includes 0 (indistinguishable from a flat plateau); none = not authenticated"
+          << "\", \"source\": \"pi_identifiable OR channel_b(quantifiable,!inverted,d_max-2SE>0) OR pinned_shallow_ct(2SE CT-specific shallow decay)\""
           << ", \"d_max_5prime\": ";
         jn(dp.d_max_5prime); j << "},\n";
         // CANONICAL damaged-fraction pi routes through the CONSTANT-FREE within-read co-occurrence
@@ -3058,6 +3082,7 @@ void profile_to_json(const SampleDamageProfile& dp,
         emit_ef("d_max_5",               dcp.evidence.d_max_5,               true);
         emit_ef("d_max_3",               dcp.evidence.d_max_3,               true);
         emit_ef("lambda_5",              dcp.evidence.lambda_5,              true);
+        j << "      \"half_life_5prime\": " << nan_or(dp.damaged_fraction_half_life5) << ",\n"; // ln2/lambda, populated on the pinned-shallow path (else null)
         emit_ef("lambda_3",              dcp.evidence.lambda_3,              true);
         emit_ef("log2_cpg_ratio",        dcp.evidence.log2_cpg_ratio,        true);
         emit_ef("cpg_z",                 dcp.evidence.cpg_z,                 true);

@@ -911,8 +911,11 @@ struct SampleDamageProfile {
     float   damaged_fraction_bg3     = 0.0f;  // modern-interior baseline used by the d3 fit
     float   damaged_fraction_d5_pval = -1.0f; // permutation-gate p-value (debug diagnostic)
     float   damaged_fraction_d5_raw  = 0.0f;  // pre-gate fit value (debug diagnostic)
-    bool    damaged_fraction_d5_fallback = false;   // true = d5_fit came from the terminal-excess fallback (decay fit was NaN), false = decay_fit
-    float   damaged_fraction_d5_terminal_rate = 0.0f; // ancient terminal C->T rate used by the fallback (over damaged_fraction_bg5)
+    bool    damaged_fraction_d5_shallow = false;    // true = d5_fit came from the pinned-baseline shallow decay fit (free-lambda fit was NaN); false = free decay_fit
+    bool    damaged_fraction_d5_ct_significant = false; // 2-SE CT-specificity gate result (exposed for the verdict coherence lift)
+    float   damaged_fraction_half_life5 = std::numeric_limits<float>::quiet_NaN(); // ln2/lambda of the shallow fit (NaN when no identifiable decay)
+    float   damaged_fraction_lambda5_se = std::numeric_limits<float>::quiet_NaN(); // SE of the shallow-fit decay slope (NaN when <3 points); drives the lambda CI-excludes-0 confidence gate
+    float   damaged_fraction_d5_terminal_rate = 0.0f; // ancient terminal C->T rate (raw plateau, audit)
     std::array<int64_t,7> debug_anc_t5  = {}; // raw counts pos0-6 (debug diagnostic)
     std::array<int64_t,7> debug_anc_tc5 = {};
     float   damaged_fraction_bg5_var = 0.0f;  // bg variance used by the d5 fit (debug diagnostic)

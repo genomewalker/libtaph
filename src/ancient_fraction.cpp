@@ -165,6 +165,7 @@ AncientFractionResult compute_ancient_fraction(
     const bool ct_specific = std::isfinite(ct_specific_excess) &&
                              std::isfinite(ct_specific_se) && ct_specific_se > 0.0 &&
                              ct_specific_excess > 2.0 * ct_specific_se;
+    dp.damaged_fraction_d5_ct_significant = ct_specific;  // exposed for verdict coherence lift
     dp.damaged_fraction_d5_raw  = static_cast<float>(ad5);  // pre-gate value
     if (!ct_specific) {
         ad5 = std::numeric_limits<double>::quiet_NaN();
@@ -186,29 +187,74 @@ AncientFractionResult compute_ancient_fraction(
         dp.ct_diff_d5_npts   = cf.n_points;
     }
 
-    // Terminal-excess fallback: when the exp-decay fit is unidentifiable (a flat
-    // terminal C->T plateau makes the shape unfittable -> ad5 NaN) but the library
-    // IS CT-specific, report the decay-free terminal amplitude instead of a silent
-    // null: the ancient terminal C->T rate (pos1, matching the fit's FIT_START=1
-    // pos0-exclusion) minus the same modern-interior background the decay fit uses.
-    // Fires ONLY on decay-fit NaN AND ct_specific, so it never fires for the blank
-    // (its decay fit succeeds and is nulled by the CT gate) and never for libraries
-    // whose decay fit resolved (their ad5 is finite). Keep-vs-UNDETERMINED is gated
-    // downstream on positive-and-below-metaDMG-A, not here.
-    // Guard against a degenerate fallback where the background is ~0: then
-    // rate - bg is just the raw ~0.75 terminal plateau, not a bg-subtracted
-    // amplitude. Only trust the subtraction when the background we subtract is
-    // itself significantly positive (same 2 SE convention, using mod_bg5.var).
-    // Otherwise leave ad5 NaN -> emitted as UNDETERMINED, not the plateau.
+    // Pinned-baseline shallow decay (B7): when the free-lambda fit is
+    // unidentifiable -- a shallow/near-flat terminal C->T plateau leaves lambda
+    // unconstrained, so fit_exp_decay_irls returns NaN -- but the library IS
+    // CT-specific, recover a principled decay instead of a silent null by
+    // regressing log-excess on position with the interior baseline PINNED to the
+    // same modern-interior mean the free fit subtracts. The amplitude A is the
+    // fitted terminal excess (excess at FIT_START=1, where decay curves of any
+    // lambda coincide); lambda is the log-linear slope with its SE, so a genuinely
+    // flat plateau returns lambda ~ 0 with a CI spanning 0 (labelled low-confidence
+    // downstream) rather than NaN. Fires ONLY on free-fit NaN AND ct_specific AND a
+    // trustworthy (2-SE-positive) background: decay-resolved libraries keep their
+    // bit-identical ad5, and the blank (fit succeeds, CT gate nulls it) never enters.
+    // Same background guard as before -- if mod_bg5 is ~0 the subtraction is just the
+    // raw plateau, not an amplitude, so require the subtracted background to be
+    // 2-SE positive; otherwise leave ad5 NaN -> emitted as UNDETERMINED.
+    constexpr int SHALLOW_START = 1;  // skip pos0 (adapter composition artifact), mirrors free fit's FIT_START
     const bool bg5_trustworthy = std::isfinite(mod_bg5.mean) && mod_bg5.var >= 0.0 &&
                                  mod_bg5.mean > 2.0 * std::sqrt(mod_bg5.var);
     double d5_terminal_rate = std::numeric_limits<double>::quiet_NaN();
-    if (!std::isfinite(ad5) && ct_specific && anc_tc5[1] > 0 && bg5_trustworthy) {
-        d5_terminal_rate = static_cast<double>(anc_t5[1]) / anc_tc5[1];
-        double fb = d5_terminal_rate - mod_bg5.mean;
-        if (std::isfinite(fb) && fb > 0.0) {
-            ad5 = fb;
-            dp.damaged_fraction_d5_fallback = true;
+    if (anc_tc5[SHALLOW_START] > 0)
+        d5_terminal_rate = static_cast<double>(anc_t5[SHALLOW_START]) / anc_tc5[SHALLOW_START];
+    if (!std::isfinite(ad5) && ct_specific && bg5_trustworthy) {
+        // Weighted log-linear regression: y = log(excess) on x = (pos - SHALLOW_START),
+        // inverse-variance weights w = excess^2 / Var(rate) via the delta method
+        // (Var(log excess) ~ Var(rate)/excess^2, Var(rate) = rate(1-rate)/tc).
+        double Sw=0, Swx=0, Swy=0, Swxx=0, Swxy=0; int npts=0;
+        for (int p = SHALLOW_START; p < NP; ++p) {
+            if (anc_tc5[p] < 50) continue;
+            double rate = static_cast<double>(anc_t5[p]) / anc_tc5[p];
+            double ex = rate - mod_bg5.mean;
+            if (!(ex > 0.0)) continue;
+            double var_rate = rate * (1.0 - rate) / static_cast<double>(anc_tc5[p]);
+            if (!(var_rate > 0.0)) continue;
+            double w = ex * ex / var_rate;
+            double x = p - SHALLOW_START, y = std::log(ex);
+            Sw+=w; Swx+=w*x; Swy+=w*y; Swxx+=w*x*x; Swxy+=w*x*y; ++npts;
+        }
+        double det = Sw*Swxx - Swx*Swx;
+        if (npts >= 2 && det > 0.0) {
+            double slope     = (Sw*Swxy - Swx*Swy) / det;
+            double intercept = (Swy - slope*Swx) / Sw;
+            double A      = std::exp(intercept);   // terminal excess at SHALLOW_START
+            double lambda = -slope;                // decay rate (>0 => decaying)
+            double se_slope = std::numeric_limits<double>::quiet_NaN();
+            if (npts >= 3) {
+                double rss=0;
+                for (int p = SHALLOW_START; p < NP; ++p) {
+                    if (anc_tc5[p] < 50) continue;
+                    double rate = static_cast<double>(anc_t5[p]) / anc_tc5[p];
+                    double ex = rate - mod_bg5.mean;
+                    if (!(ex > 0.0)) continue;
+                    double var_rate = rate * (1.0 - rate) / static_cast<double>(anc_tc5[p]);
+                    if (!(var_rate > 0.0)) continue;
+                    double w = ex * ex / var_rate;
+                    double r = std::log(ex) - (intercept + slope * (p - SHALLOW_START));
+                    rss += w * r * r;
+                }
+                se_slope = std::sqrt(rss / (npts - 2) * Sw / det);
+            }
+            if (std::isfinite(A) && A > 0.0) {
+                ad5 = A;
+                al5 = lambda;
+                dp.damaged_fraction_d5_shallow = true;
+                dp.damaged_fraction_half_life5 = (lambda > 0.0)
+                    ? static_cast<float>(std::log(2.0) / lambda)
+                    : std::numeric_limits<float>::quiet_NaN();
+                dp.damaged_fraction_lambda5_se = static_cast<float>(se_slope);
+            }
         }
     }
     dp.damaged_fraction_d5_terminal_rate = static_cast<float>(d5_terminal_rate);
