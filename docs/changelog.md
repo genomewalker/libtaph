@@ -2,6 +2,42 @@
 
 ## main (unreleased)
 
+### Damage verdict hardening (B-series)
+
+Reference-free per-library authentication was tightened so the library-level
+call rests on identifiable evidence, not artefacts of the estimator.
+
+#### Changed
+- **B1** (`220b022`) — SS headline is 5′-anchored; the 3′ C→T fold (a dA-tail
+  ligation artefact, not biological deamination) no longer folds into the SS
+  headline estimate.
+- **B3** (`3d12e30`) — split `bulk_amplitude_obs` from the reported headline:
+  the headline `absolute_estimate` is the honest per-library damage magnitude,
+  distinct from the raw bulk amplitude.
+- **B4** (`b292e98`) — `pi` is treated as *identifiable* only when its
+  confidence interval **excludes zero** (`pi.lo > 0`), not merely when the
+  point estimate lies inside `[lo, hi]`. This strips illusory
+  `pi_estimate`-only authentication where `lo == 0` masked non-identifiability;
+  affected libraries fall through to a surviving arm (`channel_b`,
+  `d5_decay_fit`) or honestly abstain. Verified HALT-clean across the 16-library
+  FLB+clay panel (no library lost its call).
+- **B6** (`2365e3e`) — the mixture-EM damaged-component gate is a per-library
+  2-SE separation test, replacing the fixed `0.02` `mu_1` initialisation floor
+  that could flip faint libraries.
+- **B7** (`2d3d4be`) — SS decay-fit runs on the EM-identified damaged component
+  with a half-life confidence gate.
+- **#43** (`7b8d42f`) — deamination verdict coherence: authenticate on the d5
+  decay-fit and gate `channel_b` on `nS ≥ 2`.
+
+#### Docs
+- `interpretation.md` §3 documents the two deamination surfaces:
+  `channels.deamination` (sensitive per-channel detector, `confidence_tier`)
+  versus `characterization.verdict.deamination` (authoritative library call,
+  `authenticated_by`). A faint library can read `AUTHENTICATED` on the channel
+  while the verdict abstains — by design.
+
+---
+
 ### New JSON blocks: tetranucleotide damage rates, context spectrum, channel stats
 
 #### Added

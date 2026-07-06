@@ -143,6 +143,34 @@ is set, libtaph automatically shifts the fit window inward and (in DS
 libraries with `flag_hex_artifact`) reports a hexamer-corrected
 `d5_hexamer_corrected` extrapolated back to position 0.
 
+### Two surfaces: channel detector vs library verdict
+
+Deamination is reported on **two distinct surfaces** that answer different
+questions. Read the right one for the task.
+
+- **`channels.deamination`** — a *sensitive per-channel detector*. Its
+  `confidence_tier` (e.g. `AUTHENTICATED`) and `state` fire on a positive
+  short→long length-DiD gradient at the biological end (5′ for SS). It is
+  tuned for sensitivity: it flags real terminal decay even when the signal
+  is faint.
+- **`characterization.verdict.deamination`** — the *authoritative,
+  library-level call*. `call` is `present` / `absent`, and `authenticated_by`
+  records which arm carried it: `pi_estimate` (identifiable damaged-molecule
+  fraction), `channel_b` (composition-independent stop-codon cross-check),
+  `d5_decay_fit` (fittable per-position C→T exponential), `pinned_shallow_ct`,
+  or `none`. This arm is stricter — it requires identifiable evidence, not
+  just a gradient.
+
+The two can disagree, by design. A faint library can read
+`channels.deamination.confidence_tier == AUTHENTICATED` (the length gradient
+is genuinely present) while `verdict.deamination.call == absent` /
+`authenticated_by == none` — because the stricter per-position CT-fit / π /
+Channel-B arms cannot lock on at that depth. This is a conservative abstain,
+not a contradiction: the detector is doing its sensitive job and the verdict
+is doing its specific one. **For a yes/no "is this library authenticated
+ancient?" decision, use `characterization.verdict.deamination`.** Treat
+`channels.deamination.confidence_tier` as a detector reading, not the verdict.
+
 ## 4. Oxidative damage channels (F, G, H)
 
 Channels F, G, and H detect oxidative damage through terminal trinucleotide
