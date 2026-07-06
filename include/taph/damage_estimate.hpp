@@ -114,8 +114,8 @@ struct DamageEstimate {
 // Maps the validated pi estimate to a per-read LLR threshold shift. The per-read damage LLR is
 // Bayes-thresholded at posterior 0.5 ⇔ llr ≥ −log(pi/(1−pi)); shifting the base cut by the prior
 // log-odds is the statistically correct operating point (a low-pi library is not flooded with reads
-// that barely cross llr=0). NOTE: the split is ENRICHMENT, not a clean partition — reference-free
-// per-read AUC ≈ 0.59, so the damaged set is pi-calibrated IN EXPECTATION, never molecularly pure.
+// that barely cross llr=0). NOTE: the split is ENRICHMENT, not a clean partition — the damaged
+// set is pi-calibrated IN EXPECTATION, never molecularly pure.
 struct SplitPolicy {
     bool   splittable     = false;  // false ⇒ no damaged stratum (blank/ABSTAIN/BELOW_FLOOR): route all undamaged
     double pi             = -1.0;   // operating-point prior (point estimate)
