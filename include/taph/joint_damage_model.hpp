@@ -420,6 +420,7 @@ public:
         // EM iterations
         std::array<float, N> r;  // Responsibilities (posterior prob of damaged)
         float prev_ll = -1e30f;
+        float last_sum_p = 0.0f;   // B6: final-iteration Sum prec_i, for the mu_1 SE gate
 
         for (int iter = 0; iter < MAX_ITER; ++iter) {
             // E-step: compute responsibilities using log-space for stability
@@ -485,6 +486,7 @@ public:
                     sum_p += prec;  sum_p_d += prec * bins[i].d_max;
                 }
             }
+            last_sum_p = sum_p;   // B6: capture final-iteration precision sum for the mu_1 SE gate
             // Effective-mass check: sum_p * (TAU_1²+SIGMA_FLOOR²) ≥ MIN_MU_EFF
             float eff_mass = sum_p * (tau1_var + SIGMA_FLOOR * SIGMA_FLOOR);
 
@@ -510,7 +512,14 @@ public:
         result.d_ancient = mu_1;
         result.pi_ancient = pi_1;
         result.tau_ancient = TAU_1;
-        result.separated = (mu_1 > 0.02f && pi_1 > 0.01f);
+        // B6: per-library separation gate. mu_1 is the IVW mean (M-step above),
+        // SE = sqrt(1/sum_p) (sum_p = Sum r_i/(TAU_1^2+sigma_i^2) already carries
+        // precision units). Require mu_1 > 2*SE above zero -- one-sided, so
+        // mu_1 > 0.0f guards the sign that mu_1^2*sum_p > 4 would otherwise pass --
+        // instead of the fixed 0.02 floor, so a faint lib no longer flips
+        // 'separated' on where EM happened to initialise mu_1.
+        result.separated = (mu_1 > 0.0f && last_sum_p > 0.0f
+                            && mu_1 * mu_1 * last_sum_p > 4.0f && pi_1 > 0.01f);
 
         return result;
     }
