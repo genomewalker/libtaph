@@ -702,36 +702,48 @@ void profile_to_json(const SampleDamageProfile& dp,
         // fires: Channel A/B measure amp = π_dmg·A_b (a product), so authentication ≠ an identifiable π
         // — `authenticated_by:channel_b` carries presence, not a rate. [Phase C: deliberate behavior
         // change; golden `modern` re-baselined present→absent as the intended correction.]
-        const bool chanb_sig = dp.channel_b_quantifiable && !dp.channel_b_inverted &&
+        // #43-B: gate on amp_identified (nS>=2). A channel_b 2-SE spike with NO length
+        // contrast (nS<2) is indistinguishable from a blank's own configuration -- with
+        // no length signal to corroborate it we cannot separate it from a blank, so
+        // ABSTAIN is correct, not a false negative. nS>=2 is the minimum needed to HAVE
+        // a length contrast, so this is structural (calibration-free), not a tuned gate.
+        const bool chanb_sig = amp_identified &&
+                               dp.channel_b_quantifiable && !dp.channel_b_inverted &&
                                std::isfinite(dp.d_max_from_channel_b) &&
                                std::isfinite(dp.d_max_from_channel_b_se) &&
                                (dp.d_max_from_channel_b - 2.0 * dp.d_max_from_channel_b_se) > 0.0;
-        // Coherence lift (B7): a shallow-but-real ss terminal C->T plateau that the
-        // headline recovers via the pinned-baseline shallow fit is authenticated on
-        // the IDENTICAL 2-SE CT-specificity gate that produced that headline, so the
-        // verdict cannot say "absent" while the magnitude says ~0.25 present. This is
-        // an OR-only lift (absent -> present); it never demotes an authenticated call.
-        // The blank never enters (shallow fit fires only when ct_specific, which the
-        // blank fails). Confidence: pi/channel_b paths are "high"; the shallow path is
-        // inherently low (the free-lambda fit could not resolve the decay), refined by
-        // its lambda CI -- steeper-than-flat (lambda > 2 SE) reads "shallow" (recovered),
-        // a CI spanning 0 reads "low_shallow" (indistinguishable from a flat plateau).
-        const bool shallow_auth = dp.damaged_fraction_d5_shallow && dp.damaged_fraction_d5_ct_significant;
-        const bool deam_authentic = pi_ident || chanb_sig || shallow_auth;
+        // Coherence lift (B7 -> #43-A): the headline magnitude comes from the EM
+        // damaged-component 5' C->T decay fit (dp.damaged_fraction_d5_fit), whether it
+        // resolved freely (decay_fit) or via the pinned-baseline shallow fit. The
+        // verdict must authenticate on the SAME signal, else it can read "absent" while
+        // the magnitude says ~0.35 present (18S-C-ss: free decay_fit 0.354, pi
+        // unidentifiable). Gate = the IDENTICAL 2-SE CT-specificity test that produced
+        // the headline (damaged_fraction_d5_ct_significant). OR-only lift (absent ->
+        // present); never demotes an authenticated call. Blank never enters: its d5_fit
+        // is NaN/<=0 and ct_significant is false. Confidence: pi/channel_b/free-decay are
+        // "high"; the pinned-shallow path is inherently low (the free-lambda fit could
+        // not resolve the decay), refined by its lambda CI -- steeper-than-flat
+        // (lambda > 2 SE) reads "shallow" (recovered), a CI spanning 0 reads
+        // "low_shallow" (indistinguishable from a flat plateau).
+        const bool d5fit_auth = std::isfinite(dp.damaged_fraction_d5_fit) &&
+                                dp.damaged_fraction_d5_fit > 0.0f &&
+                                dp.damaged_fraction_d5_ct_significant;
+        const bool via_shallow = d5fit_auth && dp.damaged_fraction_d5_shallow;
+        const bool deam_authentic = pi_ident || chanb_sig || d5fit_auth;
         const char* deam_via = pi_ident ? "pi_estimate"
                              : (chanb_sig ? "channel_b"
-                             : (shallow_auth ? "pinned_shallow_ct" : "none"));
+                             : (d5fit_auth ? (via_shallow ? "pinned_shallow_ct" : "d5_decay_fit") : "none"));
         const bool shallow_ci_excl0 = dp.damaged_fraction_d5_shallow &&
             std::isfinite(dp.damaged_fraction_lambda5_se) && dp.damaged_fraction_lambda5_se > 0.0f &&
             dp.damaged_fraction_lambda5 > 2.0f * dp.damaged_fraction_lambda5_se;
         const char* deam_conf = !deam_authentic ? "none"
-                              : (shallow_auth ? (shallow_ci_excl0 ? "shallow" : "low_shallow") : "high");
+                              : (via_shallow ? (shallow_ci_excl0 ? "shallow" : "low_shallow") : "high");
         j << "  \"verdict\": {\n";
         j << "    \"deamination\":      {\"call\": \"" << (deam_authentic ? "present" : "absent")
           << "\", \"authenticated_by\": \"" << deam_via
           << "\", \"confidence\": \"" << deam_conf
-          << "\", \"confidence_levels\": \"high = pi or channel_b identified; shallow = pinned-shallow decay, lambda CI excludes 0 (decay recovered); low_shallow = pinned-shallow, lambda CI includes 0 (indistinguishable from a flat plateau); none = not authenticated"
-          << "\", \"source\": \"pi_identifiable OR channel_b(quantifiable,!inverted,d_max-2SE>0) OR pinned_shallow_ct(2SE CT-specific shallow decay)\""
+          << "\", \"confidence_levels\": \"high = pi, channel_b, or free d5 decay-fit identified; shallow = pinned-shallow decay, lambda CI excludes 0 (decay recovered); low_shallow = pinned-shallow, lambda CI includes 0 (indistinguishable from a flat plateau); none = not authenticated"
+          << "\", \"source\": \"pi_identifiable OR channel_b(nS>=2,quantifiable,!inverted,d_max-2SE>0) OR d5_decay_fit(2SE CT-specific damaged-component 5' decay, free or pinned-shallow)\""
           << ", \"d_max_5prime\": ";
         jn(dp.d_max_5prime); j << "},\n";
         // CANONICAL damaged-fraction pi routes through the CONSTANT-FREE within-read co-occurrence
