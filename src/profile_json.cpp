@@ -689,9 +689,14 @@ void profile_to_json(const SampleDamageProfile& dp,
         auto jn = [&](double v) { if (std::isfinite(v) && v >= 0.0) j << std::setprecision(6) << v; else j << "null"; };
         // Match pi_estimate's gated state EXACTLY (identifiable point inside its own CI, else ABSTAIN /
         // upper-bound-only BELOW_FLOOR) so the canonical verdict never disagrees with the detail block.
+        // B4: identifiable requires the CI to EXCLUDE zero (lo > 0). Point-inside-[lo,hi] alone is
+        // structurally always-true for the lo=0 sentinel branches (read_ancient_llr.cpp:711,:732 set
+        // lo=0 with a clip01 point), so a [0,1]-spanning CI would masquerade as identifiable. lo>0 is
+        // the codebase's own significance discipline (read_ancient_llr.cpp:701 lo>PI_THR>0); no constant.
         const bool pi_ident = std::isfinite(dp.pi.point) && dp.pi.point >= 0.0 &&
                               std::isfinite(dp.pi.lo) && std::isfinite(dp.pi.hi) &&
-                              dp.pi.hi >= dp.pi.lo && dp.pi.point >= dp.pi.lo && dp.pi.point <= dp.pi.hi;
+                              dp.pi.hi >= dp.pi.lo && dp.pi.point >= dp.pi.lo && dp.pi.point <= dp.pi.hi &&
+                              dp.pi.lo > 0.0;
         // Deamination AUTHENTICATION (schema v3.2). "present" iff an ancient deamination signal is
         // authenticated by a RELIABLE channel: either pi is identifiable (mixture/shape resolved the
         // damaged stratum) OR Channel B significantly excludes the no-damage null (quantifiable, not
@@ -901,7 +906,8 @@ void profile_to_json(const SampleDamageProfile& dp,
         const bool pi_range_ok = std::isfinite(pi.lo) && std::isfinite(pi.hi) &&
                                  pi.lo >= 0.0 && pi.hi >= pi.lo;
         const bool pi_identifiable = std::isfinite(pi.point) && pi.point >= 0.0 &&
-                                     pi_range_ok && pi.point >= pi.lo && pi.point <= pi.hi;
+                                     pi_range_ok && pi.point >= pi.lo && pi.point <= pi.hi &&
+                                     pi.lo > 0.0;   // B4 mirror: CI must exclude zero (see pi_ident above)
         const bool pi_upper_bound_only = pi.state == DamageConfidence::BELOW_FLOOR &&
                                          std::isfinite(pi.hi) && pi.hi >= 0.0;
         const char* pi_state_out = pi_identifiable     ? pi_state_str :
