@@ -3284,6 +3284,12 @@ void profile_to_json(const SampleDamageProfile& dp,
         };
         j << "  \"bulk_damage\": {\n";
         j << "    \"attempted\": " << (dp.bulk_attempted ? "true" : "false") << ",\n";
+        // A-choice (--short-fragment, ON only): 16-29 bp reads join the JOINT length-isotonic fit,
+        // so headline_delta / tau_discriminator / burial_fingerprint / preservation below reflect
+        // ALL lengths (16+), NOT purely the >=30 band -- it is not additive. Emitted only when active
+        // so the default (>=30) JSON schema and bytes stay unchanged for downstream consumers.
+        if (dp.short_fragment_floor < 30)
+            j << "    \"short_fragment_joint_refit\": true,\n";
         j << "    \"valid\": "      << (bd.valid ? "true" : "false") << ",\n";
         j << "    \"converged\": "  << (bd.converged ? "true" : "false") << ",\n";
         j << "    \"n_sweeps\": "   << bd.n_sweeps << ",\n";

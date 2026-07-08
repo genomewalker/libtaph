@@ -173,6 +173,12 @@ void finalize_bulk(SampleDamageProfile& profile, int bulk_fit_threads) {
             std::vector<uint64_t> group_reads(L, 0);
             std::vector<int> group_lo(L, 0), group_hi(L, 0);
 
+            // Short-fragment mode: coverage-weighted interior background borrowed from the
+            // long (median_len>=50) groups — the least-damaged reads carry the true library
+            // interior C→T rate, which the terminal-only short bins have no clean interior for.
+            const bool short_mode = profile.short_fragment_floor < 30;
+            uint64_t bgTi = 0, bgCi = 0, bgAi = 0, bgGi = 0;
+
             for (int l = 0; l < L; ++l) {
                 std::array<uint64_t, 15> T5{}, C5{}, A5{}, G5{}, T3{}, C3{}, A3{}, G3{};
                 uint64_t Ti = 0, Ci = 0, Ai = 0, Gi = 0, nr = 0, lensum = 0;
@@ -218,6 +224,56 @@ void finalize_bulk(SampleDamageProfile& profile, int bulk_fit_threads) {
                 // interior baselines (β warm-start only): damage T/(T+C), control A/(A+G)
                 bs.k_interior[l][0] = Ti; bs.n_interior[l][0] = Ti + Ci;
                 bs.k_interior[l][1] = Ai; bs.n_interior[l][1] = Ai + Gi;
+
+                if (short_mode && bs.median_len[l] >= 50.0) {
+                    bgTi += Ti; bgCi += Ci; bgAi += Ai; bgGi += Gi;
+                }
+            }
+
+            int Ltot = L;
+            // Short-fragment injection: prepend one short group ([16,30) reads) whose terminal
+            // counts are real but whose interior baseline is BORROWED from the long groups above.
+            // Requires (a) short mode, (b) some short reads, (c) a usable borrowed background — if
+            // any is missing we simply skip: the estimator abstains rather than fabricate a bin.
+            if (short_mode && (bgTi + bgCi) > 0) {
+                std::array<uint64_t, 15> T5{}, C5{}, A5{}, G5{}, T3{}, C3{}, A3{}, G3{};
+                uint64_t nr = 0, lensum = 0;
+                JStrat Jds, Jss;
+                for (int b = 0; b < SampleDamageProfile::N_LEN_SHORT; ++b) {
+                    const auto& fb = profile.short_len_bins[b];
+                    for (int p = 0; p < 15; ++p) {
+                        T5[p] += fb.t_counts[p];        C5[p] += fb.c_counts[p];
+                        A5[p] += fb.a_counts[p];        G5[p] += fb.g_counts[p];
+                        T3[p] += fb.t_counts_3prime[p]; C3[p] += fb.c_counts_3prime[p];
+                        A3[p] += fb.a_counts_3prime[p]; G3[p] += fb.g_counts_3prime[p];
+                    }
+                    Jds.add(fb.jstrat_ds); Jss.add(fb.jstrat_ss);
+                    nr += fb.n_reads; lensum += fb.len_sum;
+                }
+                if (nr > 0) {
+                    std::array<std::array<BulkDamageSuffStats::Cell, 2>, 2> gbin{};
+                    for (int p = 0; p < 15; ++p) {
+                        gbin[0][0].k[p] = T5[p]; gbin[0][0].n[p] = T5[p] + C5[p];  // 5' damage C→T
+                        gbin[1][0].k[p] = A5[p]; gbin[1][0].n[p] = A5[p] + G5[p];  // 5' control A/(A+G)
+                        if (is_ss) {
+                            gbin[0][1].k[p] = T3[p]; gbin[0][1].n[p] = T3[p] + C3[p];
+                            gbin[1][1].k[p] = A3[p]; gbin[1][1].n[p] = A3[p] + G3[p];
+                        } else {
+                            gbin[0][1].k[p] = A3[p]; gbin[0][1].n[p] = A3[p] + G3[p];  // ds 3' G→A
+                            gbin[1][1].k[p] = T3[p]; gbin[1][1].n[p] = T3[p] + C3[p];
+                        }
+                    }
+                    bs.bin.insert(bs.bin.begin(), gbin);
+                    bs.k_interior.insert(bs.k_interior.begin(), {bgTi, bgAi});
+                    bs.n_interior.insert(bs.n_interior.begin(), {bgTi + bgCi, bgAi + bgGi});
+                    bs.median_len.insert(bs.median_len.begin(),
+                        static_cast<double>(lensum) / static_cast<double>(nr));
+                    bs.jstrat.insert(bs.jstrat.begin(), is_ss ? Jss : Jds);
+                    group_reads.insert(group_reads.begin(), nr);
+                    group_lo.insert(group_lo.begin(), SampleDamageProfile::LEN_SHORT_ANCHOR + 1);
+                    group_hi.insert(group_hi.begin(), SampleDamageProfile::LEN_FINE_MIN);
+                    Ltot = static_cast<int>(bs.bin.size());
+                }
             }
 
             profile.bulk_attempted = true;
@@ -228,7 +284,7 @@ void finalize_bulk(SampleDamageProfile& profile, int bulk_fit_threads) {
             profile.ss_overhang_degenerate = is_ss && !R.ss_overhang_modeled;
 
             // fill the per-bin length extents + read counts the solver does not know
-            for (int l = 0; l < L && l < static_cast<int>(R.bins.size()); ++l) {
+            for (int l = 0; l < Ltot && l < static_cast<int>(R.bins.size()); ++l) {
                 R.bins[l].length_lo = group_lo[l];
                 R.bins[l].length_hi = group_hi[l];
                 R.bins[l].n_reads   = static_cast<int64_t>(group_reads[l]);
@@ -236,7 +292,7 @@ void finalize_bulk(SampleDamageProfile& profile, int bulk_fit_threads) {
 
             // read-weighted headline δ̂ over the valid (live) length bins
             double num = 0.0, den = 0.0;
-            for (int l = 0; l < L && l < static_cast<int>(R.bins.size()); ++l) {
+            for (int l = 0; l < Ltot && l < static_cast<int>(R.bins.size()); ++l) {
                 if (!bs.bin_valid(l)) continue;
                 num += R.bins[l].delta * static_cast<double>(group_reads[l]);
                 den += static_cast<double>(group_reads[l]);

@@ -82,11 +82,58 @@ static inline int ct_meth_context(char plus1, char plus2) {
     return -1;
 }
 
+// Short-fragment accumulator (opt-in). A read in [short_fragment_floor, 30) contributes ONLY its
+// terminal substitution counts + co-occurrence moments to short_len_bins — no interior, no pooled
+// composition/GC/hexamer/codon stats. The interior baseline for these bins is borrowed from the
+// long groups in finalize_bulk (the library background is a whole-library property). Mirrors the
+// >=30 len_bins terminal block (update path ~line 1295) exactly, minus the interior scan.
+static void accumulate_short_fragment(SampleDamageProfile& profile, std::string_view seq) {
+    const size_t len = seq.length();
+    thread_local std::vector<char> short_dec;
+    if (short_dec.size() < len) short_dec.resize(len);
+    char* const decoded = short_dec.data();
+    for (size_t i = 0; i < len; ++i)
+        decoded[i] = static_cast<char>(static_cast<unsigned char>(seq[i]) & ~0x20u);
+
+    auto& lbin = profile.short_len_bins[SampleDamageProfile::short_len_fine_bin(len)];
+    constexpr size_t JP = static_cast<size_t>(JStrat::JP);
+    int t5 = 0, c5 = 0, t3 = 0, c3 = 0, a3 = 0, g3 = 0;
+    for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
+        char base = decoded[i];
+        if (base == 'T') { lbin.t_counts[i]++; if (i < JP) ++t5; }
+        else if (base == 'C') { lbin.c_counts[i]++; if (i < JP) ++c5; }
+        else if (base == 'A') lbin.a_counts[i]++;
+        else if (base == 'G') lbin.g_counts[i]++;
+    }
+    for (size_t i = 0; i < std::min(size_t(15), len); ++i) {
+        char base = decoded[len - 1 - i];
+        if (base == 'T') { lbin.t_counts_3prime[i]++; if (i < JP) ++t3; }
+        else if (base == 'C') { lbin.c_counts_3prime[i]++; if (i < JP) ++c3; }
+        else if (base == 'A') { lbin.a_counts_3prime[i]++; if (i < JP) ++a3; }
+        else if (base == 'G') { lbin.g_counts_3prime[i]++; if (i < JP) ++g3; }
+    }
+    int S5 = t5 + c5, k5 = t5;
+    int S3d = a3 + g3, k3d = a3;
+    int S3s = t3 + c3, k3s = t3;
+    lbin.jstrat_ds.n[S5][S3d]++;  lbin.jstrat_ds.sk5[S5][S3d] += k5;
+    lbin.jstrat_ds.sk3[S5][S3d] += k3d; lbin.jstrat_ds.sk53[S5][S3d] += static_cast<uint64_t>(k5) * k3d;
+    lbin.jstrat_ss.n[S5][S3s]++;  lbin.jstrat_ss.sk5[S5][S3s] += k5;
+    lbin.jstrat_ss.sk3[S5][S3s] += k3s; lbin.jstrat_ss.sk53[S5][S3s] += static_cast<uint64_t>(k5) * k3s;
+    // Interior deliberately NOT accumulated: borrowed from long groups in finalize_bulk.
+    lbin.len_sum += len;
+    lbin.n_reads++;
+}
+
 void FrameSelector::update_sample_profile(
     SampleDamageProfile& profile,
     std::string_view seq) {
 
-    if (seq.length() < 30) return;  // Too short for reliable statistics
+    // Short-fragment routing (opt-in). Default floor 30 => the first test is `len < 30`, i.e. the
+    // legacy reject, and the short branch is dead: >=30 path is bit-identical. When the caller lowers
+    // the floor (e.g. 16), reads in [floor,30) take the terminal-only short path and return; reads
+    // below the floor abstain (no fabricated damage). The >=30 body below is never reached for <30.
+    if (seq.length() < static_cast<size_t>(profile.short_fragment_floor)) return;
+    if (seq.length() < 30) { accumulate_short_fragment(profile, seq); return; }
 
     // Resolve the user-forced prep into library_type ONCE, before any accumulation. library_type is
     // the DOUBLE_STRANDED default until finalize_libtype runs; every stream-time consumer (the ss/ds
@@ -2018,6 +2065,26 @@ void FrameSelector::merge_sample_profiles(SampleDamageProfile& dst, const Sample
         dl.c_interior += sl.c_interior;
         dl.a_interior += sl.a_interior;
         dl.g_interior += sl.g_interior;
+        dl.n_reads += sl.n_reads;
+        dl.len_sum += sl.len_sum;
+        dl.jstrat_ds.add(sl.jstrat_ds);
+        dl.jstrat_ss.add(sl.jstrat_ss);
+    }
+
+    // Short-fragment terminal bins (all-zero and inert unless short mode was active).
+    for (int b = 0; b < SampleDamageProfile::N_LEN_SHORT; ++b) {
+        auto& dl = dst.short_len_bins[b];
+        const auto& sl = src.short_len_bins[b];
+        for (int p = 0; p < 15; ++p) {
+            dl.t_counts[p] += sl.t_counts[p];
+            dl.c_counts[p] += sl.c_counts[p];
+            dl.a_counts[p] += sl.a_counts[p];
+            dl.g_counts[p] += sl.g_counts[p];
+            dl.t_counts_3prime[p] += sl.t_counts_3prime[p];
+            dl.c_counts_3prime[p] += sl.c_counts_3prime[p];
+            dl.a_counts_3prime[p] += sl.a_counts_3prime[p];
+            dl.g_counts_3prime[p] += sl.g_counts_3prime[p];
+        }
         dl.n_reads += sl.n_reads;
         dl.len_sum += sl.len_sum;
         dl.jstrat_ds.add(sl.jstrat_ds);

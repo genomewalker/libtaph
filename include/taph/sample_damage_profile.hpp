@@ -617,6 +617,13 @@ struct SampleDamageProfile {
     LibraryType library_type = LibraryType::DOUBLE_STRANDED;  // Default to double-stranded
     LibraryType library_bic_call = LibraryType::UNKNOWN;  // Wave-2: frozen pure-BIC argmin call, before any rescue/forced override; library_type may differ via a witnessed override
     LibraryType forced_library_type = LibraryType::UNKNOWN;  // User override (UNKNOWN = auto-detect)
+
+    // Short-fragment mode (opt-in). Reads in [short_fragment_floor, 30) are streamed into the
+    // separate short_len_bins terminal accumulator ONLY (no interior, no pooled/GC/hexamer stats);
+    // finalize_bulk borrows their interior baseline from long groups (median_len>=50). Default 30
+    // reproduces the legacy >=30-only path bit-for-bit: the <30 short path is never entered.
+    int short_fragment_floor = 30;
+
     bool library_type_auto_detected = false;  // true when set by auto-detection, not user override
     bool library_type_rescued = false;  // true when DS call recovered from BIC failure via rescue rule
 
@@ -1537,6 +1544,22 @@ struct SampleDamageProfile {
         if (len < static_cast<size_t>(LEN_FINE_MIN)) return 0;
         int b = static_cast<int>((len - static_cast<size_t>(LEN_FINE_MIN)) / LEN_FINE_W);
         return b < N_LEN_FINE ? b : N_LEN_FINE - 1;
+    }
+
+    // ── Short-fragment terminal bins (opt-in; see short_fragment_floor) ────────
+    // Reads in [floor, 30) land here — terminal substitution counts only, interior
+    // left empty (borrowed from long groups in finalize_bulk). Anchored at 15 with
+    // the same 5 bp width as the fine bins: [15,20),[20,25),[25,30). The floor
+    // (>=16) is enforced upstream so bin 0 only ever sees 16-19 bp reads. Populated
+    // solely when short_fragment_floor < 30; otherwise stays all-zero and inert.
+    static constexpr int LEN_SHORT_ANCHOR = 15;
+    static constexpr int LEN_SHORT_W      = 5;
+    static constexpr int N_LEN_SHORT      = 3;
+    std::array<LenBinStats, N_LEN_SHORT> short_len_bins = {};
+
+    static int short_len_fine_bin(size_t len) {
+        int b = static_cast<int>((len - static_cast<size_t>(LEN_SHORT_ANCHOR)) / LEN_SHORT_W);
+        return b < 0 ? 0 : (b >= N_LEN_SHORT ? N_LEN_SHORT - 1 : b);
     }
 
     // Aggregated GC-stratified results
