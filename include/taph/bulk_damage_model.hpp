@@ -85,6 +85,11 @@ struct BulkDamageSuffStats {
     bool skip_3p_pos0 = true;   // ss ligation artifact: drop 3′ p=0 from the damage score
     bool ss_p0_overhang = false; // Wave-3: model the 5' terminus (r(0)=1) as genuine ss overhang — set iff
                                  // ss AND p0 is not an adapter/composition artifact (identifiable overhang)
+    // Short-fragment mode: index of the injected [16,30) short bin (bin.begin() ⇒ 0), else −1. Set only
+    // when finalize_preservation prepends the short group; fit() then reports THAT bin's π interval from
+    // its own profile-likelihood δ curve (thin-coverage-honest) instead of the shared-d_max Wald band.
+    // −1 at floor=30 ⇒ no injection ⇒ the >=30 fit is byte-identical.
+    int short_bin_index = -1;
 
     int L() const { return static_cast<int>(bin.size()); }
 

@@ -210,6 +210,66 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
                         }
                     }
 
+                    // 1b — fold the [16,30) short band into the damaged-fraction POPULATION (completeness).
+                    // The GC-mixture path stratifies by GC over >=30 reads; short reads have no clean interior
+                    // and are the WRONG axis to GC-stratify, so we do NOT split them by GC. The whole band
+                    // enters the π_damaged / d_population tally as ONE extra unit, classified by the SAME
+                    // terminal binomial LLR the GC bins use, against a BORROWED >=30 interior C→T baseline (the
+                    // least-damaged reads' rate). Short-mode only ⇒ floor=30 leaves π_damaged byte-identical.
+                    float short_pop_d = 0.0f;   // d_max_short · s_obs, added to pop_weighted_d below
+                    if (profile.short_fragment_floor < 30) {
+                        uint64_t sTi = 0, sCi = 0;   // borrowed >=30 interior C→T pool
+                        for (int bin = 0; bin < SampleDamageProfile::N_GC_BINS; ++bin) {
+                            const auto& b = profile.gc_bins[bin];
+                            if (!b.valid) continue;
+                            sTi += b.t_interior; sCi += b.c_interior;
+                        }
+                        const bool is_ss_short =
+                            (profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED);
+                        std::array<uint64_t, 15> kT{}, nTC{};
+                        uint64_t s_reads = 0;
+                        for (int sb = 0; sb < SampleDamageProfile::N_LEN_SHORT; ++sb) {
+                            const auto& lb = profile.short_len_bins[sb];
+                            s_reads += lb.n_reads;
+                            for (int p = 0; p < 15; ++p) {
+                                kT[p]  += lb.t_counts[p];
+                                nTC[p] += lb.t_counts[p] + lb.c_counts[p];
+                                if (is_ss_short) {
+                                    kT[p]  += lb.t_counts_3prime[p];
+                                    nTC[p] += lb.t_counts_3prime[p] + lb.c_counts_3prime[p];
+                                }
+                            }
+                        }
+                        uint64_t s_obs = 0;
+                        for (int p = 0; p < 15; ++p) s_obs += nTC[p];
+                        if (s_reads > 0 && s_obs > 0 && (sTi + sCi) > 0) {
+                            double base = std::clamp(static_cast<double>(sTi) /
+                                          static_cast<double>(sTi + sCi), 0.01, 0.99);
+                            // d_max_short proxy: position-0 terminal C→T excess over the borrowed baseline
+                            double p0 = nTC[0] > 0 ? static_cast<double>(kT[0]) / static_cast<double>(nTC[0]) : base;
+                            double dmax_short = std::clamp((p0 - base) / (1.0 - base), 0.0, 0.999);
+                            double lambda = profile.lambda_5prime;
+                            double lld = 0.0, llu = 0.0;
+                            for (int p = 0; p < 15; ++p) {
+                                if (nTC[p] == 0) continue;
+                                double decay = std::exp(-lambda * p);
+                                double pd = std::clamp(base + (1.0 - base) * dmax_short * decay, 0.001, 0.999);
+                                double pu = std::clamp(base, 0.001, 0.999);
+                                double k = static_cast<double>(kT[p]), n = static_cast<double>(nTC[p]);
+                                lld += k * std::log(pd) + (n - k) * std::log(1.0 - pd);
+                                llu += k * std::log(pu) + (n - k) * std::log(1.0 - pu);
+                            }
+                            total_obs += s_obs;
+                            short_pop_d = static_cast<float>(dmax_short) * static_cast<float>(s_obs);
+                            if ((lld - llu) > LLR_THRESHOLD && dmax_short > MIN_DMAX_THRESHOLD) {
+                                damaged_obs += s_obs;
+                                damaged_weighted_d += static_cast<float>(dmax_short) * static_cast<float>(s_obs);
+                                damaged_weight += s_obs;
+                                ++n_damaged;
+                            }
+                        }
+                    }
+
                     if (total_obs > 0) {
                         profile.pi_damaged = static_cast<float>(damaged_obs) / static_cast<float>(total_obs);
                     }
@@ -217,7 +277,7 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
                         profile.d_damaged = damaged_weighted_d / static_cast<float>(damaged_weight);
                     }
 
-                    float pop_weighted_d = 0.0f;
+                    float pop_weighted_d = short_pop_d;
                     for (int bin = 0; bin < SampleDamageProfile::N_GC_BINS; ++bin) {
                         const auto& b = profile.gc_bins[bin];
                         if (!b.valid) continue;

@@ -3290,6 +3290,12 @@ void profile_to_json(const SampleDamageProfile& dp,
         // so the default (>=30) JSON schema and bytes stay unchanged for downstream consumers.
         if (dp.short_fragment_floor < 30) {
             j << "    \"short_fragment_joint_refit\": true,\n";
+            // The short-band headline delta below is the profile's NATIVE composition-controlled
+            // co-occurrence metric (per-C-site terminal C->T excess de-confounded by the (S5,S3)
+            // eligibility conditioning). It is NOT the raw shuffle-null lift (+0.0438) reported on the
+            // reference-free thread — that was a different, uncontrolled metric. Same order of magnitude,
+            // NOT directly comparable; do not difference the two.
+            j << "    \"short_fragment_delta_metric\": \"cooccurrence_composition_controlled\",\n";
             // Per-short-bin 5' terminal C->T (T/(T+C)) profiles for the [floor,30) band, so the
             // recovered short-band deamination is inspectable per bin. Emitted only in short mode;
             // the >=30 JSON stays byte-identical for downstream consumers.

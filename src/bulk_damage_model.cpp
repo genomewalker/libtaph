@@ -727,6 +727,36 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_thread
                 R.bins[l].pi_hi = std::min(1.0, dl / lo);
                 R.bins[l].pi_identified = true;   // C1: this bin's π_l interval holds real probabilities
             }
+            // 1a — short-fragment π CI from the bin's OWN profile likelihood. The injected [16,30) bin has
+            // thin terminal coverage, so its δ̂_0 uncertainty (not the shared d_max SE) dominates π_0. Replace
+            // the Wald dl/(dmax±1.96·SE) with the profile-likelihood δ interval {δ : ℓ(δ)−ℓ̂ ≥ −½·χ²_{1,.95}}
+            // read off the same per-bin profile curve every live bin already fits, scaled by the point d_max.
+            // Short-mode only (short_bin_index<0 at floor=30) ⇒ the >=30 π output is byte-identical.
+            const int sbi = s.short_bin_index;
+            if (sbi >= 0 && sbi < L && R.bins[sbi].pi_identified) {
+                const auto& gd = R.bins[sbi].profile_delta;
+                const auto& gl = R.bins[sbi].profile_loglik;
+                if (gd.size() == gl.size() && gd.size() >= 2) {
+                    constexpr double HALF_CHI2 = 1.9207345;   // ½·χ²_{1,0.95} (= 3.8415/2)
+                    int gpk = 0;
+                    for (int g = 1; g < static_cast<int>(gl.size()); ++g) if (gl[g] > gl[gpk]) gpk = g;
+                    double dlo = gd.front(), dhi = gd.back();
+                    for (int g = gpk; g > 0; --g)
+                        if (gl[g] >= -HALF_CHI2 && gl[g - 1] < -HALF_CHI2) {
+                            double t = (-HALF_CHI2 - gl[g - 1]) / (gl[g] - gl[g - 1]);
+                            dlo = gd[g - 1] + t * (gd[g] - gd[g - 1]);
+                            break;
+                        }
+                    for (int g = gpk; g + 1 < static_cast<int>(gl.size()); ++g)
+                        if (gl[g] >= -HALF_CHI2 && gl[g + 1] < -HALF_CHI2) {
+                            double t = (-HALF_CHI2 - gl[g]) / (gl[g + 1] - gl[g]);
+                            dhi = gd[g] + t * (gd[g + 1] - gd[g]);
+                            break;
+                        }
+                    R.bins[sbi].pi_lo = std::min(1.0, std::max(0.0, dlo / dmax));
+                    R.bins[sbi].pi_hi = std::min(1.0, dhi / dmax);
+                }
+            }
         }
     }
 

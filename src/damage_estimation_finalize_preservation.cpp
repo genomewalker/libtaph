@@ -264,6 +264,7 @@ void finalize_bulk(SampleDamageProfile& profile, int bulk_fit_threads) {
                         }
                     }
                     bs.bin.insert(bs.bin.begin(), gbin);
+                    bs.short_bin_index = 0;   // prepended ⇒ index 0; fit() profiles THIS bin's π CI
                     bs.k_interior.insert(bs.k_interior.begin(), {bgTi, bgAi});
                     bs.n_interior.insert(bs.n_interior.begin(), {bgTi + bgCi, bgAi + bgGi});
                     bs.median_len.insert(bs.median_len.begin(),
