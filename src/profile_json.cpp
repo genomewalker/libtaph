@@ -3288,8 +3288,31 @@ void profile_to_json(const SampleDamageProfile& dp,
         // so headline_delta / tau_discriminator / burial_fingerprint / preservation below reflect
         // ALL lengths (16+), NOT purely the >=30 band -- it is not additive. Emitted only when active
         // so the default (>=30) JSON schema and bytes stay unchanged for downstream consumers.
-        if (dp.short_fragment_floor < 30)
+        if (dp.short_fragment_floor < 30) {
             j << "    \"short_fragment_joint_refit\": true,\n";
+            // Per-short-bin 5' terminal C->T (T/(T+C)) profiles for the [floor,30) band, so the
+            // recovered short-band deamination is inspectable per bin. Emitted only in short mode;
+            // the >=30 JSON stays byte-identical for downstream consumers.
+            j << "    \"short_fragment_bins\": [\n";
+            for (int b = 0; b < SampleDamageProfile::N_LEN_SHORT; ++b) {
+                const auto& sb = dp.short_len_bins[b];
+                int lo = SampleDamageProfile::LEN_SHORT_ANCHOR + b * SampleDamageProfile::LEN_SHORT_W;
+                int hi = lo + SampleDamageProfile::LEN_SHORT_W;
+                j << "      {\"length_lo\": " << lo << ", \"length_hi\": " << hi
+                  << ", \"n_reads\": " << sb.n_reads << ", \"mean_len\": ";
+                if (sb.n_reads) jn(static_cast<double>(sb.len_sum) / static_cast<double>(sb.n_reads));
+                else j << "null";
+                j << ", \"per_pos_5prime_ct\": [";
+                for (int p = 0; p < 15; ++p) {
+                    uint64_t den = sb.t_counts[p] + sb.c_counts[p];
+                    if (p) j << ", ";
+                    if (den) jn(static_cast<double>(sb.t_counts[p]) / static_cast<double>(den));
+                    else j << "null";
+                }
+                j << "]}" << (b + 1 < SampleDamageProfile::N_LEN_SHORT ? ",\n" : "\n");
+            }
+            j << "    ],\n";
+        }
         j << "    \"valid\": "      << (bd.valid ? "true" : "false") << ",\n";
         j << "    \"converged\": "  << (bd.converged ? "true" : "false") << ",\n";
         j << "    \"n_sweeps\": "   << bd.n_sweeps << ",\n";
