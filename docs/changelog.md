@@ -38,6 +38,37 @@ call rests on identifiable evidence, not artefacts of the estimator.
 
 ---
 
+### Short-fragment estimator (opt-in; `short_fragment_floor < 30`)
+
+Extends the reference-free `bulk_damage` estimator to recover terminal
+deamination from the 16–29 bp band, which the default ≥ 30 bp fit discards.
+Off by default; the ≥ 30 JSON stays byte-identical for downstream consumers.
+
+#### Added
+- **(`c4bac9d`)** — 16–29 bp reads are captured into short length bins
+  (`short_len_bins`, anchor 15 / width 5 / 3 bins) and injected as a short group
+  into the joint length-isotonic fit. Emits `bulk_damage.short_fragment_joint_refit`.
+- **(`4ea9767`)** — `bulk_damage.short_fragment_bins[]`: per-short-bin
+  `length_lo`/`length_hi`/`n_reads`/`mean_len` plus `per_pos_5prime_ct`, the
+  15-position 5′ terminal `T/(T+C)` profile, so the recovered short-band
+  deamination is inspectable per bin.
+- **(`16a487e`)** — the injected short bin's π interval comes from its **own**
+  per-bin profile-likelihood δ curve
+  (`{δ : ℓ(δ) − ℓ̂ ≥ −½·χ²₁,₀.₉₅}` scaled by point `d_max`), replacing the
+  shared-`d_max` Wald band that under-covers on thin short-band data; the
+  GC-mixture `pi_damaged` / damaged-fraction population folds the short band in
+  as one un-GC-stratified group. `short_fragment_delta_metric` documents the
+  short-band headline as the native composition-controlled co-occurrence metric
+  (**not** the raw shuffle-null lift; not directly comparable). At `floor = 30`
+  (no injection) every path is byte-identical to the default.
+
+#### Docs
+- `fields/bulk_damage.md` gains a "Short-fragment fold-in" section describing the
+  four opt-in fields, the bin geometry, and the non-additivity of the refit
+  headline (short-mode and default headlines must not be differenced).
+
+---
+
 ### New JSON blocks: tetranucleotide damage rates, context spectrum, channel stats
 
 #### Added
