@@ -379,8 +379,10 @@ void test_ss_selection_bias_corrects_combined() {
     taph::profile_to_json(dp, out, in);
     const std::string json = out.str();
 
-    // Combined must be overridden to d_max_5prime (0.010), not 0.085
-    EXPECT(json.find("\"d_max_combined\": 0.01") != std::string::npos);
+    // schema v3 renamed the misnamed d_max_combined key to terminal_ct_mixture_amp
+    // (byte-identical value, CircLigase/SS override applied): must show d_max_5prime
+    // (0.010), not the raw 0.085.
+    EXPECT(json.find("\"terminal_ct_mixture_amp\": 0.010000") != std::string::npos);
     EXPECT(json.find("\"source\": \"5prime_conservative_ss\"") != std::string::npos);
     EXPECT(json.find("\"d3_selection_biased\": true")          != std::string::npos);
     EXPECT(json.find("\"selection_biased_outputs\": [\"d_max_3\"]") != std::string::npos);
@@ -409,8 +411,8 @@ void test_ss_symmetric_no_selection_bias() {
     taph::profile_to_json(dp, out, in);
     const std::string json = out.str();
 
-    // No override — combined stays at 0.075
-    EXPECT(json.find("\"d_max_combined\": 0.075") != std::string::npos);
+    // No override — terminal_ct_mixture_amp (renamed d_max_combined) stays at 0.075
+    EXPECT(json.find("\"terminal_ct_mixture_amp\": 0.075000") != std::string::npos);
     EXPECT(json.find("\"source\": \"max_ss_asymmetry\"") != std::string::npos);
     EXPECT(json.find("\"d3_selection_biased\": false") != std::string::npos);
     EXPECT(json.find("\"selection_biased_outputs\": []") != std::string::npos);
