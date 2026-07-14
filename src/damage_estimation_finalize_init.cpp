@@ -73,7 +73,8 @@ void finalize_init(SampleDamageProfile& profile, FinalCtx& ctx) {
     //    C→T is measured and railing d_max. Detect it directly from base
     //    composition: flag when the pos0 G-fraction clearly exceeds the interior
     //    G-fraction (the fill-in signature). ds-fill-in ≈ +0.27; clean ss/KapK
-    //    sit near 0; threshold 0.10 separates them with margin.
+    //    sit near 0; the 0.07 threshold below separates them with margin
+    //    (FLB57, a ds fill-in library, measures +0.142 — it clears by 2x).
     {
         const double tot0 = profile.a_freq_5prime[0] + profile.g_freq_5prime[0]
                           + profile.t_freq_5prime[0] + profile.c_freq_5prime[0];
