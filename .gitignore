@@ -1,6 +1,5 @@
 build/
-build-local/
-build-tests/
+build-*/
 *.o
 *.a
 tests/golden/fixture_*.fq.gz
