@@ -730,14 +730,67 @@ void profile_to_json(const SampleDamageProfile& dp,
         // not resolve the decay), refined by its lambda CI -- steeper-than-flat
         // (lambda > 2 SE) reads "shallow" (recovered), a CI spanning 0 reads
         // "low_shallow" (indistinguishable from a flat plateau).
+        // #43-A asserted above: "Blank never enters: its d5_fit is NaN/<=0 and ct_significant is
+        // false." The modern negative control (ERR5526852) disproves it -- d5_fit=0.316 AND
+        // ct_significant, so it authenticated at confidence "high" and silently undid Phase C's
+        // present->absent correction (an OR-only lift can only manufacture presence, never withdraw
+        // it). The golden oracle that would have caught it had been dead since the v11 schema
+        // refactor orphaned its key paths.
+        //
+        // Root cause is ct_significant itself. It controls C->T against C->A/C->G (ancient_fraction
+        // .cpp:156-167) by pooling counts ACROSS all 16 flanking contexts before forming the ratio
+        // (:126-131) -- a context-MARGINAL statistic, blind to a terminal shift in flanking-context
+        // composition. did_5prime forms the ratio WITHIN each context and only then inverse-variance
+        // pools (damage_estimation_finalize_decay.cpp:343-359), and its control is the purine mirror
+        // A/(A+G), damage-immune at 5'. Measured on the six fixtures, the context-marginal gate is
+        // wrong in BOTH directions and the context-matched one is right every time:
+        //            ct_specific_excess   did_5prime     truth
+        //   modern        +0.218 (!)       -0.054     negative control  <- ct_specific authenticated it
+        //   lowab         -0.036           +0.051     ancient ds        <- ct_specific NaN'd its fit
+        //   rocs          -0.003           +0.018     present
+        //   det_ds        +0.037           +0.053     ancient ds
+        //   ss            +0.075           +0.039     ancient ss
+        //   abstain       -1.0             -0.076     negative
+        // So ONE broken control produced BOTH defects: the modern false positive AND the lowab false
+        // negative (ancient_fraction.cpp:170-172 replaces ad5 with NaN when ct_specific fails, which
+        // also nulls the B7 shallow rescue at :211).
+        //
+        // Two consequences, kept deliberately separate:
+        //  1. did5_neg is a CONTRADICTION VETO on the fit route -- not "the DiD must be positive"
+        //     (too strong: it would kill UDG/USER-treated libraries, whose CpG-restricted damage is
+        //     diluted ~4x by the 16-context pooling, and any library whose purine control is itself
+        //     lifted). |did5| <= 2 SE stays UNINFORMATIVE: it neither authenticates nor blocks.
+        //  2. did5_auth is a fourth route, and the only one that can reach a low-amplitude ancient
+        //     library. pi co-occurrence is SECOND-order in damage (x ~ pi^2*d5*d3, y ~ pi(1-pi)*d5*d3,
+        //     read_ancient_llr.cpp:369-379) so it abstains by construction at lowab's ~4%; channel_b
+        //     is not composition-immune and "cannot authenticate" per its own module (damage_
+        //     estimation_finalize_dmax.cpp:361-363); the fit route is NaN'd by the gate above.
+        //     did_5prime is FIRST-order and a difference of large counts (SE ~7e-4), so it survives
+        //     where the others cannot: lowab clears it by 75 SE.
+        // did5_ok is 5'-only ON PURPOSE. dp.did_valid is (ok5 && ok3) (finalize_decay.cpp:377) and
+        // would block a perfect 5' signal merely because the 3' end lacked convertible coverage.
+        // The 5' end is the right one to gate on: ss 3' is a documented dA-tail/prep artifact
+        // (finalize_dmax.cpp:92-99) and scores did_3prime NEGATIVE on genuine ss ancients (ss: -0.123).
+        // ceiling: did5_pos is a z-test, and hpp:1058 warns z is overpowered at high N (2 SE is only a
+        // ~0.14% effect at n~1e6). It is load-bearing ONLY in conjunction with authentic_5prime --
+        // a non-z, calibration-free short->long length-decay test on the same end (:226). The DiD
+        // supplies sign + control-correction; the decay test supplies the structure. upgrade: a
+        // block bootstrap over the DiD, as :199-200 already proposes for authentic_decay.
+        const bool did5_ok  = std::isfinite(dp.did_5prime) &&
+                              std::isfinite(dp.did_5prime_se) && dp.did_5prime_se > 0.0f;
+        const bool did5_pos = did5_ok && dp.did_5prime >  2.0f * dp.did_5prime_se;
+        const bool did5_neg = did5_ok && dp.did_5prime < -2.0f * dp.did_5prime_se;
         const bool d5fit_auth = std::isfinite(dp.damaged_fraction_d5_fit) &&
                                 dp.damaged_fraction_d5_fit > 0.0f &&
-                                dp.damaged_fraction_d5_ct_significant;
+                                dp.damaged_fraction_d5_ct_significant &&
+                                !did5_neg;
+        const bool did5_auth = authentic_5prime && did5_pos;
         const bool via_shallow = d5fit_auth && dp.damaged_fraction_d5_shallow;
-        const bool deam_authentic = pi_ident || chanb_sig || d5fit_auth;
+        const bool deam_authentic = pi_ident || chanb_sig || d5fit_auth || did5_auth;
         const char* deam_via = pi_ident ? "pi_estimate"
                              : (chanb_sig ? "channel_b"
-                             : (d5fit_auth ? (via_shallow ? "pinned_shallow_ct" : "d5_decay_fit") : "none"));
+                             : (d5fit_auth ? (via_shallow ? "pinned_shallow_ct" : "d5_decay_fit")
+                             : (did5_auth ? "did5_length_decay" : "none")));
         const bool shallow_ci_excl0 = dp.damaged_fraction_d5_shallow &&
             std::isfinite(dp.damaged_fraction_lambda5_se) && dp.damaged_fraction_lambda5_se > 0.0f &&
             dp.damaged_fraction_lambda5 > 2.0f * dp.damaged_fraction_lambda5_se;
@@ -747,8 +800,8 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"deamination\":      {\"call\": \"" << (deam_authentic ? "present" : "absent")
           << "\", \"authenticated_by\": \"" << deam_via
           << "\", \"confidence\": \"" << deam_conf
-          << "\", \"confidence_levels\": \"high = pi, channel_b, or free d5 decay-fit identified; shallow = pinned-shallow decay, lambda CI excludes 0 (decay recovered); low_shallow = pinned-shallow, lambda CI includes 0 (indistinguishable from a flat plateau); none = not authenticated"
-          << "\", \"source\": \"pi_identifiable OR channel_b(nS>=2,quantifiable,!inverted,d_max-2SE>0) OR d5_decay_fit(2SE CT-specific damaged-component 5' decay, free or pinned-shallow)\""
+          << "\", \"confidence_levels\": \"high = pi, channel_b, free d5 decay-fit, or did5+5' length decay identified; shallow = pinned-shallow decay, lambda CI excludes 0 (decay recovered); low_shallow = pinned-shallow, lambda CI includes 0 (indistinguishable from a flat plateau); none = not authenticated"
+          << "\", \"source\": \"pi_identifiable OR channel_b(nS>=2,quantifiable,!inverted,d_max-2SE>0) OR d5_decay_fit(2SE CT-specific damaged-component 5' decay, free or pinned-shallow; VETOED by a significantly negative did_5prime) OR did5_length_decay(purine-controlled 5' DiD > 2SE AND short->long 5' decay on the same end)\""
           << ", \"d_max_5prime\": ";
         jn(dp.d_max_5prime); j << "},\n";
         // CANONICAL damaged-fraction pi routes through the CONSTANT-FREE within-read co-occurrence
