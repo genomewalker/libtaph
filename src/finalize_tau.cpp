@@ -112,20 +112,28 @@ double binom_loglik(const std::array<std::array<double,2>, SampleDamageProfile::
 // baseline b from the deepest position (asymptote), linearises log((r_p−b)/(1−b)) = log A − λ·p and
 // solves {log A, λ} by binomial-weighted least squares; A_se via delta-method on the WLS intercept.
 // Shape LRT = 2·(loglik_decay − loglik_flat) over the binomial model (df = 2).
-PiShapeFit fit_pi_shape(const SampleDamageProfile& profile, const TauConfig& cfg) {
+PiShapeFit fit_pi_shape_cube(const SampleDamageProfile::PiPosCube& cube, bool exclude_c0,
+                             const TauConfig& cfg) {
     PiShapeFit out;
     constexpr int P = SampleDamageProfile::P_PI;
 
     std::array<std::array<double,2>, P> pos = {};  // [p] = {n_elig, n_deam}
     for (int L = 0; L < SampleDamageProfile::N_PI_LEN; ++L)
         for (int C = 0; C < SampleDamageProfile::N_PI_C; ++C) {
-            if (C == 0) continue;  // C_bin 0 = no 5' damage event (uninformative)
-            const auto& arr = profile.pi_pos_5prime[L][C];
+            // 5' fit: skip C_bin 0 (no 5' damage event, uninformative). The 3' fit passes
+            // exclude_c0=false — C is a 5'-DEFINED stratum (damage_estimation_update.cpp), so excluding
+            // C=0 would condition the 3' shape on 5' damage. Pool all C for the marginal 3' decay.
+            if (exclude_c0 && C == 0) continue;
+            const auto& arr = cube[L][C];
             for (int p = 0; p < P; ++p) {
                 pos[p][0] += static_cast<double>(arr[p].n_elig);
                 pos[p][1] += static_cast<double>(arr[p].n_deam);
             }
         }
+
+    // Eligible sites over live positions — what the LRT is bought with (scales ~linearly in read
+    // count, hence duplicate-purchasable). Reported on both fitted and unfitted returns.
+    for (int p = 0; p < P; ++p) if (pos[p][0] >= 50.0) out.n_elig += static_cast<int64_t>(pos[p][0]);
 
     int n_live = 0;
     for (int p = 0; p < P; ++p) if (pos[p][0] >= 50.0) ++n_live;
@@ -188,6 +196,11 @@ PiShapeFit fit_pi_shape(const SampleDamageProfile& profile, const TauConfig& cfg
     // Require a genuine decay (λ>0, A above the amplitude floor) AND a significant shape LRT.
     out.detected = lrt >= PI_SHAPE_LRT_THR && lambda > 0.0 && A >= cfg.a_min;
     return out;
+}
+
+// Back-compat wrapper: the canonical 5' C→T shape fit (excludes the C_bin-0 no-event stratum).
+PiShapeFit fit_pi_shape(const SampleDamageProfile& profile, const TauConfig& cfg) {
+    return fit_pi_shape_cube(profile.pi_pos_5prime, /*exclude_c0=*/true, cfg);
 }
 
 DamageEstimate finalize_tau(const SampleDamageProfile& profile, const TauConfig& cfg) {

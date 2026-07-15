@@ -164,6 +164,8 @@ struct PiShapeFit {
     double lrt       = -1.0;  // 2·(loglik_decay − loglik_flat); χ²(df=2)
     bool   detected  = false; // lrt ≥ shape LRT threshold (decay shape distinguishable from flat)
     bool   fitted    = false; // closed-form fit produced a finite {A,λ,baseline}
+    int64_t n_elig   = 0;     // total eligible sites over fitted positions — what the LRT was bought with
+                              // (lrt scales ~linearly in n_elig, so it is duplicate-purchasable; report it)
 };
 
 // Reference-free length-decay constant τ (bp): the e-folding length of the overhang component of

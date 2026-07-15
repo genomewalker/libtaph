@@ -37,6 +37,12 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile, int bu
     finalize_bulk(profile, bulk_fit_threads);
     profile.tau                   = finalize_tau(profile);
     profile.pi_shape              = fit_pi_shape(profile);
+    // 3' end shape from its OWN channel (DS G→A / SS C→T), pooled over all C_bin strata (C is
+    // 5'-defined). library_type is resolved above by finalize_libtype, so the channel pick is safe.
+    profile.pi_shape_3prime       = fit_pi_shape_cube(
+        profile.library_type == SampleDamageProfile::LibraryType::SINGLE_STRANDED
+            ? profile.pi_pos_3prime_ss : profile.pi_pos_3prime_ds,
+        /*exclude_c0=*/false);
     profile.scission              = finalize_scission(profile);
     profile.epsilon               = finalize_epsilon(profile);
     profile.gc_depletion          = finalize_gc_depletion(profile);

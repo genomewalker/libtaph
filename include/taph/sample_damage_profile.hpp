@@ -1637,6 +1637,12 @@ struct SampleDamageProfile {
     // precondition finalize_pi gates on before forming a pi range from the fitted amplitude A.
     PiShapeFit pi_shape;
 
+    // 3′ terminal-decay shape fit, per library channel (DS: G→A from pi_pos_3prime_ds; SS: C→T from
+    // pi_pos_3prime_ss). Fitted over ALL C_bin strata (C is 5'-defined, so the 3' fit must not
+    // condition on 5' damage). Lets the per-read kernel score the 3' end with its OWN {λ,baseline}
+    // instead of borrowing the 5' background — the 3' channel has a different q_m.
+    PiShapeFit pi_shape_3prime;
+
     // Reference-free scission rate γ (bp⁻¹) from the fine fragment-length histogram.
     // Set by finalize_scission; models the right tail as exp(−γ·(L−L_mode)).
     ScissionEstimate scission;

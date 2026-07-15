@@ -814,10 +814,11 @@ double damage_evidence_llr(const ReadDamageObs& obs, const SampleDamageProfile& 
     double lam3 = static_cast<double>(profile.lambda_3prime);
     double b5   = static_cast<double>(profile.fit_baseline_5prime);
     double b3   = static_cast<double>(profile.fit_baseline_3prime);
-    if (profile.pi_shape.fitted) {
-        lam5 = lam3 = profile.pi_shape.lambda;
-        b5 = b3 = profile.pi_shape.baseline;
-    }
+    // Each end takes its OWN fitted {λ,baseline}. The old code forced b3=b5, applying the 5' C→T
+    // background (b = q_m, the modern hypothesis) to the 3' G→A channel — biasing llr3 for every read
+    // regardless of damage. The 3' end now uses its own pi_shape_3prime decay fit.
+    if (profile.pi_shape.fitted)        { lam5 = profile.pi_shape.lambda;        b5 = profile.pi_shape.baseline; }
+    if (profile.pi_shape_3prime.fitted) { lam3 = profile.pi_shape_3prime.lambda; b3 = profile.pi_shape_3prime.baseline; }
 
     const double llr5 = end_llr(obs.five,  obs.n_five,  lam5, b5, A);
     const double llr3 = end_llr(obs.three, obs.n_three, lam3, b3, A);

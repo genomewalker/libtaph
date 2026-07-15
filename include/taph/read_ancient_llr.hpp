@@ -108,6 +108,13 @@ DamageEstimate finalize_tau(const SampleDamageProfile& profile, const TauConfig&
 // because it needs no length-bin profiling). finalize_pi gates the pi range on PiShapeFit::detected.
 PiShapeFit fit_pi_shape(const SampleDamageProfile& profile, const TauConfig& cfg = TauConfig{});
 
+// General cube fitter behind fit_pi_shape. Fit the terminal decay of ANY PiPosCube (5' C→T, 3'-DS
+// G→A, or 3'-SS C→T). exclude_c0=true skips the C_bin-0 no-event stratum (correct only for the 5'
+// cube, where C_bin is defined); the 3' cubes pass false (C is a 5'-defined stratum — see
+// damage_estimation_update.cpp). Lets the per-read kernel score each end with its OWN {λ,baseline}.
+PiShapeFit fit_pi_shape_cube(const SampleDamageProfile::PiPosCube& cube, bool exclude_c0,
+                             const TauConfig& cfg = TauConfig{});
+
 // Reference-free scission rate γ (bp⁻¹): left-truncated exponential MLE over the right tail of the
 // fine fragment-length histogram (peak bin onwards). γ tracks molecular degradation; larger γ → shorter
 // molecules. CI from Fisher information (Wald 95%). Returns ScissionEstimate::fitted==false when the
