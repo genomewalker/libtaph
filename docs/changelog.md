@@ -2,6 +2,25 @@
 
 ## main (unreleased)
 
+### Unified whole-source profiling (`profile_reads`)
+
+#### Added
+- **`profile_reads`** (`damage_profiler.hpp`) — one multi-threaded SE/merged
+  damage-profiling engine (pre-scan → per-read clip + `update_sample_profile` →
+  thread-index-ordered merge → `finalize_sample_profile`), with an optional
+  `PerReadHook` for caller side channels. `fqdup profile` and dart
+  `predict --allow-self-profile` both call it, so the finalized
+  `SampleDamageProfile` is byte-identical for identical reads + `ProfileConfig`.
+  Adds `ReaderFactory`, `PerReadHook`, `ProfileConfig`, `ProfileResult`.
+
+#### Changed
+- **`clip_adapters`** — 3' stub stripping is now **iterative** (promoted from
+  fqdup's `clip_worker_fn`), so stacked terminal stubs strip identically across
+  every caller; added `min_len <= 0` "pure-clip" mode for the short-fragment path.
+- **`run_prescan`** — `prescan_reads == 0` now means "scan the entire source"
+  (was a degenerate no-op), matching the documented `ProfileConfig::prescan_reads`
+  and dart `--profile-sample 0` contract.
+
 ### Damage verdict hardening (B-series)
 
 Reference-free per-library authentication was tightened so the library-level

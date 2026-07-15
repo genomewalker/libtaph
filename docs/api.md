@@ -456,6 +456,82 @@ When `forced_library_type != UNKNOWN`, downstream code should use the forced typ
 
 ---
 
+## Whole-source profiling (`taph/damage_profiler.hpp`)
+
+One engine for the complete single-end / merged damage-profiling loop. `fqdup profile` and
+`dart predict --allow-self-profile` both call `profile_reads`, so a finalized `SampleDamageProfile`
+is byte-identical for identical reads + identical `ProfileConfig` (integer-count accumulators + an
+associative, thread-index-ordered merge).
+
+### `run_prescan`
+
+```cpp
+taph::PrescanResult taph::run_prescan(
+    BatchFn batch_fn,
+    SampleDamageProfile::LibraryType forced_lib = LibraryType::UNKNOWN,
+    int    min_read_len  = 30,
+    size_t prescan_reads = 100000);   // 0 = scan the entire source
+```
+
+Scans up to `prescan_reads` sequences (**`0` = all**) to build the hexamer profile + terminal
+histogram, then calls `detect_adapter_stubs`. `batch_fn` appends up to `max` sequences to `out` and
+returns `true`, or returns `false` when exhausted; it must start at the head of the source.
+
+### `clip_adapters` / `encode_stub_codes`
+
+```cpp
+std::vector<uint32_t> taph::encode_stub_codes(const std::vector<std::string>& stubs);
+std::string taph::clip_adapters(const std::string& seq,
+                                const std::vector<uint32_t>& stub5_codes,
+                                const std::vector<uint32_t>& stub3_codes,
+                                int min_len = 30);
+```
+
+Strips a matching 5' stub once and **iteratively** strips stacked 3' stubs (6 bp at a time, down to a
+12 bp floor). `min_len > 0` returns an empty string when the clipped read falls below `min_len`
+(dart's Pass-2 length gate); `min_len <= 0` is "pure clip" — return the clipped bytes even below the
+floor (what `profile_reads` and the short-fragment path use).
+
+### `profile_reads`
+
+```cpp
+struct ProfileConfig {
+    int    threads              = 1;
+    SampleDamageProfile::LibraryType forced_lib = LibraryType::UNKNOWN;
+    int    min_read_len         = 30;      // full-length threshold
+    int    short_fragment_floor = 30;      // set on every per-thread profile pre-update
+    int    max_read_len         = 0;       // 0 = off
+    size_t prescan_reads        = 1000000; // 0 = all
+    const AdapterStubs* precomputed_stubs = nullptr;  // skip the internal pre-scan
+};
+
+struct ProfileResult {
+    SampleDamageProfile profile;   // merged + FINALIZED
+    AdapterStubs        stubs;     // detected (or the supplied precomputed_stubs)
+    int64_t reads_scanned, reads_skipped, len_sum, n_stub5_hits, n_stub3_hits, n_stub_reads_checked;
+    int     len_min, len_max;
+};
+
+using ReaderFactory = std::function<BatchFn()>;   // fresh reader @ head, per call
+using PerReadHook   = std::function<void(int tid, const std::string& seq, int L)>;
+
+taph::ProfileResult taph::profile_reads(const ReaderFactory& make_reader,
+                                        const ProfileConfig& cfg,
+                                        const PerReadHook&   hook = {});
+```
+
+Runs: (1) adapter pre-scan via `run_prescan` (or accepts `cfg.precomputed_stubs`); (2) a
+multi-threaded full pass — per-read `clip_adapters` then `update_sample_profile`; (3) merge per-thread
+profiles in thread-index order, then `finalize_sample_profile`. `make_reader` is invoked up to twice
+(pre-scan + full pass) and **must** restart at the source head each call.
+
+`hook` fires once per full-length read (clipped `L >= cfg.min_read_len`) from worker `tid`
+(`0 <= tid < cfg.threads`). Use it for side channels (OxoG / length-stratified histograms / EM
+training sets) into caller-owned, per-`tid` state — no locks. Do not touch a `SampleDamageProfile`
+in the hook; `profile_reads` owns it.
+
+The returned `profile` is finalized and ready to read.
+
 ## Damage Interpretation (`taph/library_interpretation.hpp`)
 
 Higher-level functions that operate on a finalized `SampleDamageProfile` to produce scores, flags, and summaries suitable for reporting.

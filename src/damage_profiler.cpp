@@ -22,11 +22,16 @@ PrescanResult run_prescan(BatchFn          batch_fn,
     uint64_t n_hex3 = 0;
     size_t   done   = 0;
 
+    // prescan_reads == 0 means "scan the entire source" (documented contract on
+    // ProfileConfig::prescan_reads and dart --profile-sample). Map it to the max so
+    // the bound checks below are unbounded rather than degenerate (0 < 0 == false).
+    const size_t cap = prescan_reads ? prescan_reads : ~size_t(0);
+
     std::vector<std::string> batch;
     bool more = true;
-    while (more && done < prescan_reads) {
+    while (more && done < cap) {
         batch.clear();
-        size_t want = std::min(size_t(50000), prescan_reads - done);
+        size_t want = std::min(size_t(50000), cap - done);
         more = batch_fn(batch, want);
         for (const auto& seq : batch) {
             if ((int)seq.size() < min_read_len) continue;
@@ -36,7 +41,7 @@ PrescanResult run_prescan(BatchFn          batch_fn,
                 int code = encode_hex_at(seq, L - 6);
                 if (code >= 0) { ++hex3[code]; ++n_hex3; }
             }
-            if (++done >= prescan_reads) break;
+            if (++done >= cap) break;
         }
     }
 
