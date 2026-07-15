@@ -268,6 +268,11 @@ per-position frequencies, and which positions exceed the mask threshold.
 Run it before `fqdup extend` or `fqdup derep --damage-auto` to verify
 auto-detection or supply parameters manually.
 
+Both `fqdup profile` and [dart](https://github.com/genomewalker/dart)'s
+`predict` self-profile call the same `taph::profile_reads` engine
+([API](https://genomewalker.github.io/libtaph/api/#profile_reads)), so a
+finalized profile is byte-identical across the two tools for identical reads.
+
 `fqdup profile` also runs a per-read LLR scorer fused into the oxoG pass
 and writes an `ancient_fraction` block to the JSON. This estimates the
 fraction of reads that are damaged (`pi`), and fits independent exponential
