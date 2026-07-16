@@ -26,7 +26,12 @@ namespace taph {
 
 struct DamageSummary {
     static constexpr uint32_t MAGIC   = 0x314d4454;  // 'TDM1'
-    static constexpr uint32_t VERSION = 1;
+    // v2 adds the 3' terminal-decay shape. Without it a consumer restores pi_shape (5')
+    // but scores the 3' end off the lambda_3prime/fit_baseline_3prime FALLBACK, while the
+    // producer used the fitted 3' shape -- i.e. the sidecar silently reintroduced the very
+    // per-end divergence the b3=b5 fix removed. No migration cost: nothing had ever called
+    // write_damage_summary, so no v1 sidecar exists anywhere.
+    static constexpr uint32_t VERSION = 2;
 
     // continuous scalars the AGD header carries
     float  d_max_combined       = 0.0f;
@@ -42,6 +47,10 @@ struct DamageSummary {
     double pi_point             = -1.0;
     double pi_shape_lambda      = -1.0;
     double pi_shape_baseline    = -1.0;
+    // v2: the 3' end's OWN fitted decay (DS G->A / SS C->T). The per-read kernel takes
+    // lam3/b3 from here when fitted; carrying only the 5' shape made the consumer diverge.
+    double pi_shape_3p_lambda   = -1.0;
+    double pi_shape_3p_baseline = -1.0;
 
     // discrete/flag scalars
     uint8_t library_type      = 2;  // 0 unknown, 1 ss, 2 ds (matches AGD encoding)
@@ -49,6 +58,7 @@ struct DamageSummary {
     uint8_t damage_artifact   = 0;
     uint8_t channel_b_valid   = 0;
     uint8_t pi_shape_fitted   = 0;
+    uint8_t pi_shape_3p_fitted = 0;  // v2
     uint8_t pi_state          = static_cast<uint8_t>(DamageConfidence::UNDETERMINED);
 
     // ── build from a finalized profile (fqdup side) ─────────────────────────────
@@ -67,6 +77,8 @@ struct DamageSummary {
         s.pi_point             = p.pi.point;
         s.pi_shape_lambda      = p.pi_shape.lambda;
         s.pi_shape_baseline    = p.pi_shape.baseline;
+        s.pi_shape_3p_lambda   = p.pi_shape_3prime.lambda;
+        s.pi_shape_3p_baseline = p.pi_shape_3prime.baseline;
         switch (p.library_type) {
             case SampleDamageProfile::LibraryType::SINGLE_STRANDED: s.library_type = 1; break;
             case SampleDamageProfile::LibraryType::DOUBLE_STRANDED: s.library_type = 2; break;
@@ -76,6 +88,7 @@ struct DamageSummary {
         s.damage_artifact  = p.damage_artifact ? 1 : 0;
         s.channel_b_valid  = p.channel_b_valid ? 1 : 0;
         s.pi_shape_fitted  = p.pi_shape.fitted ? 1 : 0;
+        s.pi_shape_3p_fitted = p.pi_shape_3prime.fitted ? 1 : 0;
         s.pi_state         = static_cast<uint8_t>(p.pi.state);
         return s;
     }
@@ -99,6 +112,12 @@ struct DamageSummary {
         p.pi_shape.lambda      = pi_shape_lambda;
         p.pi_shape.baseline    = pi_shape_baseline;
         p.pi_shape.fitted      = pi_shape_fitted != 0;
+        // v2: restore the 3' end's own shape, so the consumer's per-read kernel takes the
+        // SAME lam3/b3 the producer fitted instead of silently falling back to
+        // lambda_3prime/fit_baseline_3prime (a 5'-derived background on a 3' channel).
+        p.pi_shape_3prime.lambda   = pi_shape_3p_lambda;
+        p.pi_shape_3prime.baseline = pi_shape_3p_baseline;
+        p.pi_shape_3prime.fitted   = pi_shape_3p_fitted != 0;
         switch (library_type) {
             case 1:  p.library_type = SampleDamageProfile::LibraryType::SINGLE_STRANDED; break;
             case 2:  p.library_type = SampleDamageProfile::LibraryType::DOUBLE_STRANDED; break;
@@ -160,11 +179,14 @@ inline bool write_damage_summary(const std::string& path, const DamageSummary& s
     detail::put(b, s.pi_point);
     detail::put(b, s.pi_shape_lambda);
     detail::put(b, s.pi_shape_baseline);
+    detail::put(b, s.pi_shape_3p_lambda);    // v2
+    detail::put(b, s.pi_shape_3p_baseline);  // v2
     detail::put(b, s.library_type);
     detail::put(b, s.damage_validated);
     detail::put(b, s.damage_artifact);
     detail::put(b, s.channel_b_valid);
     detail::put(b, s.pi_shape_fitted);
+    detail::put(b, s.pi_shape_3p_fitted);    // v2
     detail::put(b, s.pi_state);
     std::ofstream f(path, std::ios::binary | std::ios::trunc);
     if (!f) return false;
@@ -195,11 +217,14 @@ inline std::optional<DamageSummary> read_damage_summary(const std::string& path)
            && detail::get(p, end, s.pi_point)
            && detail::get(p, end, s.pi_shape_lambda)
            && detail::get(p, end, s.pi_shape_baseline)
+           && detail::get(p, end, s.pi_shape_3p_lambda)    // v2
+           && detail::get(p, end, s.pi_shape_3p_baseline)  // v2
            && detail::get(p, end, s.library_type)
            && detail::get(p, end, s.damage_validated)
            && detail::get(p, end, s.damage_artifact)
            && detail::get(p, end, s.channel_b_valid)
            && detail::get(p, end, s.pi_shape_fitted)
+           && detail::get(p, end, s.pi_shape_3p_fitted)    // v2
            && detail::get(p, end, s.pi_state);
     if (!ok) return std::nullopt;
     return s;
