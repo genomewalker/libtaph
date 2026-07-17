@@ -31,7 +31,10 @@ struct DamageSummary {
     // producer used the fitted 3' shape -- i.e. the sidecar silently reintroduced the very
     // per-end divergence the b3=b5 fix removed. No migration cost: nothing had ever called
     // write_damage_summary, so no v1 sidecar exists anywhere.
-    static constexpr uint32_t VERSION = 2;
+    // v3 adds pi_damaged_point: the library damaged-read FRACTION (δ/d_max). Unlike pi.point
+    // it is NOT gated by the DamageConfidence verdict, so it survives LOW_ABUNDANCE and is the
+    // empirical-Bayes prior for the consumer's per-protein authentication probability.
+    static constexpr uint32_t VERSION = 3;
 
     // continuous scalars the AGD header carries
     float  d_max_combined       = 0.0f;
@@ -51,6 +54,9 @@ struct DamageSummary {
     // lam3/b3 from here when fitted; carrying only the 5' shape made the consumer diverge.
     double pi_shape_3p_lambda   = -1.0;
     double pi_shape_3p_baseline = -1.0;
+    // v3: library damaged-read fraction δ/d_max (SampleDamageProfile::pi_damaged). Survives
+    // the abstain states (LOW_ABUNDANCE etc.) that gate pi.point; the authentication prior.
+    float  pi_damaged_point     = -1.0f;
 
     // discrete/flag scalars
     uint8_t library_type      = 2;  // 0 unknown, 1 ss, 2 ds (matches AGD encoding)
@@ -79,6 +85,7 @@ struct DamageSummary {
         s.pi_shape_baseline    = p.pi_shape.baseline;
         s.pi_shape_3p_lambda   = p.pi_shape_3prime.lambda;
         s.pi_shape_3p_baseline = p.pi_shape_3prime.baseline;
+        s.pi_damaged_point     = p.pi_damaged;   // v3: ungated damaged-read fraction
         switch (p.library_type) {
             case SampleDamageProfile::LibraryType::SINGLE_STRANDED: s.library_type = 1; break;
             case SampleDamageProfile::LibraryType::DOUBLE_STRANDED: s.library_type = 2; break;
@@ -126,6 +133,9 @@ struct DamageSummary {
         p.damage_validated = damage_validated != 0;
         p.damage_artifact  = damage_artifact != 0;
         p.channel_b_valid  = channel_b_valid != 0;
+        // v3: restore the ungated damaged-read fraction so the consumer's AGD writer stamps it
+        // as the per-protein authentication prior. Negative ⇒ absent ⇒ leave the profile default.
+        if (pi_damaged_point >= 0.0f) p.pi_damaged = pi_damaged_point;
     }
 };
 
@@ -181,6 +191,7 @@ inline bool write_damage_summary(const std::string& path, const DamageSummary& s
     detail::put(b, s.pi_shape_baseline);
     detail::put(b, s.pi_shape_3p_lambda);    // v2
     detail::put(b, s.pi_shape_3p_baseline);  // v2
+    detail::put(b, s.pi_damaged_point);      // v3
     detail::put(b, s.library_type);
     detail::put(b, s.damage_validated);
     detail::put(b, s.damage_artifact);
@@ -202,7 +213,13 @@ inline std::optional<DamageSummary> read_damage_summary(const std::string& path)
     const char* end = p + b.size();
     uint32_t magic = 0, version = 0;
     if (!detail::get(p, end, magic) || magic != DamageSummary::MAGIC) return std::nullopt;
-    if (!detail::get(p, end, version) || version != DamageSummary::VERSION) return std::nullopt;
+    // Version-tolerant: the layout is append-only, so a v2 file is a v3 file WITHOUT the
+    // trailing pi_damaged_point float. Accept v2 or v3 (reject only <2 or >VERSION); read the
+    // shared fields for both, and pull pi_damaged_point ONLY when version >= 3. A v2 file leaves
+    // pi_damaged_point at its -1.0 default, so apply_to's `>= 0` guard skips it (existing .tdmg
+    // keep loading; those libraries fall through to annotate's no_library/fallback tier).
+    if (!detail::get(p, end, version) || version < 2 || version > DamageSummary::VERSION)
+        return std::nullopt;
     DamageSummary s;
     bool ok = detail::get(p, end, s.d_max_combined)
            && detail::get(p, end, s.d_max_5prime)
@@ -218,7 +235,10 @@ inline std::optional<DamageSummary> read_damage_summary(const std::string& path)
            && detail::get(p, end, s.pi_shape_lambda)
            && detail::get(p, end, s.pi_shape_baseline)
            && detail::get(p, end, s.pi_shape_3p_lambda)    // v2
-           && detail::get(p, end, s.pi_shape_3p_baseline)  // v2
+           && detail::get(p, end, s.pi_shape_3p_baseline); // v2
+    if (ok && version >= 3)
+        ok = detail::get(p, end, s.pi_damaged_point);       // v3 (append-only trailing float)
+    ok = ok
            && detail::get(p, end, s.library_type)
            && detail::get(p, end, s.damage_validated)
            && detail::get(p, end, s.damage_artifact)
