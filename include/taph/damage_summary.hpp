@@ -54,8 +54,13 @@ struct DamageSummary {
     // lam3/b3 from here when fitted; carrying only the 5' shape made the consumer diverge.
     double pi_shape_3p_lambda   = -1.0;
     double pi_shape_3p_baseline = -1.0;
-    // v3: library damaged-read fraction δ/d_max (SampleDamageProfile::pi_damaged). Survives
-    // the abstain states (LOW_ABUNDANCE etc.) that gate pi.point; the authentication prior.
+    // v3: latent damaged-molecule prevalence, the length-stratified joint mixture value
+    // LengthStratifiedDamageProfile::pi_joint_damaged. This is the empirical-Bayes PRIOR for
+    // the consumer's per-protein probability-of-being-damaged. It is NOT the raw terminal-
+    // damage observation ratio SampleDamageProfile::pi_damaged (damaged_obs/total_obs), which
+    // is inflated and reuses the same C->T/G->A evidence the per-read likelihood re-uses ->
+    // circular. Left at -1.0 (undetermined) when the LSD joint is null or <= 0 so the
+    // consumer's apply_to `>= 0` guard skips it (no-authentication tier).
     float  pi_damaged_point     = -1.0f;
 
     // discrete/flag scalars
@@ -68,7 +73,12 @@ struct DamageSummary {
     uint8_t pi_state          = static_cast<uint8_t>(DamageConfidence::UNDETERMINED);
 
     // ── build from a finalized profile (fqdup side) ─────────────────────────────
-    static DamageSummary from_profile(const SampleDamageProfile& p) {
+    // pi_joint_damaged is LengthStratifiedDamageProfile::pi_joint_damaged (the latent
+    // damaged-molecule prevalence). Pass <= 0 (default) when the LSD is null/unavailable or
+    // the joint mixture did not resolve -- pi_damaged_point then stays at its -1.0 default so
+    // the consumer's apply_to guard skips the prior. Never pass p.pi_damaged here (circular).
+    static DamageSummary from_profile(const SampleDamageProfile& p,
+                                      double pi_joint_damaged = -1.0) {
         DamageSummary s;
         s.d_max_combined       = p.d_max_combined;
         s.d_max_5prime         = p.d_max_5prime;
@@ -85,7 +95,8 @@ struct DamageSummary {
         s.pi_shape_baseline    = p.pi_shape.baseline;
         s.pi_shape_3p_lambda   = p.pi_shape_3prime.lambda;
         s.pi_shape_3p_baseline = p.pi_shape_3prime.baseline;
-        s.pi_damaged_point     = p.pi_damaged;   // v3: ungated damaged-read fraction
+        s.pi_damaged_point     = (pi_joint_damaged > 0.0)   // v3: LSD joint prior; -1.0 = undetermined
+                                     ? static_cast<float>(pi_joint_damaged) : -1.0f;
         switch (p.library_type) {
             case SampleDamageProfile::LibraryType::SINGLE_STRANDED: s.library_type = 1; break;
             case SampleDamageProfile::LibraryType::DOUBLE_STRANDED: s.library_type = 2; break;
