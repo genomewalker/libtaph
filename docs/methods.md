@@ -396,6 +396,8 @@ On top of a finalized `LengthBinStats`, `fit_length_gc_joint_mixture` runs a sha
 
 The design reuses `DamageMixtureModel`'s fixed priors (undamaged width `τ₀ = 0.01`, damaged width `τ₁ = 0.10`, minimum per-cell sigma `0.02`) so length × GC cells live in the same calibration as the GC-only fit. Per-cell posteriors give downstream code a per-length-bin damaged fraction rather than a single global number, which matters when the short end of the distribution is almost entirely damaged and the long end is dominated by a non-damaged contaminant.
 
+The mixing weight `pi_ancient` is serialized to the `.tdmg` sidecar as `pi_damaged_point` (see [API Reference](api.md#damage-summary-sidecar-taphdamage_summaryhpp)) and used downstream as an empirical-Bayes prior on authenticity. Because the E-step likelihood reads only each cell's `d_max` and `c_sites`, it is a different functional of the *same* terminal-deamination channel the per-read scorer uses — a prior over that signal, not independent corroboration of it.
+
 ---
 
 ## Context-aware terminal damage

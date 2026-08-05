@@ -740,6 +740,21 @@ Fixed priors match `DamageMixtureModel`: `μ₀ = 0`, `τ₀ = 0.01`, `τ₁ = 0
 
 ---
 
+## Damage summary sidecar (`taph/damage_summary.hpp`)
+
+`DamageSummary` is the binary `.tdmg` sidecar that carries a finalized library's damage scalars between tools (magic `'TDM1'`, current `VERSION = 3`). `fqdup profile --damage-summary FILE` writes it; a downstream classifier reads it back with `DamageSummary::read` and `apply_to` to seed per-read scoring without re-profiling. It stores the terminal-decay shape (`d_max_5prime/3prime`, `lambda_*`, `fit_baseline_*`), the co-occurrence and pi-shape scalars, and — since v3 — the joint-mixture prevalence field below.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pi_damaged_point` | `float` | Serialized `LengthStratifiedDamageProfile::pi_joint_damaged` — the `pi_ancient` mixing weight of the length × GC joint mixture above. `-1.0` when the joint did not resolve. |
+
+`pi_damaged_point` is the **empirical-Bayes prior** the consumer folds into its per-protein authentication probability. Two properties matter:
+
+- **Ungated.** Unlike `pi_point` it is not withheld by the `DamageConfidence` verdict, so it survives `LOW_ABUNDANCE` and `UNDETERMINED` libraries. A `-1.0` value (LSD null or non-positive) signals "no prior" and the consumer's `apply_to` guard skips it.
+- **Not independent evidence.** The mixture E-step likelihood reads only each cell's `d_max` and `c_sites` (`joint_damage_model.hpp`) — no length or GC term enters it — so `pi_damaged_point` is a *different functional of the same* C→T/G→A channel the per-read LLR already scores, not a second channel (measured ρ ≈ 0.91 vs `d_max` over 38 KapK libraries). It is clamped to `[1e-3, 1-1e-3]` by `PI_FLOOR`, so a reported `0.999` is a pinned bound, not a fit. Do not treat it as corroboration of the terminal-damage signal; treat it as a prior over it. It is distinct from `SampleDamageProfile::pi_damaged` (the pooled `damaged_obs/total_obs` terminal ratio, which *is* `DamageConfidence`-gated).
+
+---
+
 ## Hexamer tables and domain classifier (`taph/hexamer_tables.hpp`)
 
 Eight pre-computed 4096-bin hexamer frequency tables plus a softmax domain classifier that scores a read against all of them.
