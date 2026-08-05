@@ -231,13 +231,13 @@ Alongside the library-type call, libtaph emits a training-free damage-context pr
 
 [fqdup](https://github.com/genomewalker/fqdup) uses libtaph for
 reference-free damage estimation before deduplication. The standalone
-`fqdup damage` subcommand runs the full profiler and prints a human-readable
+`fqdup profile` subcommand runs the full profiler and prints a human-readable
 report:
 
 ```
-$ fqdup damage -i merged.fq.gz
+$ fqdup profile -i merged.fq.gz
 
-=== fqdup damage ===
+=== fqdup profile ===
 Input:   merged.fq.gz
 Threads: 16
 Reads:   5,582,073 scanned
@@ -280,6 +280,24 @@ decay profiles (`d_max_5prime_fit`, `lambda_5prime`, ...) for the damaged and
 non-damaged read pools separately — giving unmixed damage estimates that are
 comparable to reference-based tools (mapDamage, metaDMG) without requiring
 alignment.
+
+### The `.tdmg` sidecar and `pi_damaged_point` (v3)
+
+`fqdup profile --damage-summary FILE` writes a compact binary `DamageSummary`
+sidecar for DART's `--library-profile`. The v3 field `pi_damaged_point` is the
+library's estimated fraction of damaged *molecules*, taken from the
+length-stratified joint mixture (`LengthStratifiedDamageProfile::pi_joint_damaged`):
+two components fitted over length × GC cells, the value being the `c_sites`-weighted
+fraction of cells assigned to the high-damage component. It is clamped to
+`[1e-3, 1-1e-3]` by `PI_FLOOR`, so `0.999` means the fit hit the ceiling — read it
+as saturated, not as a point estimate. It is **not** gated by `DamageConfidence`, so
+it stays populated for `LOW_ABUNDANCE` / `UNDETERMINED` libraries; `-1.0` means
+undetermined and the prior should be skipped. Use it as a prior only: the mixture is
+identified entirely by terminal-deamination rates — the same signal the per-read
+damage LLR scores — so it re-expresses that evidence rather than corroborating it
+independently (ρ ≈ 0.91 with `d_max` across 38 libraries). Consumers adding it to a
+per-read LLR must strip any baked-in `logit(pi)` first, as DART does in
+`cmd_damage_annotate.cpp`.
 
 ---
 

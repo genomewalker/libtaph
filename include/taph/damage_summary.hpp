@@ -31,9 +31,11 @@ struct DamageSummary {
     // producer used the fitted 3' shape -- i.e. the sidecar silently reintroduced the very
     // per-end divergence the b3=b5 fix removed. No migration cost: nothing had ever called
     // write_damage_summary, so no v1 sidecar exists anywhere.
-    // v3 adds pi_damaged_point: the library damaged-read FRACTION (δ/d_max). Unlike pi.point
-    // it is NOT gated by the DamageConfidence verdict, so it survives LOW_ABUNDANCE and is the
-    // empirical-Bayes prior for the consumer's per-protein authentication probability.
+    // v3 adds pi_damaged_point: the mixture-based damaged-MOLECULE prevalence
+    // LengthStratifiedDamageProfile::pi_joint_damaged, not a terminal-rate ratio. Unlike
+    // pi_point it is NOT gated by the DamageConfidence verdict, so it survives LOW_ABUNDANCE
+    // and UNDETERMINED, and it is the empirical-Bayes prior for the consumer's per-protein
+    // authentication probability.
     static constexpr uint32_t VERSION = 3;
 
     // continuous scalars the AGD header carries
@@ -54,13 +56,21 @@ struct DamageSummary {
     // lam3/b3 from here when fitted; carrying only the 5' shape made the consumer diverge.
     double pi_shape_3p_lambda   = -1.0;
     double pi_shape_3p_baseline = -1.0;
-    // v3: latent damaged-molecule prevalence, the length-stratified joint mixture value
-    // LengthStratifiedDamageProfile::pi_joint_damaged. This is the empirical-Bayes PRIOR for
-    // the consumer's per-protein probability-of-being-damaged. It is NOT the raw terminal-
-    // damage observation ratio SampleDamageProfile::pi_damaged (damaged_obs/total_obs), which
-    // is inflated and reuses the same C->T/G->A evidence the per-read likelihood re-uses ->
-    // circular. Left at -1.0 (undetermined) when the LSD joint is null or <= 0 so the
-    // consumer's apply_to `>= 0` guard skips it (no-authentication tier).
+    // v3: prevalence of damaged MOLECULES from the length-stratified joint mixture
+    // (LengthStratifiedDamageProfile::pi_joint_damaged) -- two components fitted over the
+    // length x GC cells, this being the c_sites-weighted fraction of cells assigned to the
+    // high-d_max component. Empirical-Bayes PRIOR for the consumer's per-protein probability.
+    // Differs from SampleDamageProfile::pi_damaged (damaged_obs/total_obs) two ways that
+    // matter: it is a mixture assignment over cells rather than one pooled terminal ratio, and
+    // it is ungated by DamageConfidence so it is populated where pi_point is withheld.
+    // NOT independent evidence. The mixture E-step likelihood reads only bins[i].d_max and
+    // bins[i].c_sites (joint_damage_model.hpp) -- no length or GC term enters it -- so this is
+    // a different FUNCTIONAL of the same C->T/G->A channel the per-read LLR scores, not a
+    // second channel. Measured rho(pi_damaged_point, d_max) ~ 0.91 over 38 KapK libraries.
+    // Clamped to [1e-3, 1-1e-3] by PI_FLOOR (joint_damage_model.hpp:494): 0.999 is a pinned
+    // bound, not a fit (8/38 KapK libraries pin there).
+    // Left at -1.0 (undetermined) when the LSD joint is null or <= 0 so the consumer's
+    // apply_to `>= 0` guard skips it (no-authentication tier).
     float  pi_damaged_point     = -1.0f;
 
     // discrete/flag scalars
@@ -76,7 +86,9 @@ struct DamageSummary {
     // pi_joint_damaged is LengthStratifiedDamageProfile::pi_joint_damaged (the latent
     // damaged-molecule prevalence). Pass <= 0 (default) when the LSD is null/unavailable or
     // the joint mixture did not resolve -- pi_damaged_point then stays at its -1.0 default so
-    // the consumer's apply_to guard skips the prior. Never pass p.pi_damaged here (circular).
+    // the consumer's apply_to guard skips the prior. Never pass p.pi_damaged here: it is the
+    // pooled terminal ratio (damaged_obs/total_obs), a different and DamageConfidence-gated
+    // estimand -- consumers key off this field being the mixture value.
     static DamageSummary from_profile(const SampleDamageProfile& p,
                                       double pi_joint_damaged = -1.0) {
         DamageSummary s;
@@ -144,8 +156,10 @@ struct DamageSummary {
         p.damage_validated = damage_validated != 0;
         p.damage_artifact  = damage_artifact != 0;
         p.channel_b_valid  = channel_b_valid != 0;
-        // v3: restore the ungated damaged-read fraction so the consumer's AGD writer stamps it
-        // as the per-protein authentication prior. Negative ⇒ absent ⇒ leave the profile default.
+        // v3: restore the ungated mixture-based damaged-molecule prevalence (LSD joint) so the
+        // consumer's AGD writer stamps it as the per-protein authentication prior. It re-expresses
+        // the same terminal-deamination signal the per-read LLR scores, so it is a prior, not
+        // independent corroboration. Negative ⇒ absent ⇒ leave the profile default.
         if (pi_damaged_point >= 0.0f) p.pi_damaged = pi_damaged_point;
     }
 };
