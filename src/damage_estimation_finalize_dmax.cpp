@@ -70,6 +70,12 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
             float weight_sum = 0.0f;
             float peak_dmax = 0.0f;
             int peak_bin = -1;
+            // Same position-0 rule as raw_d_max_5prime above: an adapter artifact at pos 0
+            // depletes T there, so the per-bin terminal rate is the peak over positions 1-5.
+            // Reading pos 0 regardless clamped most bins to 0 (merged ds: 0.014 vs 0.166 per-end).
+            const bool skip_pos0_5p = profile.position_0_artifact_5prime ||
+                                      profile.inverted_pattern_5prime ||
+                                      profile.briggs_pos0_masked_5prime;
 
             for (int bin = 0; bin < SampleDamageProfile::N_GC_BINS; ++bin) {
                 auto& b = profile.gc_bins[bin];
@@ -86,8 +92,14 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
                 double t_baseline = static_cast<double>(b.t_interior) /
                                    (b.t_interior + b.c_interior + 1);
                 double c_baseline = 1.0 - t_baseline;
-                double t_terminal = static_cast<double>(b.t_counts[0]) /
-                                   (b.t_counts[0] + b.c_counts[0] + 1);
+                auto t_frac_at = [&](int p) {
+                    return static_cast<double>(b.t_counts[p]) / (b.t_counts[p] + b.c_counts[p] + 1);
+                };
+                double t_terminal = t_frac_at(0);
+                if (skip_pos0_5p) {
+                    t_terminal = 0.0;
+                    for (int p = 1; p <= 5; ++p) t_terminal = std::max(t_terminal, t_frac_at(p));
+                }
 
                 // SS damage is also C→T at the 3' end, but the ss 3' TERMINUS carries a
                 // library-prep artifact (a clean-looking C→T decay) that the composition-immune
