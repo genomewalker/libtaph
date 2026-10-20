@@ -143,7 +143,17 @@ struct BulkDamagePerBin {
     // pi_lo/pi_hi hold real probabilities in [0,1]. The −1.0 sentinels are internal-only; profile_json.cpp
     // gates on this flag to emit JSON null instead of −1.0. Default false (reset in fit()).
     bool   pi_identified = false;
+    // pi_identified and the library's tau_discriminator is DETECTED: the split reads as a damaged
+    // fraction. Set after finalize_tau (tau needs the profile curves fit() produces). tau's 35/80 bp
+    // thresholds are provisional (3 labelled libraries), so this flag is too.
+    bool   pi_authentic = false;
 };
+
+// The shared d_max (inverse-variance weight sum_w) is identified when its lower 95% edge clears the
+// largest per-bin δ and it stays off the probability bound.
+inline bool dmax_split_identified(double sum_w, double dmax_raw, double max_delta) {
+    return sum_w > 0.0 && dmax_raw - 1.96 * std::sqrt(1.0 / sum_w) > max_delta && dmax_raw < 1.0 - 1e-3;
+}
 
 // ----------------------------------------------------------------------------- whole-fit result
 

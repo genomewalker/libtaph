@@ -36,6 +36,8 @@ void FrameSelector::finalize_sample_profile(SampleDamageProfile& profile, int bu
     finalize_oxidation(profile, ctx);
     finalize_bulk(profile, bulk_fit_threads);
     profile.tau                   = finalize_tau(profile);
+    for (auto& b : profile.bulk_damage.bins)
+        b.pi_authentic = b.pi_identified && profile.tau.state == DamageConfidence::DETECTED;
     profile.pi_shape              = fit_pi_shape(profile);
     // 3' end shape from its OWN channel (DS G→A / SS C→T), pooled over all C_bin strata (C is
     // 5'-defined). library_type is resolved above by finalize_libtype, so the channel pick is safe.

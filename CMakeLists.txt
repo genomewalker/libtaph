@@ -156,6 +156,11 @@ if(TAPH_BUILD_TESTS)
     target_compile_options(test_paired_lsd_bin PRIVATE -O2 -Wall -Wextra)
     add_test(NAME paired_lsd_bin COMMAND test_paired_lsd_bin)
 
+    add_executable(test_dmax_split tests/test_dmax_split.cpp)
+    target_link_libraries(test_dmax_split PRIVATE taph)
+    target_compile_options(test_dmax_split PRIVATE -O2 -Wall -Wextra)
+    add_test(NAME dmax_split COMMAND test_dmax_split)
+
     add_executable(test_pi_shape_kinvariance tests/test_pi_shape_kinvariance.cpp)
     target_link_libraries(test_pi_shape_kinvariance PRIVATE taph)
     target_compile_options(test_pi_shape_kinvariance PRIVATE -O2 -Wall -Wextra)
