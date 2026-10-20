@@ -48,6 +48,8 @@ add_library(taph
     src/ancient_fraction.cpp
     src/oxog_score.cpp
     src/lsd_accumulator.cpp
+    src/length_damage_profile.cpp
+    src/library_profile.cpp
 )
 
 add_library(taph::taph ALIAS taph)
@@ -58,7 +60,10 @@ target_include_directories(taph PUBLIC
 )
 
 set(TAPH_MARCH "" CACHE STRING "Value passed to -march=; empty = portable. Set to 'native' for local optimisation.")
-target_compile_options(taph PRIVATE -O2 -Wall -Wextra)
+# Never fuse multiply-adds: hosts build libtaph with different -march and -std
+# (fqdup: gnu++17 + x86-64-v3, DART: c++17 + nocona/avx2), and fused multiply-adds
+# round differently, so damage numbers would depend on the tool that computed them.
+target_compile_options(taph PRIVATE -O2 -Wall -Wextra -ffp-contract=off)
 if(NOT "${TAPH_MARCH}" STREQUAL "")
     target_compile_options(taph PRIVATE -march=${TAPH_MARCH})
 endif()
