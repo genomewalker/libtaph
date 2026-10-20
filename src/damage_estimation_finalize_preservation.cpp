@@ -36,10 +36,8 @@ void finalize_preservation(SampleDamageProfile& profile) {
             // at 0.5, positives push toward 1 (SOLUTION_pi_delta_dmax.md §6). d_max here is
             // already w_length-gated by finalize_dmax, so at a null both factors → ~0.
             float d_auth = sig((profile.d_max_combined - 0.05f) / 0.03f);
-            // Smooth in w_length (0.08 at the null 0.5, 0.92 at 0.9). The old clamp((w-0.5)/0.4)
-            // was 0 up to w = 0.5 and then rose linearly, so near the null a change of 5e-4 in w
-            // moved f_coh from its 0.001 floor to 0.036 and the score by ~2.7x.
-            float w_coupling = sig((static_cast<float>(profile.bulk_damage.w_length) - 0.7f) / 0.08f);
+            float w_coupling = std::clamp(
+                (static_cast<float>(profile.bulk_damage.w_length) - 0.5f) / 0.4f, 0.0f, 1.0f);
             float coh_signal = d_auth * w_coupling;
             // ds: penalise end-asymmetry, but use d_max_combined as floor so that
             // samples where bulk estimator zeroes d3 (noise/rescue limitation) are not
@@ -52,9 +50,7 @@ void finalize_preservation(SampleDamageProfile& profile) {
             float sym = (is_ss || ds_3prime_censored) ? 1.0f
                 : std::exp(-std::abs(std::log((d5_sym + EPS)
                                              / (d3_sym + EPS))) / 0.7f);
-            // Floor 0.3, as for f_cpg: no detectable length coupling is not evidence against
-            // preservation, so it should not drive the geometric mean toward zero.
-            profile.preservation_f_coh = std::max(std::sqrt(std::max(coh_signal, EPS) * std::max(sym, EPS)), 0.3f);
+            profile.preservation_f_coh = std::sqrt(std::max(coh_signal, EPS) * std::max(sym, EPS));
         }
 
         // f_cpg: CpG age-bias; log2(CpG_dmax/nonCpG_dmax) > 1 = methyl-C deamination enriched.
