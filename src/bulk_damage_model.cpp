@@ -396,6 +396,28 @@ double BulkDamageModel::core_param_change(const Params& A, const Params& B,
     return m;
 }
 
+double BulkDamageModel::delta_information(const BulkDamageSuffStats& s, const Params& P, int l) {
+    // Damage channel: μ = h + (1−h)·δ·r, so dμ/dδ = (1−h)·r and the binomial term's
+    // −d²ℓ/dδ² = (k/μ² + (n−k)/(1−μ)²)·((1−h)·r)². Clamped cells are flat in δ.
+    const DecayTable decay = make_decay(P, s.ss);
+    const int c = 0;
+    double info = 0.0;
+    for (int e = 0; e < N_END; ++e) {
+        const auto& cell = s.bin[l][c][e];
+        for (int p = 0; p < N_POS; ++p) {
+            if (!cell_live(s, c, e, p) || cell.n[p] == 0 || decay[p] == 0.0) continue;
+            const double h  = eta(P, c, e, l, p);
+            const double g  = (1.0 - h) * decay[p];
+            const double mu = h + g * P.delta[l];
+            if (mu <= MU_EPS || mu >= 1.0 - MU_EPS) continue;
+            const double k = static_cast<double>(cell.k[p]);
+            const double n = static_cast<double>(cell.n[p]);
+            info += (k / (mu * mu) + (n - k) / ((1.0 - mu) * (1.0 - mu))) * g * g;
+        }
+    }
+    return info;
+}
+
 // Coordinate ascent to convergence (scale-free param-change stop). pinned_idx≥0 holds δ_{pinned}=pinned_val.
 int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
                                        const std::vector<int>& live,
@@ -574,27 +596,19 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_thread
     // Real terminal deamination occupies a fixed terminal zone → damaged-base mass per read
     // m(L)=δ_L·L is flat-or-falling in read length (slope_m ≤ 0). A per-base/whole-molecule artifact
     // adds a constant rate → m(L)∝L (slope_m ≫ 0). slope_m = OLS slope of m vs L over live bins;
-    // w_length = σ(−slope_m / (c·SE_slope)). Var(δ_l) is read from the curvature of each bin's profile
-    // likelihood (the data's own Fisher information): a bin whose δ is weakly determined widens SE and
-    // pulls w toward 0.5 (undetermined) instead of forcing a verdict.
+    // w_length = σ(−slope_m / (c·SE_slope)). Var(δ_l) = 1/I(δ_l), the closed-form information at the
+    // fit (delta_information). It used to be a finite difference of the profile likelihood, whose
+    // points are only converged to a tolerance relative to |ℓ| (0.1–10 units at 1e7–1e9), so the
+    // curvature, and with it w_length, carried numerical noise. A bin with no information gives
+    // Var = ∞, widens SE and pulls w toward 0.5 (undetermined) instead of forcing a verdict.
     {
         std::vector<double> Lv, mv, vd;       // length, mass m=δ·L, Var(δ) per live bin
         for (int l : live) {
             const BulkDamagePerBin& B = R.bins[l];
-            int ng = static_cast<int>(B.profile_loglik.size());
-            if (ng < 3 || static_cast<int>(B.profile_delta.size()) < 2) continue;
-            // curvature at the profile peak: I = −d²ℓ/dδ² ⇒ Var(δ)=1/I (∞ if non-concave/boundary-flat)
-            int kpk = 0;
-            for (int g = 1; g < ng; ++g) if (B.profile_loglik[g] > B.profile_loglik[kpk]) kpk = g;
-            int kc = std::clamp(kpk, 1, ng - 2);          // centre stencil; boundary peak → nearest interior
-            double h  = B.profile_delta[1] - B.profile_delta[0];
-            double d2 = (B.profile_loglik[kc + 1] - 2.0 * B.profile_loglik[kc] + B.profile_loglik[kc - 1])
-                        / (h * h);
-            double var = (h > 0.0 && d2 < 0.0) ? 1.0 / (-d2)
-                                               : std::numeric_limits<double>::infinity();
+            const double info = delta_information(s, P, l);
             Lv.push_back(B.median_len);
             mv.push_back(B.delta * B.median_len);
-            vd.push_back(var);
+            vd.push_back(info > 0.0 ? 1.0 / info : std::numeric_limits<double>::infinity());
         }
         int n = static_cast<int>(Lv.size());
         if (n >= 2) {
