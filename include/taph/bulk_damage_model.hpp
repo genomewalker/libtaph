@@ -249,6 +249,16 @@ struct BulkDamageResult {
                                          // false ⇒ ds library, or ss whose p0 overhang was not identifiable
 };
 
+// Main-fit iteration record for tests: penalised objective at the start and after every plain sweep
+// or SQUAREM iteration, and how many extrapolations were kept or fell back. force_alpha > 0 replaces
+// the clamped step length.
+struct BulkFitTrace {
+    double force_alpha = 0.0;
+    std::vector<double> obj;
+    int accelerated = 0;
+    int fallbacks = 0;
+};
+
 // ----------------------------------------------------------------------------- model / solver
 
 class BulkDamageModel {
@@ -258,7 +268,8 @@ public:
     // Default 1 preserves every existing caller; the length-strat per-bin fits MUST keep 1 (their
     // bins are already distributed across a worker pool — no nested oversubscription).
     // squarem: accelerate the main fit's coordinate ascent (profile points stay plain).
-    static BulkDamageResult fit(const BulkDamageSuffStats& s, int n_threads = 1, bool squarem = true);
+    static BulkDamageResult fit(const BulkDamageSuffStats& s, int n_threads = 1, bool squarem = true,
+                                BulkFitTrace* trace = nullptr);
 
     // Terminal (p=0) kernel weight — the one place the ds and ss decay kernels DIFFER.
     //   ds: the 5' terminus is excluded from the decay (0); the p0 spike s[l][e] absorbs any
@@ -408,7 +419,8 @@ private:
     static double core_param_change(const Params& A, const Params& B, const std::vector<int>& live);
     static int    run_sweeps(const BulkDamageSuffStats& s, Params& P, const std::vector<int>& live,
                              int pinned_idx, double pinned_val, std::vector<int>* block_id,
-                             int max_sweeps = MAX_SWEEPS, bool squarem = false);
+                             int max_sweeps = MAX_SWEEPS, bool squarem = false,
+                             BulkFitTrace* trace = nullptr);
     static void   centre_spikes(Params& P, const std::vector<int>& live);
 
     // 1-D bounded MLE of a single δ over an arbitrary set of damage cells (nuisances fixed).

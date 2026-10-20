@@ -422,7 +422,8 @@ double BulkDamageModel::core_param_change(const Params& A, const Params& B,
 int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
                                        const std::vector<int>& live,
                                        int pinned_idx, double pinned_val,
-                                       std::vector<int>* block_id, int max_sweeps, bool squarem) {
+                                       std::vector<int>* block_id, int max_sweeps, bool squarem,
+                                       BulkFitTrace* trace) {
         // β̂_{c,l} is FIXED at the interior sufficient statistic (logit(interior C/(C+T)), set in init()) —
         // NOT re-fit from terminal data. A pervasive per-base artifact (FLB57m) elevates the INTERIOR
         // baseline; if β were free to the terminus, that elevation would split between β (short bins) and
@@ -462,6 +463,7 @@ int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
     int sweep = 0, flat = 0;
     double ll_prev = log_lik(s, P);
     bool accel = squarem;
+    if (trace) trace->obj.push_back(penalized_obj(s, P));
     while (sweep < max_sweeps) {
         Params old = P;
         if (accel && sweep >= SQUAREM_WARMUP && sweep + 3 <= max_sweeps) {
@@ -472,7 +474,9 @@ int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
             double sr2, sv2, srv;
             squarem_build_directions(x0.data(), x1.data(), x2.data(), r.data(), v.data(), x0.size(),
                                      sr2, sv2, srv);
-            const double alpha = std::clamp(squarem_step_length(3, sr2, sv2, srv), step_min, step_max);
+            const double alpha = trace && trace->force_alpha > 0.0
+                ? trace->force_alpha
+                : std::clamp(squarem_step_length(3, sr2, sv2, srv), step_min, step_max);
             squarem_extrapolate(x0.data(), r.data(), v.data(), x0.size(), alpha);
             Params Q = P2;
             unpack(x0, Q);
@@ -482,7 +486,9 @@ int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
             sweep_once(Q);
             sweep += 3;
             const bool at_upper = std::abs(alpha - step_max) <= 1e-12 * (1.0 + std::abs(step_max));
-            if (penalized_obj(s, Q) >= penalized_obj(s, P2)) {
+            const bool keep = penalized_obj(s, Q) >= penalized_obj(s, P2);
+            if (trace) { ++trace->accelerated; trace->fallbacks += !keep; }
+            if (keep) {
                 P = std::move(Q);
             } else {
                 P = std::move(P2);
@@ -496,6 +502,7 @@ int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
             sweep_once(P);
             ++sweep;
         }
+        if (trace) trace->obj.push_back(penalized_obj(s, P));
         double ll = log_lik(s, P);
         // Stop when the likelihood is flat and δ, λ are still, for FLAT_SWEEPS sweeps in a row.
         // One quiet sweep is not enough: coordinate updates can backtrack to the saved value.
@@ -514,7 +521,8 @@ int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
 
 // ------------------------------------------------------------------ driver
 
-BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_threads, bool squarem) {
+BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_threads, bool squarem,
+                                      BulkFitTrace* trace) {
     BulkDamageResult R;
     const int L = s.L();
     if (L == 0) return R;
@@ -528,7 +536,7 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_thread
     init(s, P, live);
 
     std::vector<int> block_id;
-    int sweeps = run_sweeps(s, P, live, -1, 0.0, &block_id, MAX_SWEEPS, squarem);
+    int sweeps = run_sweeps(s, P, live, -1, 0.0, &block_id, MAX_SWEEPS, squarem, trace);
     R.converged = sweeps < MAX_SWEEPS;
     R.n_sweeps  = sweeps;
     R.log_lik   = log_lik(s, P);
