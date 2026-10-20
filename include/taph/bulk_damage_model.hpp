@@ -169,6 +169,9 @@ struct BulkDamageResult {
 
     std::vector<BulkDamagePerBin> bins;
 
+    // Status as of 2026-10-20: slope_m and w_length are deprecated and gate nothing. w_length reads
+    // 0.5 ± noise in every library because the δ_Lmax=0 anchor bin has a flat profile curve, which
+    // swamps the slope SE. Kept in the JSON for compatibility; use tau_discriminator.
     // Length-coupling weight (post-fit, threshold-free). Real terminal deamination occupies a fixed
     // terminal zone, so its damaged-base mass per read m(L)=δ_L·L is flat-or-falling in read length L
     // (slope ≤ 0); a per-base/whole-molecule artifact (FLB57m) adds a constant rate, so m(L)∝L
@@ -180,7 +183,7 @@ struct BulkDamageResult {
     // BEHAVIORAL CHANGE (C5): default 0.5 (undetermined), not 1.0. The slope-based update below is
     // gated on n>=2 live bins; with exactly 1 live bin the whole block is skipped and w_length must
     // read as undetermined (w≈0.5), NOT full authenticity (1.0). 1.0 over-certified headline_delta_auth
-    // and let the pi_damaged gate (w_length>0.5) pass on a single bin where the slope is undefined.
+    // and let the old pi_damaged gate (w_length>0.5, removed 2026-10-20) pass on one bin.
     double w_length = 0.5;
 
     // Length-coupling DIAGNOSTIC (post-fit, NOT used in the fit). Sign of the slope of the recovered δ_l

@@ -28,7 +28,7 @@ Each factor is a logistic or geometric transform of the underlying damage estima
 |-------|------|-------------|
 | `f5` | float [0, 1] | 5′ terminal C→T damage factor. Logistic sigmoid of `d_max_5prime` with half-point at 5 % damage and scale 0.04 (i.e., `σ((d5 − 0.05)/0.04)`). |
 | `f3` | float [0, 1] | 3′ terminal damage factor. Computed analogously to `f5` from `d_max_3prime`. For DS libraries where 3′ G→A is displaced inward by trimming artifact and `d_max_3prime < 0.03` despite `d_max_5prime > 0.05`, the value is imputed from `f5` (DS deamination is symmetric). |
-| `f_coh` | float [0, 1] | Mixture coherence factor: geometric mean of a damage-times-length-coupling signal and a 5′/3′ symmetry term. Penalises libraries where terminal damage is present but the length-coupling discriminator (`bulk_damage.w_length`) is near the null cluster (0.5). For SS libraries or DS libraries with censored 3′ signal, symmetry is treated as perfect. |
+| `f_coh` | float [0, 1] | Mixture coherence factor: geometric mean of a damage-times-length-coupling signal and a 5′/3′ symmetry term. Status as of 2026-10-20: the length-coupling signal is 0, because it was built on `bulk_damage.w_length`, which reads ~0.5 in every library (deprecated). `f_coh` therefore sits at its floor. For SS libraries or DS libraries with censored 3′ signal, symmetry is treated as perfect. |
 | `f_cpg` | float [0, 1] | CpG methylation-context factor. Logistic sigmoid of `log₂(CpG_dmax / nonCpG_dmax)` with half-point at log₂ ratio = 1. Set to the uninformative prior (0.3) when the ratio is not evaluable: near-saturation damage (`d_max_combined > 0.20`), insufficient CpG terminal coverage, or NaN ratio. A value of 0.3 therefore means "uninformative" rather than "evidence against antiquity". |
 
 #### Authenticity summary
@@ -36,7 +36,7 @@ Each factor is a logistic or geometric transform of the underlying damage estima
 | Field | Type | Description |
 |-------|------|-------------|
 | `authenticity_eff` | float [0, 1] | Weighted average of saturating transforms of `d_max_5prime` and `d_max_3prime` (half-saturation at 5 %). DS libraries weight 5′ at 2× and 3′ at 0.5×; SS libraries weight equally. Replaces the earlier mixture-model `pi` term, which was not reliably identifiable from reference-free data and over-reported authenticity at the null. Determines `label`. |
-| `authenticity_evidence` | float [0, 1] | Multi-source evidence aggregate combining z-score evidence from both termini, bulk-model damage magnitude weighted by `w_length`, and CpG terminal-coverage-weighted CpG z-score evidence. Represents how many independent channels converge on the authenticity call. |
+| `authenticity_evidence` | float [0, 1] | Multi-source evidence aggregate combining z-score evidence from both termini, a bulk-model term (0 since 2026-10-20: it was weighted by the deprecated `w_length`, which reads ~0.5 everywhere), and CpG terminal-coverage-weighted CpG z-score evidence. Represents how many independent channels converge on the authenticity call. |
 | `d5_hexamer_corrected` | float | Present only when adapter artifact suppressed the position-0 C→T rate and a hexamer-based correction was applied. Reports the back-extrapolated 5′ damage estimate (`d5 × exp(λ × fit_offset)`); the uncorrected value is visible as `d_max_5prime` in the deamination block. Absent from output when no correction was applied. |
 
 #### Oxidation-like signal sub-block

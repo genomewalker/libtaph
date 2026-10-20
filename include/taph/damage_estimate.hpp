@@ -7,10 +7,6 @@
 
 namespace taph {
 
-// Length-coupling gate: nulls cluster at w_length≈0.5, positives push toward 1 (SOLUTION §6.5(3)).
-// Point-gate at 0.6 (matches finalize_dmax C2); the consumer applies the hysteresis band on w's CI.
-constexpr double W_LENGTH_GATE = 0.6;
-
 // 3-state confidence (SOLUTION §6.3/§6.4). NOT_DETECTED is RESERVED: the reference-free bulk estimator
 // cannot assert "modern" — mapping recovers dilute ancient that delta=0 misses (§5) — so it emits only
 // DETECTED or UNDETERMINED. NOT_DETECTED is for a future reference-anchored path.
