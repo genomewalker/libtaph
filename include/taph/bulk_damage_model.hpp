@@ -228,7 +228,13 @@ public:
     static constexpr double DELTA_MAX   = 0.60;
     static constexpr double MU_EPS      = 1e-6;
     static constexpr int    MAX_SWEEPS  = 500;
-    static constexpr double TOL_PARAM   = 1e-7;   // scale-free: max |Δ param| between sweeps
+    static constexpr double TOL_PARAM   = 1e-7;   // max |Δδ|, |Δλ| between sweeps
+    // Converged once the likelihood is flat and δ, λ are still for FLAT_SWEEPS sweeps in a row.
+    // The artifact a[c][e][p] and spike s[l][e] terms are left out of the test: the position-0
+    // artifact and the position-0 spike describe the same excess, so coordinate ascent crawls
+    // along that ridge (step shrinking ~15% per 50 sweeps) long after δ, λ and ℓ have settled,
+    // and waiting on it sent most libraries to MAX_SWEEPS.
+    static constexpr int    FLAT_SWEEPS = 3;
     // LL-plateau stop: on a weakly-identified (near-zero-δ) ridge the parameters crawl for
     // hundreds of sweeps while the likelihood is already flat. The LL is monotone (every step
     // is ascent-guarded), so we stop once the per-sweep gain is negligible — this terminates on
@@ -340,7 +346,7 @@ private:
     static void   step_delta_isotonic(const BulkDamageSuffStats& s, Params& P, const std::vector<int>& live,
                                       std::vector<int>* block_id, int pinned_idx = -1, double pinned_val = 0.0);
     static void   step_lambda(const BulkDamageSuffStats& s, Params& P, const std::vector<int>& live);
-    static double max_param_change(const Params& A, const Params& B, const std::vector<int>& live);
+    static double core_param_change(const Params& A, const Params& B, const std::vector<int>& live);
     static int    run_sweeps(const BulkDamageSuffStats& s, Params& P, const std::vector<int>& live,
                              int pinned_idx, double pinned_val, std::vector<int>* block_id,
                              int max_sweeps = MAX_SWEEPS);

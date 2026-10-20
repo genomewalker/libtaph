@@ -389,20 +389,10 @@ void BulkDamageModel::step_lambda(const BulkDamageSuffStats& s, Params& P,
 
 // ------------------------------------------------------------------ convergence helpers
 
-double BulkDamageModel::max_param_change(const Params& A, const Params& B,
-                                                const std::vector<int>& live) {
+double BulkDamageModel::core_param_change(const Params& A, const Params& B,
+                                                 const std::vector<int>& live) {
     double m = std::fabs(A.lambda - B.lambda);
-    for (int c = 0; c < BulkDamageSuffStats::N_CH; ++c)
-        for (int e = 0; e < N_END; ++e)
-            for (int p = 0; p < N_POS; ++p)
-                m = std::max(m, std::fabs(A.a[c][e][p] - B.a[c][e][p]));
-    for (int l : live) {
-        m = std::max(m, std::fabs(A.beta[l][0] - B.beta[l][0]));
-        m = std::max(m, std::fabs(A.beta[l][1] - B.beta[l][1]));
-        m = std::max(m, std::fabs(A.delta[l] - B.delta[l]));
-        for (int e = 0; e < N_END; ++e)
-            m = std::max(m, std::fabs(A.s_spike[l][e] - B.s_spike[l][e]));
-    }
+    for (int l : live) m = std::max(m, std::fabs(A.delta[l] - B.delta[l]));
     return m;
 }
 
@@ -411,7 +401,7 @@ int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
                                        const std::vector<int>& live,
                                        int pinned_idx, double pinned_val,
                                        std::vector<int>* block_id, int max_sweeps) {
-    int sweep = 0;
+    int sweep = 0, flat = 0;
     double ll_prev = log_lik(s, P);
     for (; sweep < max_sweeps; ++sweep) {
         Params old = P;
@@ -428,12 +418,12 @@ int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
         step_delta_isotonic(s, P, live, block_id, pinned_idx, pinned_val);   // PAVA + δ_{Lmax}=0
         step_lambda(s, P, live);
         double ll = log_lik(s, P);
-        // Stop only when both the parameters and likelihood are flat.  Individual
-        // coordinate updates can backtrack to the saved value, so a tiny net parameter
-        // move alone is not reliable convergence evidence on the near-zero-delta ridge.
-        bool ll_flat   = (ll - ll_prev) <= TOL_LL_ABS + TOL_LL_REL * std::fabs(ll);
-        bool par_small = max_param_change(old, P, live) < TOL_PARAM;
-        if (par_small && ll_flat) { ++sweep; break; }
+        // Stop when the likelihood is flat and δ, λ are still, for FLAT_SWEEPS sweeps in a row.
+        // One quiet sweep is not enough: coordinate updates can backtrack to the saved value.
+        const bool ll_flat   = (ll - ll_prev) <= TOL_LL_ABS + TOL_LL_REL * std::fabs(ll);
+        const bool par_small = core_param_change(old, P, live) < TOL_PARAM;
+        flat = (ll_flat && par_small) ? flat + 1 : 0;
+        if (flat >= FLAT_SWEEPS) { ++sweep; break; }
         ll_prev = ll;
     }
     return sweep;
