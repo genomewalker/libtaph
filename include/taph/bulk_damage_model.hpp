@@ -347,6 +347,8 @@ private:
                                       std::vector<int>* block_id, int pinned_idx = -1, double pinned_val = 0.0);
     static void   step_lambda(const BulkDamageSuffStats& s, Params& P, const std::vector<int>& live);
     static double core_param_change(const Params& A, const Params& B, const std::vector<int>& live);
+    // −d²ℓ/dδ_l² at P with the other parameters held fixed (closed form: μ is linear in δ).
+    static double delta_information(const BulkDamageSuffStats& s, const Params& P, int l);
     static int    run_sweeps(const BulkDamageSuffStats& s, Params& P, const std::vector<int>& live,
                              int pinned_idx, double pinned_val, std::vector<int>* block_id,
                              int max_sweeps = MAX_SWEEPS);
