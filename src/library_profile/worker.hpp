@@ -324,9 +324,10 @@ inline static void paired_worker_fn(PairedWorkQueue& queue, WorkerState& state) 
                     sig5r_4 += rv4 * q5; q5 *= 5;
                 }
                 const uint32_t lsd_sig = sig5f * N_LSD_SIG5_3R + sig5r_4;
-                int cb = 0;
-                const int Lcap = (L1 < LSD_L_MAX) ? L1 : LSD_L_MAX;
-                for (int e : state.lsd_prov_edges) { if (Lcap >= e) ++cb; else break; }
+                // Top stratum, the bin update_paired puts this pair's aggregates in. R1's
+                // length is not the fragment length of an unmerged pair, so binning the
+                // signatures by it split one pair across two strata.
+                const int cb = static_cast<int>(state.lsd_prov_edges.size());
                 state.add_lsd(static_cast<uint32_t>(cb * N_LSD_SIG5 + lsd_sig));
             }
         }
