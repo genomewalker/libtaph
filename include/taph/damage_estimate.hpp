@@ -3,6 +3,7 @@
 // Validated reference-free ancient-fraction contract types (SOLUTION_pi_delta_dmax.md §6).
 // Additive shadow-mode step 1: these coexist with the legacy mixture path; no consumer is wired yet.
 
+#include <algorithm>
 #include <cmath>
 
 namespace taph {
@@ -105,6 +106,19 @@ struct DamageEstimate {
     double overhang_lo       = -1.0;  // 95% CI lower (delta method; −1 when projected to boundary)
     double overhang_hi       = -1.0;  // 95% CI upper
 };
+
+// Proposal, OFF (2026-10-20): tau-based stand-ins for the retired w_length terms in the ds d_max
+// fallback (finalize_dmax), f_coh (finalize_preservation) and authenticity_evidence
+// (library_interpretation_summary). Not validated against labelled libraries; turning it on
+// changes verdicts, so it stays off until each consumer is accepted from the ON/OFF table.
+constexpr bool TAU_LENGTH_COUPLING = false;
+
+// Length-coupling weight in [0, 1] from tau: the overhang share A/(A+f0), 0 when tau is
+// NOT_DETECTED or the floor model was not fitted.
+inline double tau_length_coupling(const DamageEstimate& tau) {
+    if (tau.state == DamageConfidence::NOT_DETECTED || !(tau.overhang_fraction >= 0.0)) return 0.0;
+    return std::min(1.0, tau.overhang_fraction);
+}
 
 // ── Reference-free read-split decision policy (shared: fqdup split, dart, fastst) ─────────────
 // Maps the validated pi estimate to a per-read LLR threshold shift. The per-read damage LLR is

@@ -416,11 +416,20 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
                 // the null. Status as of 2026-10-20: this used to report the 5' terminal rate
                 // when w_length > 0.6; w_length reads 0.5 ± noise in every library (the
                 // δ_Lmax=0 anchor bin has a flat profile), so that never fired. The
-                // undetermined outcome it always gave is now explicit.
-                profile.d_max_5prime = 0.0f;
-                profile.d_max_3prime = 0.0f;
-                profile.d_max_combined = 0.0f;
-                profile.d_max_source = SampleDamageProfile::DmaxSource::NONE;
+                // undetermined outcome it always gave is now explicit. TAU_LENGTH_COUPLING
+                // (off) is the proposed replacement: report the 5' rate when tau is DETECTED.
+                if (TAU_LENGTH_COUPLING && profile.tau.state == DamageConfidence::DETECTED &&
+                    raw_d_max_5prime > 0.01f) {
+                    profile.d_max_5prime = raw_d_max_5prime;
+                    profile.d_max_3prime = raw_d_max_3prime;
+                    profile.d_max_combined = raw_d_max_5prime;
+                    profile.d_max_source = SampleDamageProfile::DmaxSource::FIVE_PRIME_ONLY;
+                } else {
+                    profile.d_max_5prime = 0.0f;
+                    profile.d_max_3prime = 0.0f;
+                    profile.d_max_combined = 0.0f;
+                    profile.d_max_source = SampleDamageProfile::DmaxSource::NONE;
+                }
             }
         } else {
             profile.d_max_5prime = raw_d_max_5prime;
