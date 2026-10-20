@@ -3389,9 +3389,9 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"lambda_interpretation\": \"exponential positional decay of terminal damage/overhang signal; not a direct fragment-length or strand-break rate\",\n";
         j << "    \"lambda_at_boundary\": " << (bd.lambda_at_boundary ? "true" : "false") << ",\n";
         j << "    \"headline_delta\": "; jn(dp.bulk_headline_delta);  j << ",\n";
-        // threshold-free length-coupling weight: w_length∈[0,1] = P(terminal-damage mass falls with read
-        // length); slope_m = OLS slope of m(L)=δ_L·L (≤0 authentic terminal decay, ≫0 pervasive artifact).
-        // δ_auth = δ·w_length.
+        // Status as of 2026-10-20: slope_m, w_length and the δ_auth = δ·w_length fields are deprecated.
+        // w_length reads ~0.5 in every library because the δ_Lmax=0 anchor bin has a flat profile;
+        // use tau_discriminator. Emitted unchanged for compatibility.
         j << "    \"slope_m\": ";        jn(bd.slope_m);              j << ",\n";
         j << "    \"w_length\": ";       jn(bd.w_length);             j << ",\n";
         j << "    \"headline_delta_auth\": "; jn(dp.bulk_headline_delta * bd.w_length); j << ",\n";

@@ -410,27 +410,17 @@ void finalize_dmax(SampleDamageProfile& profile, const FinalCtx& ctx) {
                 profile.d_max_source = SampleDamageProfile::DmaxSource::MAX_SS_ASYMMETRY;
             } else {
                 // ds libraries: Channel A's terminal C→T carries compositional false
-                // positives UNLESS it is length-coupled. Gate on w_length (the validated
-                // length-coupling discriminator: genuine deamination falls with read length,
-                // a pervasive compositional artifact is flat). When length-coupled, report
-                // the validated 5' terminal rate; otherwise leave d_max undetermined (NONE)
-                // rather than fabricate one from the GC mixture — which floors at the null
-                // (E[d]>0 at H0) and is dominated by the terminal rate (r=0.76 vs 0.90).
-                // Threshold 0.6 (not 0.5): null libraries cluster at w_length≈0.5
-                // (SOLUTION_pi_delta_dmax.md), and this is the low-confidence regime
-                // (not damage_validated, joint p_damage≤0.5) where 'undetermined' is the
-                // safe bias over a possibly-compositional terminal rate.
-                if (profile.bulk_damage.w_length > 0.6f && raw_d_max_5prime > 0.01f) {
-                    profile.d_max_5prime = raw_d_max_5prime;
-                    profile.d_max_3prime = raw_d_max_3prime;
-                    profile.d_max_combined = raw_d_max_5prime;
-                    profile.d_max_source = SampleDamageProfile::DmaxSource::FIVE_PRIME_ONLY;
-                } else {
-                    profile.d_max_5prime = 0.0f;
-                    profile.d_max_3prime = 0.0f;
-                    profile.d_max_combined = 0.0f;
-                    profile.d_max_source = SampleDamageProfile::DmaxSource::NONE;
-                }
+                // positives unless it is length-coupled, and this is the low-confidence
+                // regime (not damage_validated, joint p_damage≤0.5), so d_max stays
+                // undetermined (NONE) rather than come from the GC mixture, which floors at
+                // the null. Status as of 2026-10-20: this used to report the 5' terminal rate
+                // when w_length > 0.6; w_length reads 0.5 ± noise in every library (the
+                // δ_Lmax=0 anchor bin has a flat profile), so that never fired. The
+                // undetermined outcome it always gave is now explicit.
+                profile.d_max_5prime = 0.0f;
+                profile.d_max_3prime = 0.0f;
+                profile.d_max_combined = 0.0f;
+                profile.d_max_source = SampleDamageProfile::DmaxSource::NONE;
             }
         } else {
             profile.d_max_5prime = raw_d_max_5prime;

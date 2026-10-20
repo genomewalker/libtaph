@@ -28,17 +28,11 @@ void finalize_preservation(SampleDamageProfile& profile) {
 
         // f_coh: mixture coherence — ancient subpop identifiable with real damage
         {
-            // Length-coupling coherence from the VALIDATED bulk law (d_max + w_length),
-            // not the reference-free-non-identifiable mixture (which floors at H0 and
-            // leaked ~0.87-authentic at a true null). A genuine ancient subpopulation
-            // carries terminal damage (d_auth) whose mass DECREASES with read length
-            // (w_length high); w_length is the load-bearing discriminator — nulls cluster
-            // at 0.5, positives push toward 1 (SOLUTION_pi_delta_dmax.md §6). d_max here is
-            // already w_length-gated by finalize_dmax, so at a null both factors → ~0.
-            float d_auth = sig((profile.d_max_combined - 0.05f) / 0.03f);
-            float w_coupling = std::clamp(
-                (static_cast<float>(profile.bulk_damage.w_length) - 0.5f) / 0.4f, 0.0f, 1.0f);
-            float coh_signal = d_auth * w_coupling;
+            // Length-coupling coherence. Status as of 2026-10-20: this was
+            // sig((d_max − 0.05)/0.03) × clamp((w_length − 0.5)/0.4); w_length reads 0.5 ± noise
+            // in every library (the δ_Lmax=0 anchor bin has a flat profile), so the product was
+            // ~0 (at most 0.006) everywhere. It is 0 here, so f_coh sits at its EPS floor.
+            const float coh_signal = 0.0f;
             // ds: penalise end-asymmetry, but use d_max_combined as floor so that
             // samples where bulk estimator zeroes d3 (noise/rescue limitation) are not
             // wrongly collapsed to near-zero symmetry.

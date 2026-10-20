@@ -93,6 +93,8 @@ enriched below truth" — an identifiability limit of reference-free ss, not a b
 π-saturation does NOT separate blank from real: 11S-NC-ss (blank) π≈1.0 AND
 10S-11-ss (real) π .987 both saturate. On the controlled no-fix baseline:
 - ds blank (11S-NC-ds): confidence NONE — `source→NONE` via the w_length gate
+  (Status as of 2026-10-20: that gate never passed in any library, since w_length reads
+  ~0.5 everywhere; finalize_dmax now sets NONE in that regime unconditionally.)
   (commit 6afc8e7, `finalize_dmax.cpp:372`); correctly suppressed.
 - ss blank (11S-NC-ss): confidence HIGH, T2_top .350 — auth_eff .898,
   dominant_process cytosine_deamination, decay_llr_5prime +75149>0, source≠NONE.
