@@ -155,6 +155,42 @@ inline bool dmax_split_identified(double sum_w, double dmax_raw, double max_delt
     return sum_w > 0.0 && dmax_raw - 1.96 * std::sqrt(1.0 / sum_w) > max_delta && dmax_raw < 1.0 - 1e-3;
 }
 
+// SQUAREM (Varadhan & Roland 2008), step-length method 3 with the +alpha sign convention, as in dart
+// (include/dart/em_reassign.hpp: squarem_build_directions, squarem_step_length). r = x1 − x0,
+// v = (x2 − x1) − r, x' = x0 + 2·alpha·r + alpha²·v, so alpha = 1 is the plain two-step point x2.
+inline void squarem_build_directions(const double* x, const double* x1, const double* x2, double* q1,
+                                     double* v, size_t n, double& sr2, double& sv2, double& srv) {
+    sr2 = 0.0; sv2 = 0.0; srv = 0.0;
+    for (size_t i = 0; i < n; ++i) {
+        q1[i] = x1[i] - x[i];
+        v[i] = (x2[i] - x1[i]) - q1[i];
+        sr2 += q1[i] * q1[i];
+        sv2 += v[i] * v[i];
+        srv += q1[i] * v[i];
+    }
+}
+
+inline double squarem_step_length(int method, double sr2, double sv2, double srv) {
+    constexpr double kEps = 1e-15;
+    double alpha = 1.0;
+    if (method == 1) {
+        if (sv2 > kEps) alpha = -srv / sv2;
+    } else if (method == 2) {
+        if (std::abs(srv) > kEps) alpha = -sr2 / srv;
+    } else {
+        if (sv2 > kEps) alpha = std::sqrt(sr2 / sv2);
+    }
+    return std::isfinite(alpha) ? alpha : 1.0;
+}
+
+// dart's squarem_extrapolate without its simplex clamp and renormalisation: the bulk-fit
+// nuisances (a, s_spike) are unconstrained log-odds.
+inline void squarem_extrapolate(double* x, const double* q1, const double* v, size_t n, double alpha) {
+    const double alpha_sq = alpha * alpha;
+    const double two_alpha = 2.0 * alpha;
+    for (size_t i = 0; i < n; ++i) x[i] = x[i] + two_alpha * q1[i] + alpha_sq * v[i];
+}
+
 // ----------------------------------------------------------------------------- whole-fit result
 
 struct BulkDamageResult {
@@ -221,7 +257,8 @@ public:
     // slot and a private Params Q ⇒ output is index-ordered and bit-identical to the serial run).
     // Default 1 preserves every existing caller; the length-strat per-bin fits MUST keep 1 (their
     // bins are already distributed across a worker pool — no nested oversubscription).
-    static BulkDamageResult fit(const BulkDamageSuffStats& s, int n_threads = 1);
+    // squarem: accelerate the main fit's coordinate ascent (profile points stay plain).
+    static BulkDamageResult fit(const BulkDamageSuffStats& s, int n_threads = 1, bool squarem = true);
 
     // Terminal (p=0) kernel weight — the one place the ds and ss decay kernels DIFFER.
     //   ds: the 5' terminus is excluded from the decay (0); the p0 spike s[l][e] absorbs any
@@ -251,6 +288,8 @@ public:
     // along that ridge (step shrinking ~15% per 50 sweeps) long after δ, λ and ℓ have settled,
     // and waiting on it sent most libraries to MAX_SWEEPS.
     static constexpr int    FLAT_SWEEPS = 3;
+    static constexpr int    SQUAREM_WARMUP = 4;   // plain sweeps before acceleration (dart's default)
+    static constexpr double SQUAREM_HANDOFF_LL = 1e-4;  // iteration gain below which plain sweeps take over
     // LL-plateau stop: on a weakly-identified (near-zero-δ) ridge the parameters crawl for
     // hundreds of sweeps while the likelihood is already flat. The LL is monotone (every step
     // is ascent-guarded), so we stop once the per-sweep gain is negligible — this terminates on
@@ -369,7 +408,8 @@ private:
     static double core_param_change(const Params& A, const Params& B, const std::vector<int>& live);
     static int    run_sweeps(const BulkDamageSuffStats& s, Params& P, const std::vector<int>& live,
                              int pinned_idx, double pinned_val, std::vector<int>* block_id,
-                             int max_sweeps = MAX_SWEEPS);
+                             int max_sweeps = MAX_SWEEPS, bool squarem = false);
+    static void   centre_spikes(Params& P, const std::vector<int>& live);
 
     // 1-D bounded MLE of a single δ over an arbitrary set of damage cells (nuisances fixed).
     // The binomial score is monotone-decreasing in δ (concave LL) → safeguarded bisection.

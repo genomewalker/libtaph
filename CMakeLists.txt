@@ -161,6 +161,11 @@ if(TAPH_BUILD_TESTS)
     target_compile_options(test_dmax_split PRIVATE -O2 -Wall -Wextra)
     add_test(NAME dmax_split COMMAND test_dmax_split)
 
+    add_executable(test_bulk_squarem tests/test_bulk_squarem.cpp)
+    target_link_libraries(test_bulk_squarem PRIVATE taph)
+    target_compile_options(test_bulk_squarem PRIVATE -O2 -Wall -Wextra)
+    add_test(NAME bulk_squarem COMMAND test_bulk_squarem)
+
     add_executable(test_pi_shape_kinvariance tests/test_pi_shape_kinvariance.cpp)
     target_link_libraries(test_pi_shape_kinvariance PRIVATE taph)
     target_compile_options(test_pi_shape_kinvariance PRIVATE -O2 -Wall -Wextra)
