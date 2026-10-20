@@ -31,8 +31,12 @@ void finalize_preservation(SampleDamageProfile& profile) {
             // Length-coupling coherence. Status as of 2026-10-20: this was
             // sig((d_max − 0.05)/0.03) × clamp((w_length − 0.5)/0.4); w_length reads 0.5 ± noise
             // in every library (the δ_Lmax=0 anchor bin has a flat profile), so the product was
-            // ~0 (at most 0.006) everywhere. It is 0 here, so f_coh sits at its EPS floor.
-            const float coh_signal = 0.0f;
+            // ~0 (at most 0.006) everywhere. It is 0 here, so f_coh sits at its EPS floor;
+            // TAU_LENGTH_COUPLING (off) puts the tau overhang share in place of the w_length term.
+            const float coh_signal = TAU_LENGTH_COUPLING
+                ? sig((profile.d_max_combined - 0.05f) / 0.03f) *
+                      static_cast<float>(tau_length_coupling(profile.tau))
+                : 0.0f;
             // ds: penalise end-asymmetry, but use d_max_combined as floor so that
             // samples where bulk estimator zeroes d3 (noise/rescue limitation) are not
             // wrongly collapsed to near-zero symmetry.
