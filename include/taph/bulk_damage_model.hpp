@@ -249,6 +249,10 @@ public:
                                                   // long before this; the bar only bounds nuisance crawl.
     static constexpr int    PROFILE_PTS = 41;   // δ grid resolution for the full profile
     static constexpr int    PROFILE_MAX_SWEEPS = 80;  // profile points are warm-started → few sweeps
+    // Absolute per-sweep likelihood gain at which a profile point is settled. The curve is read
+    // against the 1.92 LR cutoff (tau, short-bin pi), so the relative TOL_LL_REL·|ℓ| (0.25 at
+    // 2.5e7) is too coarse here; 1e-4 is far below the cutoff and far above rounding.
+    static constexpr double PROFILE_TOL_LL = 1e-4;
     // w_length softness: the centre slope_m=0 is the mechanistic terminal-vs-pervasive boundary; this
     // only sets the transition width (in slope-SE units). High-coverage libraries fix the slope sign at
     // |z|≫1 regardless of c; c=1 (one SE) shapes only the undetermined band of thin libraries.

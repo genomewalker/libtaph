@@ -433,9 +433,13 @@ int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
         double ll = log_lik(s, P);
         // Stop when the likelihood is flat and δ, λ are still, for FLAT_SWEEPS sweeps in a row.
         // One quiet sweep is not enough: coordinate updates can backtrack to the saved value.
-        const bool ll_flat   = (ll - ll_prev) <= TOL_LL_ABS + TOL_LL_REL * std::fabs(ll);
-        const bool par_small = core_param_change(old, P, live) < TOL_PARAM;
-        flat = (ll_flat && par_small) ? flat + 1 : 0;
+        // A profile point (pinned δ) only needs its likelihood: that is all the curve keeps, and
+        // λ and the free δ keep drifting ~1e-6 per sweep long after it has settled.
+        const bool quiet = pinned_idx >= 0
+            ? (ll - ll_prev) <= PROFILE_TOL_LL
+            : (ll - ll_prev) <= TOL_LL_ABS + TOL_LL_REL * std::fabs(ll) &&
+              core_param_change(old, P, live) < TOL_PARAM;
+        flat = quiet ? flat + 1 : 0;
         if (flat >= FLAT_SWEEPS) { ++sweep; break; }
         ll_prev = ll;
     }
