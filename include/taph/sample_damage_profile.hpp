@@ -1694,7 +1694,8 @@ struct SampleDamageProfile {
         WEAK,               // 0.15–0.35
         MODERATE,           // 0.35–0.60
         STRONG,             // 0.60–0.80
-        EXCEPTIONAL         // ≥ 0.80
+        EXCEPTIONAL,        // ≥ 0.80
+        UNAVAILABLE         // bulk fit hit its sweep cap: the score depends on rounding, so none is given
     };
     float preservation_f5          = 0.0f;  // 5' terminal damage factor
     float preservation_f3          = 0.0f;  // 3' terminal damage factor
@@ -1715,6 +1716,7 @@ struct SampleDamageProfile {
             case PreservationLabel::MODERATE:           return "moderate";
             case PreservationLabel::STRONG:             return "strong";
             case PreservationLabel::EXCEPTIONAL:        return "exceptional";
+            case PreservationLabel::UNAVAILABLE:        return "unavailable";
             default:                                    return "unknown";
         }
     }
