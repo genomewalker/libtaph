@@ -3476,6 +3476,7 @@ void profile_to_json(const SampleDamageProfile& dp,
                 j << ", \"pi_damaged\": null, \"pi_lo\": null, \"pi_hi\": null";
             }
             j << ", \"pi_identified\": " << (bb.pi_identified ? "true" : "false");
+            j << ", \"pi_authentic\": " << (bb.pi_authentic ? "true" : "false");
             j << "}";
         }
         if (!bd.bins.empty()) j << "\n    ";

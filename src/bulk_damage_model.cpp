@@ -721,9 +721,12 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_thread
         // Identified only when the shared d_max is INTERIOR: above max δ_l (so π<1) and strictly below
         // the probability bound. A solution railed at d_max→1 means the conditional covariance exceeds
         // what any mixture can produce — residual composition structure that (S5,S3)-conditioning did
-        // not remove — so the split is UNIDENTIFIED → undetermined (not a confident d_max=1). Gated by
-        // w_length so a pervasive artifact never yields a split.
-        if (sum_w > 0.0 && R.w_length > 0.5 && dmax_raw > dmax_floor && dmax_raw < 1.0 - 1e-3) {
+        // not remove — so the split is UNIDENTIFIED → undetermined (not a confident d_max=1). The
+        // lower 95% edge of d_max must clear max δ_l, not just the point. (Until 2026-10-20 this was
+        // also gated on w_length > 0.5; w_length sits at 0.5 ± noise in every library, so that gate
+        // turned on and off at random. Whether π reads as a damaged fraction is pi_authentic, set
+        // from tau after finalize_tau.)
+        if (dmax_split_identified(sum_w, dmax_raw, dmax_floor)) {
             double dmax = dmax_raw;
             double dse  = std::sqrt(1.0 / sum_w);
             R.d_max_damaged = dmax;
