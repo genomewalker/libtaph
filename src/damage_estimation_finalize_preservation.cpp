@@ -1,5 +1,7 @@
 #include "damage_estimation_finalize_helpers.hpp"
 #include "damage_estimation_finalize_ctx.hpp"
+#include "taph/bulk_damage_model.hpp"
+#include <limits>
 namespace taph {
 
 void finalize_preservation(SampleDamageProfile& profile) {
@@ -94,10 +96,17 @@ void finalize_preservation(SampleDamageProfile& profile) {
         profile.preservation_score = std::clamp(
             profile.preservation_evidence * profile.preservation_reliability, 0.0f, 1.0f);
 
-        // Categorical label
+        // Categorical label. A bulk fit that used every sweep has not converged; its g_fit and
+        // f_coh then change with floating-point rounding (one library moved from modern-like to
+        // weak between builds), so no score or tier is reported for it.
         using PL = SampleDamageProfile::PreservationLabel;
+        const bool fit_capped = profile.bulk_damage.n_sweeps >= BulkDamageModel::MAX_SWEEPS;
         if (g_N < 0.3f)
             profile.preservation_label = PL::INSUFFICIENT;
+        else if (fit_capped) {
+            profile.preservation_label = PL::UNAVAILABLE;
+            profile.preservation_score = std::numeric_limits<float>::quiet_NaN();
+        }
         else if (profile.ox_is_artifact)
             profile.preservation_label = PL::ARTIFACT_SUSPECTED;
         else if (profile.preservation_score < 0.15f)

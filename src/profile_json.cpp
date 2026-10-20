@@ -825,7 +825,10 @@ void profile_to_json(const SampleDamageProfile& dp,
           << ", \"markers_consistent\": " << (otmv.markers_consistent ? "true" : "false")
           << ", \"is_ancient_specific\": false},\n";
         j << "    \"preservation\":     {\"tier\": \"" << dp.preservation_label_str()
-          << "\", \"source\": \"preservation.score\", \"score\": " << std::setprecision(6) << dp.preservation_score << "},\n";
+          << "\", \"source\": \"preservation.score\", \"score\": ";
+        if (std::isfinite(dp.preservation_score)) j << std::setprecision(6) << dp.preservation_score;
+        else j << "null";
+        j << "},\n";
         j << "    \"note\": \"Canonical per-axis calls; each `source` points to the authoritative readout. "
              "deamination = age-bearing terminal C->T (the only ancient-vs-modern discriminator). "
              "damaged_fraction = pi (deamination-defined strata). oxidation = oxo_two_marker G->T, REAL but "
@@ -2811,7 +2814,10 @@ void profile_to_json(const SampleDamageProfile& dp,
         std::ostream& j = s_qc;
     // ── Preservation ──────────────────────────────────────────────────────────
     j << "  \"preservation\": {\n";
-    j << "    \"score\": " << std::setprecision(6) << dp.preservation_score << ",\n";
+    j << "    \"score\": ";
+    if (std::isfinite(dp.preservation_score)) j << std::setprecision(6) << dp.preservation_score;
+    else j << "null";
+    j << ",\n";
     j << "    \"evidence\": " << dp.preservation_evidence << ",\n";
     j << "    \"reliability\": " << dp.preservation_reliability << ",\n";
     j << "    \"f5\": " << dp.preservation_f5 << ",\n";
