@@ -3502,7 +3502,10 @@ void profile_to_json(const SampleDamageProfile& dp,
                                                             "UNDETERMINED";
         j << "  \"tau_discriminator\": {\n";
         j << "    \"provisional\": true,\n";
-        j << "    \"point\": "; jn(tau.point); j << ",\n";
+        // point and burial_fingerprint.tau_hat are null unless tau is DETECTED: otherwise the curve is
+        // flat over [10, 400] bp and the argmax moves by >100 bp with fit noise (2026-10-20).
+        const bool tau_detected = tau.state == DamageConfidence::DETECTED;
+        j << "    \"point\": "; if (tau_detected) jn(tau.point); else j << "null"; j << ",\n";
         j << "    \"ci_lo\": ";  jn(tau.lo);   j << ",\n";
         j << "    \"ci_hi\": ";  jn(tau.hi);   j << ",\n";
         j << "    \"state\": \"" << tau_state_str << "\",\n";
@@ -3593,7 +3596,9 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"theta_ci_lo\": ";        jn(bf.theta_lo);           j << ",\n";
         j << "    \"theta_ci_hi\": ";        jn(bf.theta_hi);           j << ",\n";
         j << "    \"overhang_fraction\": ";  jn(bf.overhang_fraction);  j << ",\n";
-        j << "    \"tau_hat\": ";            jn(bf.tau_hat, 3);         j << ",\n";
+        j << "    \"tau_hat\": ";
+        if (dp.tau.state == DamageConfidence::DETECTED) jn(bf.tau_hat, 3); else j << "null";
+        j << ",\n";
         j << "    \"phi_share\": ";          jn(bf.phi_share);          j << ",\n";
         j << "    \"note\": \"theta=ln(gamma/f0) hydrolytic fragmentation pressure index: scission/deamination rate ratio. Sensitive to pH but also temperature, water activity, and deamination saturation. NOT a pH meter. phi_share=sigma0/(sigma0+f0) upper bound on oxidation fraction\"\n";
         j << "  },\n";
