@@ -129,8 +129,8 @@ struct BulkDamagePerBin {
     // FULL profile-likelihood curve over δ_l (nuisances re-optimized per grid point)
     std::vector<double> profile_delta;    // grid
     std::vector<double> profile_loglik;   // ℓ(δ_l=grid) − ℓ̂  (≤ 0, peak 0 at δ̂_l)
-    // false when a profile point used all PROFILE_MAX_SWEEPS: the curve, delta_ell0 and s0 are then
-    // withheld (empty / NaN), because points optimised to different depths are not comparable.
+    // false when a profile point used all PROFILE_MAX_SWEEPS; the curve is kept, so treat it as
+    // approximate (points may be optimised to different depths).
     bool profile_converged = true;
 
     // mixture P2 — eligibility-conditioned damaged/non-damaged split (per-read two-end co-occurrence)
