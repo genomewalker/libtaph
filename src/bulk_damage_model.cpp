@@ -559,15 +559,7 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_thread
                          < PROFILE_MAX_SWEEPS;
             B.profile_loglik[g] = log_lik(s, Q) - R.log_lik;
         }
-        if (!converged) {
-            // Consumers (finalize_tau, w_length, the short-bin pi interval) skip a bin with no profile.
-            B.profile_converged = false;
-            B.profile_delta.clear();
-            B.profile_loglik.clear();
-            B.delta_ell0 = std::numeric_limits<double>::quiet_NaN();
-            B.s0 = std::numeric_limits<double>::quiet_NaN();
-            return;
-        }
+        B.profile_converged = converged;
         // Anchor the curve to its own maximum so it is a proper relative profile LL with peak
         // exactly 0; also absorbs any finite-precision over-shoot from differencing two large LLs.
         double pk = *std::max_element(B.profile_loglik.begin(), B.profile_loglik.end());
