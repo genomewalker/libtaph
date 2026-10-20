@@ -824,15 +824,17 @@ void profile_to_json(const SampleDamageProfile& dp,
           << ", \"delta_beta\": " << otmv.delta_beta << ", \"delta_beta_se\": " << otmv.delta_beta_se
           << ", \"markers_consistent\": " << (otmv.markers_consistent ? "true" : "false")
           << ", \"is_ancient_specific\": false},\n";
-        j << "    \"preservation\":     {\"tier\": \"" << dp.preservation_label_str()
-          << "\", \"source\": \"preservation.score\", \"score\": ";
+        // Preservation is diagnostic only: its length-coupling input (w_length) is not reliably
+        // determined, so no tier is called. The score and its factors stay in qc.preservation.
+        j << "    \"preservation\":     {\"tier\": null, \"diagnostic_only\": true"
+          << ", \"source\": \"preservation.score\", \"score\": ";
         if (std::isfinite(dp.preservation_score)) j << std::setprecision(6) << dp.preservation_score;
         else j << "null";
         j << "},\n";
         j << "    \"note\": \"Canonical per-axis calls; each `source` points to the authoritative readout. "
              "deamination = age-bearing terminal C->T (the only ancient-vs-modern discriminator). "
              "damaged_fraction = pi (deamination-defined strata). oxidation = oxo_two_marker G->T, REAL but "
-             "NOT ancient-specific (also from sample prep). preservation = aggregate index.\"\n";
+             "NOT ancient-specific (also from sample prep). preservation = aggregate index, diagnostic only (no tier).\"\n";
         j << "  },\n";
     }
     }   // end v11 characterization (damage_status + verdict)
