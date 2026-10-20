@@ -196,6 +196,19 @@ void BulkDamageModel::step_spike(const BulkDamageSuffStats& s, Params& P,
             }
         }
     }
+    // Centre the spikes per end. The p0 damage cell sees only a[0][e][0] + s[l][e], so the likelihood
+    // cannot tell them apart and coordinate ascent crawled along that ridge for hundreds of sweeps.
+    // Moving the mean of s[l][e] over live bins into a[0][e][0] leaves every eta unchanged; the plain
+    // mean is the shift that minimises the SPIKE_RIDGE penalty, so the objective never decreases.
+    if (!live.empty()) {
+        for (int e = 0; e < N_END; ++e) {
+            double mean = 0.0;
+            for (int l : live) mean += P.s_spike[l][e];
+            mean /= static_cast<double>(live.size());
+            for (int l : live) P.s_spike[l][e] -= mean;
+            P.a[0][e][0] += mean;
+        }
+    }
 }
 
 // ----------------------------------------------- a[c][e][p]: FREE per-channel length-invariant artifact
