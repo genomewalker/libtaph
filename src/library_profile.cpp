@@ -1630,7 +1630,7 @@ int run_library_profile(const LibraryProfileOptions& opt, const SeqReaderOpener&
             h << "  ,\"mod_d3_ols\": " << jv(ols_amp(dp.nondamaged_fraction_d3_fit,  dp.nondamaged_fraction_lambda3,  a3)) << "\n";
         }
         h << "  ,\"pres_score\": "    << jv(dp.preservation_score)    << "\n";
-        h << "  ,\"pres_label\": \""  << pres_h.label                 << "\"\n";
+        h << "  ,\"pres_label\": \"diagnostic only\"\n";
         h << "  ,\"auth_eff\": "      << jv(pres_h.authenticity_eff)  << "\n";
         h << "  ,\"ox_eff\": "        << jv(pres_h.oxidation_eff)     << "\n";
         h << "  ,\"qcr_eff\": "       << jv(pres_h.qc_risk_eff)       << "\n";
