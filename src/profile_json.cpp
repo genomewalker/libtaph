@@ -3449,6 +3449,7 @@ void profile_to_json(const SampleDamageProfile& dp,
             j << ", \"r_damage\": ["; jn(bb.r_damage[0]);  j << ", ";  jn(bb.r_damage[1]);  j << "]";
             j << ", \"delta_ell0\": "; jn(bb.delta_ell0);
             j << ", \"s0\": ";         jn(bb.s0);
+            j << ", \"profile_converged\": " << (bb.profile_converged ? "true" : "false");
             j << ", \"profile_delta\": [";
             for (size_t p = 0; p < bb.profile_delta.size(); ++p) {
                 jn(bb.profile_delta[p]);

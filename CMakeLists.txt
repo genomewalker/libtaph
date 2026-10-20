@@ -54,6 +54,10 @@ add_library(taph
 
 add_library(taph::taph ALIAS taph)
 
+# libtaph starts std::threads (bulk fit, library profiler), so every consumer must link them.
+find_package(Threads REQUIRED)
+target_link_libraries(taph PUBLIC Threads::Threads)
+
 target_include_directories(taph PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
@@ -145,6 +149,12 @@ if(TAPH_BUILD_TESTS)
     target_link_libraries(test_damage_regressions PRIVATE taph)
     target_compile_options(test_damage_regressions PRIVATE -O2 -Wall -Wextra)
     add_test(NAME damage_regressions COMMAND test_damage_regressions)
+
+    add_executable(test_paired_lsd_bin tests/test_paired_lsd_bin.cpp)
+    target_include_directories(test_paired_lsd_bin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(test_paired_lsd_bin PRIVATE taph)
+    target_compile_options(test_paired_lsd_bin PRIVATE -O2 -Wall -Wextra)
+    add_test(NAME paired_lsd_bin COMMAND test_paired_lsd_bin)
 
     add_executable(test_pi_shape_kinvariance tests/test_pi_shape_kinvariance.cpp)
     target_link_libraries(test_pi_shape_kinvariance PRIVATE taph)

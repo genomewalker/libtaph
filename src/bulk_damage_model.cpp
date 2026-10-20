@@ -547,14 +547,26 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_thread
         // walk outward from the MLE, each grid point warm-started from the previous converged fit;
         // δ_l is pinned and ALL other params (incl. the isotonic neighbours) are re-optimized → full profile.
         Params Q = P;
+        bool converged = true;
         for (int g = g0; g < PROFILE_PTS; ++g) {
-            run_sweeps(s, Q, live, l, B.profile_delta[g], nullptr, PROFILE_MAX_SWEEPS);
+            converged &= run_sweeps(s, Q, live, l, B.profile_delta[g], nullptr, PROFILE_MAX_SWEEPS)
+                         < PROFILE_MAX_SWEEPS;
             B.profile_loglik[g] = log_lik(s, Q) - R.log_lik;
         }
         Q = P;
         for (int g = g0 - 1; g >= 0; --g) {
-            run_sweeps(s, Q, live, l, B.profile_delta[g], nullptr, PROFILE_MAX_SWEEPS);
+            converged &= run_sweeps(s, Q, live, l, B.profile_delta[g], nullptr, PROFILE_MAX_SWEEPS)
+                         < PROFILE_MAX_SWEEPS;
             B.profile_loglik[g] = log_lik(s, Q) - R.log_lik;
+        }
+        if (!converged) {
+            // Consumers (finalize_tau, w_length, the short-bin pi interval) skip a bin with no profile.
+            B.profile_converged = false;
+            B.profile_delta.clear();
+            B.profile_loglik.clear();
+            B.delta_ell0 = std::numeric_limits<double>::quiet_NaN();
+            B.s0 = std::numeric_limits<double>::quiet_NaN();
+            return;
         }
         // Anchor the curve to its own maximum so it is a proper relative profile LL with peak
         // exactly 0; also absorbs any finite-precision over-shoot from differencing two large LLs.

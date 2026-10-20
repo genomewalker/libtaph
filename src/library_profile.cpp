@@ -880,8 +880,9 @@ int run_library_profile(const LibraryProfileOptions& opt, const SeqReaderOpener&
     };
 
     // ---- human-readable report ----------------------------------------
-    std::cout << "=== fqdup profile ===\n";
-    std::cout << "Input:   " << in_path << "\n";
+    std::cout << "=== library damage profile (" << opt.producer << ") ===\n";
+    if (!in_path.empty()) std::cout << "Input:   " << in_path << "\n";
+    if (paired_mode)      std::cout << "Paired:  " << r1_path << " + " << r2_path << "\n";
     std::cout << "Threads: " << n_threads << "\n";
     std::cout << "Reads:   " << fmt_count(reads_scanned) << " scanned";
     if (reads_skipped)
