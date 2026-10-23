@@ -15,7 +15,7 @@ The `preservation` block aggregates all damage-channel evidence into a single co
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `score` | float [0, 1] | Final preservation index: `evidence × reliability`, clamped to [0, 1]. The primary single-number summary for ranking or filtering. |
+| `score` | float [0, 1] | Final preservation index: `evidence × reliability`, clamped to [0, 1]. Diagnostic only: `verdict.preservation` reports `"tier": null, "diagnostic_only": true`, because the length-coupling input (`w_length`) is not reliably determined. Do not rank or filter libraries on it. |
 | `evidence` | float [0, 1] | Weighted geometric mean of the four damage factors (`f5`, `f3`, `f_coh`, `f_cpg`). Reflects damage magnitude independent of data-quality penalties. |
 | `reliability` | float [0, 1] | Product of three continuous gate factors: `g_N` (read-count sufficiency; half-point at ~500 reads), `g_fit` (bulk-model convergence status), and `g_ox` (oxidation-artifact penalty). Values near 1.0 indicate no quality penalty was applied. |
 | `label` | string | Categorical summary derived from `authenticity_eff`, not `score`. Values: `"modern-like"` (< 0.10), `"weak"` (0.10–0.30), `"moderate"` (0.30–0.55), `"ancient"` (≥ 0.55). |
@@ -66,6 +66,6 @@ The nested `oxidation` object reports a reference-free, length- and GC-stratifie
 
 #### Interpretation guidance
 
-`score` is the recommended field for ranking or threshold-based filtering; it is calibrated so that a library with strong terminal damage, good length-coupling, and no quality penalties scores above 0.60. `authenticity_eff` and `label` are more interpretable for reporting: they summarise terminal damage magnitude on a scale that is not deflated by reliability penalties, so a low-coverage but genuinely damaged library can carry a non-zero `label` while `score` appropriately reflects the uncertainty via the `reliability` gate. When `f_cpg` is 0.3 and `authenticity_evidence` is low, interpret the block cautiously — the composite may be driven by a single channel. A `qc_risk_eff` above 0.4 warrants inspection of the `library_qc` block and the deamination offset flags before concluding the preservation signal is biological.
+Status as of 2026-10-23: `score` is diagnostic only and no preservation tier is called (`verdict.preservation.tier` is null). Its length-coupling terms read `w_length`, which is deprecated, so they now contribute 0 and `f_coh`, `evidence` and `score` sit up to 0.074, 0.27 and 0.18 below earlier builds. Do not use `score` for ranking or threshold-based filtering. `authenticity_eff` and `label` are more interpretable for reporting: they summarise terminal damage magnitude on a scale that is not deflated by reliability penalties, so a low-coverage but genuinely damaged library can carry a non-zero `label` while `score` appropriately reflects the uncertainty via the `reliability` gate. When `f_cpg` is 0.3 and `authenticity_evidence` is low, interpret the block cautiously — the composite may be driven by a single channel. A `qc_risk_eff` above 0.4 warrants inspection of the `library_qc` block and the deamination offset flags before concluding the preservation signal is biological.
 
 ---
