@@ -824,12 +824,17 @@ void profile_to_json(const SampleDamageProfile& dp,
           << ", \"delta_beta\": " << otmv.delta_beta << ", \"delta_beta_se\": " << otmv.delta_beta_se
           << ", \"markers_consistent\": " << (otmv.markers_consistent ? "true" : "false")
           << ", \"is_ancient_specific\": false},\n";
-        j << "    \"preservation\":     {\"tier\": \"" << dp.preservation_label_str()
-          << "\", \"source\": \"preservation.score\", \"score\": " << std::setprecision(6) << dp.preservation_score << "},\n";
+        // Preservation is diagnostic only: its length-coupling input (w_length) is not reliably
+        // determined, so no tier is called. The score and its factors stay in qc.preservation.
+        j << "    \"preservation\":     {\"tier\": null, \"diagnostic_only\": true"
+          << ", \"source\": \"preservation.score\", \"score\": ";
+        if (std::isfinite(dp.preservation_score)) j << std::setprecision(6) << dp.preservation_score;
+        else j << "null";
+        j << "},\n";
         j << "    \"note\": \"Canonical per-axis calls; each `source` points to the authoritative readout. "
              "deamination = age-bearing terminal C->T (the only ancient-vs-modern discriminator). "
              "damaged_fraction = pi (deamination-defined strata). oxidation = oxo_two_marker G->T, REAL but "
-             "NOT ancient-specific (also from sample prep). preservation = aggregate index.\"\n";
+             "NOT ancient-specific (also from sample prep). preservation = aggregate index, diagnostic only (no tier).\"\n";
         j << "  },\n";
     }
     }   // end v11 characterization (damage_status + verdict)
@@ -2811,7 +2816,10 @@ void profile_to_json(const SampleDamageProfile& dp,
         std::ostream& j = s_qc;
     // ── Preservation ──────────────────────────────────────────────────────────
     j << "  \"preservation\": {\n";
-    j << "    \"score\": " << std::setprecision(6) << dp.preservation_score << ",\n";
+    j << "    \"score\": ";
+    if (std::isfinite(dp.preservation_score)) j << std::setprecision(6) << dp.preservation_score;
+    else j << "null";
+    j << ",\n";
     j << "    \"evidence\": " << dp.preservation_evidence << ",\n";
     j << "    \"reliability\": " << dp.preservation_reliability << ",\n";
     j << "    \"f5\": " << dp.preservation_f5 << ",\n";
@@ -3381,9 +3389,9 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"lambda_interpretation\": \"exponential positional decay of terminal damage/overhang signal; not a direct fragment-length or strand-break rate\",\n";
         j << "    \"lambda_at_boundary\": " << (bd.lambda_at_boundary ? "true" : "false") << ",\n";
         j << "    \"headline_delta\": "; jn(dp.bulk_headline_delta);  j << ",\n";
-        // threshold-free length-coupling weight: w_length∈[0,1] = P(terminal-damage mass falls with read
-        // length); slope_m = OLS slope of m(L)=δ_L·L (≤0 authentic terminal decay, ≫0 pervasive artifact).
-        // δ_auth = δ·w_length.
+        // Status as of 2026-10-20: slope_m, w_length and the δ_auth = δ·w_length fields are deprecated.
+        // w_length reads ~0.5 in every library because the δ_Lmax=0 anchor bin has a flat profile;
+        // use tau_discriminator. Emitted unchanged for compatibility.
         j << "    \"slope_m\": ";        jn(bd.slope_m);              j << ",\n";
         j << "    \"w_length\": ";       jn(bd.w_length);             j << ",\n";
         j << "    \"headline_delta_auth\": "; jn(dp.bulk_headline_delta * bd.w_length); j << ",\n";
@@ -3441,6 +3449,7 @@ void profile_to_json(const SampleDamageProfile& dp,
             j << ", \"r_damage\": ["; jn(bb.r_damage[0]);  j << ", ";  jn(bb.r_damage[1]);  j << "]";
             j << ", \"delta_ell0\": "; jn(bb.delta_ell0);
             j << ", \"s0\": ";         jn(bb.s0);
+            j << ", \"profile_converged\": " << (bb.profile_converged ? "true" : "false");
             j << ", \"profile_delta\": [";
             for (size_t p = 0; p < bb.profile_delta.size(); ++p) {
                 jn(bb.profile_delta[p]);
@@ -3467,6 +3476,7 @@ void profile_to_json(const SampleDamageProfile& dp,
                 j << ", \"pi_damaged\": null, \"pi_lo\": null, \"pi_hi\": null";
             }
             j << ", \"pi_identified\": " << (bb.pi_identified ? "true" : "false");
+            j << ", \"pi_authentic\": " << (bb.pi_authentic ? "true" : "false");
             j << "}";
         }
         if (!bd.bins.empty()) j << "\n    ";
@@ -3492,7 +3502,10 @@ void profile_to_json(const SampleDamageProfile& dp,
                                                             "UNDETERMINED";
         j << "  \"tau_discriminator\": {\n";
         j << "    \"provisional\": true,\n";
-        j << "    \"point\": "; jn(tau.point); j << ",\n";
+        // point and burial_fingerprint.tau_hat are null unless tau is DETECTED: otherwise the curve is
+        // flat over [10, 400] bp and the argmax moves by >100 bp with fit noise (2026-10-20).
+        const bool tau_detected = tau.state == DamageConfidence::DETECTED;
+        j << "    \"point\": "; if (tau_detected) jn(tau.point); else j << "null"; j << ",\n";
         j << "    \"ci_lo\": ";  jn(tau.lo);   j << ",\n";
         j << "    \"ci_hi\": ";  jn(tau.hi);   j << ",\n";
         j << "    \"state\": \"" << tau_state_str << "\",\n";
@@ -3583,7 +3596,9 @@ void profile_to_json(const SampleDamageProfile& dp,
         j << "    \"theta_ci_lo\": ";        jn(bf.theta_lo);           j << ",\n";
         j << "    \"theta_ci_hi\": ";        jn(bf.theta_hi);           j << ",\n";
         j << "    \"overhang_fraction\": ";  jn(bf.overhang_fraction);  j << ",\n";
-        j << "    \"tau_hat\": ";            jn(bf.tau_hat, 3);         j << ",\n";
+        j << "    \"tau_hat\": ";
+        if (dp.tau.state == DamageConfidence::DETECTED) jn(bf.tau_hat, 3); else j << "null";
+        j << ",\n";
         j << "    \"phi_share\": ";          jn(bf.phi_share);          j << ",\n";
         j << "    \"note\": \"theta=ln(gamma/f0) hydrolytic fragmentation pressure index: scission/deamination rate ratio. Sensitive to pH but also temperature, water activity, and deamination saturation. NOT a pH meter. phi_share=sigma0/(sigma0+f0) upper bound on oxidation fraction\"\n";
         j << "  },\n";

@@ -48,9 +48,15 @@ add_library(taph
     src/ancient_fraction.cpp
     src/oxog_score.cpp
     src/lsd_accumulator.cpp
+    src/length_damage_profile.cpp
+    src/library_profile.cpp
 )
 
 add_library(taph::taph ALIAS taph)
+
+# libtaph starts std::threads (bulk fit, library profiler), so every consumer must link them.
+find_package(Threads REQUIRED)
+target_link_libraries(taph PUBLIC Threads::Threads)
 
 target_include_directories(taph PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -58,7 +64,10 @@ target_include_directories(taph PUBLIC
 )
 
 set(TAPH_MARCH "" CACHE STRING "Value passed to -march=; empty = portable. Set to 'native' for local optimisation.")
-target_compile_options(taph PRIVATE -O2 -Wall -Wextra)
+# Never fuse multiply-adds: hosts build libtaph with different -march and -std
+# (fqdup: gnu++17 + x86-64-v3, DART: c++17 + nocona/avx2), and fused multiply-adds
+# round differently, so damage numbers would depend on the tool that computed them.
+target_compile_options(taph PRIVATE -O2 -Wall -Wextra -ffp-contract=off)
 if(NOT "${TAPH_MARCH}" STREQUAL "")
     target_compile_options(taph PRIVATE -march=${TAPH_MARCH})
 endif()
@@ -140,6 +149,22 @@ if(TAPH_BUILD_TESTS)
     target_link_libraries(test_damage_regressions PRIVATE taph)
     target_compile_options(test_damage_regressions PRIVATE -O2 -Wall -Wextra)
     add_test(NAME damage_regressions COMMAND test_damage_regressions)
+
+    add_executable(test_paired_lsd_bin tests/test_paired_lsd_bin.cpp)
+    target_include_directories(test_paired_lsd_bin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(test_paired_lsd_bin PRIVATE taph)
+    target_compile_options(test_paired_lsd_bin PRIVATE -O2 -Wall -Wextra)
+    add_test(NAME paired_lsd_bin COMMAND test_paired_lsd_bin)
+
+    add_executable(test_dmax_split tests/test_dmax_split.cpp)
+    target_link_libraries(test_dmax_split PRIVATE taph)
+    target_compile_options(test_dmax_split PRIVATE -O2 -Wall -Wextra)
+    add_test(NAME dmax_split COMMAND test_dmax_split)
+
+    add_executable(test_bulk_squarem tests/test_bulk_squarem.cpp)
+    target_link_libraries(test_bulk_squarem PRIVATE taph)
+    target_compile_options(test_bulk_squarem PRIVATE -O2 -Wall -Wextra)
+    add_test(NAME bulk_squarem COMMAND test_bulk_squarem)
 
     add_executable(test_pi_shape_kinvariance tests/test_pi_shape_kinvariance.cpp)
     target_link_libraries(test_pi_shape_kinvariance PRIVATE taph)

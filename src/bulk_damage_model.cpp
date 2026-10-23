@@ -196,6 +196,22 @@ void BulkDamageModel::step_spike(const BulkDamageSuffStats& s, Params& P,
             }
         }
     }
+    centre_spikes(P, live);
+}
+
+// Centre the spikes per end. The p0 damage cell sees only a[0][e][0] + s[l][e], so the likelihood
+// cannot tell them apart and coordinate ascent crawled along that ridge for hundreds of sweeps.
+// Moving the mean of s[l][e] over live bins into a[0][e][0] leaves every eta unchanged; the plain
+// mean is the shift that minimises the SPIKE_RIDGE penalty, so the objective never decreases.
+void BulkDamageModel::centre_spikes(Params& P, const std::vector<int>& live) {
+    if (live.empty()) return;
+    for (int e = 0; e < N_END; ++e) {
+        double mean = 0.0;
+        for (int l : live) mean += P.s_spike[l][e];
+        mean /= static_cast<double>(live.size());
+        for (int l : live) P.s_spike[l][e] -= mean;
+        P.a[0][e][0] += mean;
+    }
 }
 
 // ----------------------------------------------- a[c][e][p]: FREE per-channel length-invariant artifact
@@ -389,32 +405,25 @@ void BulkDamageModel::step_lambda(const BulkDamageSuffStats& s, Params& P,
 
 // ------------------------------------------------------------------ convergence helpers
 
-double BulkDamageModel::max_param_change(const Params& A, const Params& B,
-                                                const std::vector<int>& live) {
+double BulkDamageModel::core_param_change(const Params& A, const Params& B,
+                                                 const std::vector<int>& live) {
     double m = std::fabs(A.lambda - B.lambda);
-    for (int c = 0; c < BulkDamageSuffStats::N_CH; ++c)
-        for (int e = 0; e < N_END; ++e)
-            for (int p = 0; p < N_POS; ++p)
-                m = std::max(m, std::fabs(A.a[c][e][p] - B.a[c][e][p]));
-    for (int l : live) {
-        m = std::max(m, std::fabs(A.beta[l][0] - B.beta[l][0]));
-        m = std::max(m, std::fabs(A.beta[l][1] - B.beta[l][1]));
-        m = std::max(m, std::fabs(A.delta[l] - B.delta[l]));
-        for (int e = 0; e < N_END; ++e)
-            m = std::max(m, std::fabs(A.s_spike[l][e] - B.s_spike[l][e]));
-    }
+    for (int l : live) m = std::max(m, std::fabs(A.delta[l] - B.delta[l]));
     return m;
 }
 
 // Coordinate ascent to convergence (scale-free param-change stop). pinned_idx≥0 holds δ_{pinned}=pinned_val.
+// squarem: after SQUAREM_WARMUP plain sweeps, each iteration takes two sweeps, extrapolates the nuisances
+// (a, s_spike) along them, re-solves δ and λ exactly at the new nuisances, and finishes with a
+// stabilising sweep. An extrapolation that lowers the penalised objective below the plain two-sweep point
+// falls back to that point. Each iteration counts as three sweeps against max_sweeps. Once an iteration
+// gains less than SQUAREM_HANDOFF_LL the fit is on the flat ridge, where every extrapolation re-solves δ
+// and λ by ~1e-6 for no gain and so keeps the stop test from passing; plain sweeps finish from there.
 int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
                                        const std::vector<int>& live,
                                        int pinned_idx, double pinned_val,
-                                       std::vector<int>* block_id, int max_sweeps) {
-    int sweep = 0;
-    double ll_prev = log_lik(s, P);
-    for (; sweep < max_sweeps; ++sweep) {
-        Params old = P;
+                                       std::vector<int>* block_id, int max_sweeps, bool squarem,
+                                       BulkFitTrace* trace) {
         // β̂_{c,l} is FIXED at the interior sufficient statistic (logit(interior C/(C+T)), set in init()) —
         // NOT re-fit from terminal data. A pervasive per-base artifact (FLB57m) elevates the INTERIOR
         // baseline; if β were free to the terminus, that elevation would split between β (short bins) and
@@ -422,18 +431,89 @@ int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
         // the interior makes the terminus model only the EXCESS OVER INTERIOR, so a per-base artifact
         // (terminus ≤ interior) gives δ→0 while genuine terminal deamination (terminus > interior) gives
         // δ>0 — the pervasiveness discriminator, baked into the model. (room-cdf15767)
-        // step_beta(s, P, live);   // intentionally disabled — β̂ anchored to interior
-        step_artifact(s, P, live);                    // a[c][e][p]: free per channel, no projection
-        step_spike(s, P, live);                       // s[l][e]: p0 spike on η_dmg
-        step_delta_isotonic(s, P, live, block_id, pinned_idx, pinned_val);   // PAVA + δ_{Lmax}=0
-        step_lambda(s, P, live);
+    auto sweep_once = [&](Params& Q) {
+        // step_beta(s, Q, live);   // intentionally disabled — β̂ anchored to interior
+        step_artifact(s, Q, live);                    // a[c][e][p]: free per channel, no projection
+        step_spike(s, Q, live);                       // s[l][e]: p0 spike on η_dmg
+        step_delta_isotonic(s, Q, live, block_id, pinned_idx, pinned_val);   // PAVA + δ_{Lmax}=0
+        step_lambda(s, Q, live);
+    };
+    // The extrapolated nuisances: a[c][e][p] (p<14; a[c][e][14]≡0) and s_spike[l][e] over live bins.
+    auto pack = [&](const Params& Q, std::vector<double>& x) {
+        x.clear();
+        for (int c = 0; c < BulkDamageSuffStats::N_CH; ++c)
+            for (int e = 0; e < N_END; ++e)
+                for (int p = 0; p < N_POS - 1; ++p) x.push_back(Q.a[c][e][p]);
+        for (int l : live)
+            for (int e = 0; e < N_END; ++e) x.push_back(Q.s_spike[l][e]);
+    };
+    auto unpack = [&](const std::vector<double>& x, Params& Q) {
+        size_t i = 0;
+        for (int c = 0; c < BulkDamageSuffStats::N_CH; ++c)
+            for (int e = 0; e < N_END; ++e)
+                for (int p = 0; p < N_POS - 1; ++p) Q.a[c][e][p] = x[i++];
+        for (int l : live)
+            for (int e = 0; e < N_END; ++e) Q.s_spike[l][e] = x[i++];
+    };
+    // dart's adaptive step bounds (squarem_step_min0 = squarem_step_max0 = 1, mstep 4).
+    const double step_max0 = 1.0, mstep = 4.0;
+    double step_min = 1.0, step_max = step_max0;
+    std::vector<double> x0, x1, x2, r, v;
+
+    int sweep = 0, flat = 0;
+    double ll_prev = log_lik(s, P);
+    bool accel = squarem;
+    if (trace) trace->obj.push_back(penalized_obj(s, P));
+    while (sweep < max_sweeps) {
+        Params old = P;
+        if (accel && sweep >= SQUAREM_WARMUP && sweep + 3 <= max_sweeps) {
+            Params P1 = P;  sweep_once(P1);
+            Params P2 = P1; sweep_once(P2);
+            pack(P, x0); pack(P1, x1); pack(P2, x2);
+            r.resize(x0.size()); v.resize(x0.size());
+            double sr2, sv2, srv;
+            squarem_build_directions(x0.data(), x1.data(), x2.data(), r.data(), v.data(), x0.size(),
+                                     sr2, sv2, srv);
+            const double alpha = trace && trace->force_alpha > 0.0
+                ? trace->force_alpha
+                : std::clamp(squarem_step_length(3, sr2, sv2, srv), step_min, step_max);
+            squarem_extrapolate(x0.data(), r.data(), v.data(), x0.size(), alpha);
+            Params Q = P2;
+            unpack(x0, Q);
+            centre_spikes(Q, live);
+            step_delta_isotonic(s, Q, live, block_id, pinned_idx, pinned_val);
+            step_lambda(s, Q, live);
+            sweep_once(Q);
+            sweep += 3;
+            const bool at_upper = std::abs(alpha - step_max) <= 1e-12 * (1.0 + std::abs(step_max));
+            const bool keep = penalized_obj(s, Q) >= penalized_obj(s, P2);
+            if (trace) { ++trace->accelerated; trace->fallbacks += !keep; }
+            if (keep) {
+                P = std::move(Q);
+            } else {
+                P = std::move(P2);
+                if (at_upper) step_max = std::max(step_max0, step_max / mstep);
+            }
+            if (std::abs(alpha - step_max) <= 1e-12 * (1.0 + std::abs(step_max))) step_max = mstep * step_max;
+            if (step_min < 0.0 && std::abs(alpha - step_min) <= 1e-12 * (1.0 + std::abs(step_min)))
+                step_min = mstep * step_min;
+            if (penalized_obj(s, P) - penalized_obj(s, old) < SQUAREM_HANDOFF_LL) accel = false;
+        } else {
+            sweep_once(P);
+            ++sweep;
+        }
+        if (trace) trace->obj.push_back(penalized_obj(s, P));
         double ll = log_lik(s, P);
-        // Stop only when both the parameters and likelihood are flat.  Individual
-        // coordinate updates can backtrack to the saved value, so a tiny net parameter
-        // move alone is not reliable convergence evidence on the near-zero-delta ridge.
-        bool ll_flat   = (ll - ll_prev) <= TOL_LL_ABS + TOL_LL_REL * std::fabs(ll);
-        bool par_small = max_param_change(old, P, live) < TOL_PARAM;
-        if (par_small && ll_flat) { ++sweep; break; }
+        // Stop when the likelihood is flat and δ, λ are still, for FLAT_SWEEPS sweeps in a row.
+        // One quiet sweep is not enough: coordinate updates can backtrack to the saved value.
+        // A profile point (pinned δ) only needs its likelihood: that is all the curve keeps, and
+        // λ and the free δ keep drifting ~1e-6 per sweep long after it has settled.
+        const bool quiet = pinned_idx >= 0
+            ? (ll - ll_prev) <= PROFILE_TOL_LL
+            : (ll - ll_prev) <= TOL_LL_ABS + TOL_LL_REL * std::fabs(ll) &&
+              core_param_change(old, P, live) < TOL_PARAM;
+        flat = quiet ? flat + 1 : 0;
+        if (flat >= FLAT_SWEEPS) break;
         ll_prev = ll;
     }
     return sweep;
@@ -441,7 +521,8 @@ int BulkDamageModel::run_sweeps(const BulkDamageSuffStats& s, Params& P,
 
 // ------------------------------------------------------------------ driver
 
-BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_threads) {
+BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_threads, bool squarem,
+                                      BulkFitTrace* trace) {
     BulkDamageResult R;
     const int L = s.L();
     if (L == 0) return R;
@@ -455,7 +536,7 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_thread
     init(s, P, live);
 
     std::vector<int> block_id;
-    int sweeps = run_sweeps(s, P, live, -1, 0.0, &block_id);
+    int sweeps = run_sweeps(s, P, live, -1, 0.0, &block_id, MAX_SWEEPS, squarem, trace);
     R.converged = sweeps < MAX_SWEEPS;
     R.n_sweeps  = sweeps;
     R.log_lik   = log_lik(s, P);
@@ -544,15 +625,19 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_thread
         // walk outward from the MLE, each grid point warm-started from the previous converged fit;
         // δ_l is pinned and ALL other params (incl. the isotonic neighbours) are re-optimized → full profile.
         Params Q = P;
+        bool converged = true;
         for (int g = g0; g < PROFILE_PTS; ++g) {
-            run_sweeps(s, Q, live, l, B.profile_delta[g], nullptr, PROFILE_MAX_SWEEPS);
+            converged &= run_sweeps(s, Q, live, l, B.profile_delta[g], nullptr, PROFILE_MAX_SWEEPS)
+                         < PROFILE_MAX_SWEEPS;
             B.profile_loglik[g] = log_lik(s, Q) - R.log_lik;
         }
         Q = P;
         for (int g = g0 - 1; g >= 0; --g) {
-            run_sweeps(s, Q, live, l, B.profile_delta[g], nullptr, PROFILE_MAX_SWEEPS);
+            converged &= run_sweeps(s, Q, live, l, B.profile_delta[g], nullptr, PROFILE_MAX_SWEEPS)
+                         < PROFILE_MAX_SWEEPS;
             B.profile_loglik[g] = log_lik(s, Q) - R.log_lik;
         }
+        B.profile_converged = converged;
         // Anchor the curve to its own maximum so it is a proper relative profile LL with peak
         // exactly 0; also absorbs any finite-precision over-shoot from differencing two large LLs.
         double pk = *std::max_element(B.profile_loglik.begin(), B.profile_loglik.end());
@@ -710,9 +795,12 @@ BulkDamageResult BulkDamageModel::fit(const BulkDamageSuffStats& s, int n_thread
         // Identified only when the shared d_max is INTERIOR: above max δ_l (so π<1) and strictly below
         // the probability bound. A solution railed at d_max→1 means the conditional covariance exceeds
         // what any mixture can produce — residual composition structure that (S5,S3)-conditioning did
-        // not remove — so the split is UNIDENTIFIED → undetermined (not a confident d_max=1). Gated by
-        // w_length so a pervasive artifact never yields a split.
-        if (sum_w > 0.0 && R.w_length > 0.5 && dmax_raw > dmax_floor && dmax_raw < 1.0 - 1e-3) {
+        // not remove — so the split is UNIDENTIFIED → undetermined (not a confident d_max=1). The
+        // lower 95% edge of d_max must clear max δ_l, not just the point. (Until 2026-10-20 this was
+        // also gated on w_length > 0.5; w_length sits at 0.5 ± noise in every library, so that gate
+        // turned on and off at random. Whether π reads as a damaged fraction is pi_authentic, set
+        // from tau after finalize_tau.)
+        if (dmax_split_identified(sum_w, dmax_raw, dmax_floor)) {
             double dmax = dmax_raw;
             double dse  = std::sqrt(1.0 / sum_w);
             R.d_max_damaged = dmax;

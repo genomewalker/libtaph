@@ -45,6 +45,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FQDUP_GIVEN="${FQDUP:+1}"
 FQDUP="${FQDUP:-/path/to/fqdup/build/fqdup}"
 TMPDIR_ORACLE="${TMPDIR_ORACLE:-/path/to/tmp}"
 CAPTURE="${CAPTURE:-0}"
@@ -59,10 +60,14 @@ FIXTURES=(
   "modern  ds  none"
 )
 
-# Rebuild fqdup from the working-tree libtaph (FETCHCONTENT_SOURCE_DIR_LIBTAPH) so the oracle ALWAYS
-# reflects the current edits — incremental (~2s), and without it the oracle silently tests a stale binary.
-( cd /path/to/fqdup && cmake --build build --parallel ) >/dev/null 2>&1 \
-    || { echo "ORACLE BUILD FAIL"; exit 2; }
+# With the default fqdup, rebuild it from the working-tree libtaph (FETCHCONTENT_SOURCE_DIR_LIBTAPH)
+# so the oracle reflects the current edits (incremental, ~2s); otherwise it silently tests a stale
+# binary. An explicit FQDUP is used as given: it is never rebuilt, so the oracle cannot touch another
+# build directory.
+if [ -z "$FQDUP_GIVEN" ]; then
+    ( cd /path/to/fqdup && cmake --build build --parallel ) >/dev/null 2>&1 \
+        || { echo "ORACLE BUILD FAIL"; exit 2; }
+fi
 
 fail=0
 for row in "${FIXTURES[@]}"; do

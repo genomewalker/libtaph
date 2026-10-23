@@ -129,6 +129,9 @@ struct BulkDamagePerBin {
     // FULL profile-likelihood curve over δ_l (nuisances re-optimized per grid point)
     std::vector<double> profile_delta;    // grid
     std::vector<double> profile_loglik;   // ℓ(δ_l=grid) − ℓ̂  (≤ 0, peak 0 at δ̂_l)
+    // false when a profile point used all PROFILE_MAX_SWEEPS; the curve is kept, so treat it as
+    // approximate (points may be optimised to different depths).
+    bool profile_converged = true;
 
     // mixture P2 — eligibility-conditioned damaged/non-damaged split (per-read two-end co-occurrence)
     uint64_t joint_n = 0;                       // reads contributing to the co-occurrence moments
@@ -140,7 +143,53 @@ struct BulkDamagePerBin {
     // pi_lo/pi_hi hold real probabilities in [0,1]. The −1.0 sentinels are internal-only; profile_json.cpp
     // gates on this flag to emit JSON null instead of −1.0. Default false (reset in fit()).
     bool   pi_identified = false;
+    // pi_identified and the library's tau_discriminator is DETECTED: the split reads as a damaged
+    // fraction. Set after finalize_tau (tau needs the profile curves fit() produces). tau's 35/80 bp
+    // thresholds are provisional (3 labelled libraries), so this flag is too.
+    bool   pi_authentic = false;
 };
+
+// The shared d_max (inverse-variance weight sum_w) is identified when its lower 95% edge clears the
+// largest per-bin δ and it stays off the probability bound.
+inline bool dmax_split_identified(double sum_w, double dmax_raw, double max_delta) {
+    return sum_w > 0.0 && dmax_raw - 1.96 * std::sqrt(1.0 / sum_w) > max_delta && dmax_raw < 1.0 - 1e-3;
+}
+
+// SQUAREM (Varadhan & Roland 2008), step-length method 3 with the +alpha sign convention, as in dart
+// (include/dart/em_reassign.hpp: squarem_build_directions, squarem_step_length). r = x1 − x0,
+// v = (x2 − x1) − r, x' = x0 + 2·alpha·r + alpha²·v, so alpha = 1 is the plain two-step point x2.
+inline void squarem_build_directions(const double* x, const double* x1, const double* x2, double* q1,
+                                     double* v, size_t n, double& sr2, double& sv2, double& srv) {
+    sr2 = 0.0; sv2 = 0.0; srv = 0.0;
+    for (size_t i = 0; i < n; ++i) {
+        q1[i] = x1[i] - x[i];
+        v[i] = (x2[i] - x1[i]) - q1[i];
+        sr2 += q1[i] * q1[i];
+        sv2 += v[i] * v[i];
+        srv += q1[i] * v[i];
+    }
+}
+
+inline double squarem_step_length(int method, double sr2, double sv2, double srv) {
+    constexpr double kEps = 1e-15;
+    double alpha = 1.0;
+    if (method == 1) {
+        if (sv2 > kEps) alpha = -srv / sv2;
+    } else if (method == 2) {
+        if (std::abs(srv) > kEps) alpha = -sr2 / srv;
+    } else {
+        if (sv2 > kEps) alpha = std::sqrt(sr2 / sv2);
+    }
+    return std::isfinite(alpha) ? alpha : 1.0;
+}
+
+// dart's squarem_extrapolate without its simplex clamp and renormalisation: the bulk-fit
+// nuisances (a, s_spike) are unconstrained log-odds.
+inline void squarem_extrapolate(double* x, const double* q1, const double* v, size_t n, double alpha) {
+    const double alpha_sq = alpha * alpha;
+    const double two_alpha = 2.0 * alpha;
+    for (size_t i = 0; i < n; ++i) x[i] = x[i] + two_alpha * q1[i] + alpha_sq * v[i];
+}
 
 // ----------------------------------------------------------------------------- whole-fit result
 
@@ -156,6 +205,9 @@ struct BulkDamageResult {
 
     std::vector<BulkDamagePerBin> bins;
 
+    // Status as of 2026-10-20: slope_m and w_length are deprecated and gate nothing. w_length reads
+    // 0.5 ± noise in every library because the δ_Lmax=0 anchor bin has a flat profile curve, which
+    // swamps the slope SE. Kept in the JSON for compatibility; use tau_discriminator.
     // Length-coupling weight (post-fit, threshold-free). Real terminal deamination occupies a fixed
     // terminal zone, so its damaged-base mass per read m(L)=δ_L·L is flat-or-falling in read length L
     // (slope ≤ 0); a per-base/whole-molecule artifact (FLB57m) adds a constant rate, so m(L)∝L
@@ -167,7 +219,7 @@ struct BulkDamageResult {
     // BEHAVIORAL CHANGE (C5): default 0.5 (undetermined), not 1.0. The slope-based update below is
     // gated on n>=2 live bins; with exactly 1 live bin the whole block is skipped and w_length must
     // read as undetermined (w≈0.5), NOT full authenticity (1.0). 1.0 over-certified headline_delta_auth
-    // and let the pi_damaged gate (w_length>0.5) pass on a single bin where the slope is undefined.
+    // and let the old pi_damaged gate (w_length>0.5, removed 2026-10-20) pass on one bin.
     double w_length = 0.5;
 
     // Length-coupling DIAGNOSTIC (post-fit, NOT used in the fit). Sign of the slope of the recovered δ_l
@@ -197,6 +249,16 @@ struct BulkDamageResult {
                                          // false ⇒ ds library, or ss whose p0 overhang was not identifiable
 };
 
+// Main-fit iteration record for tests: penalised objective at the start and after every plain sweep
+// or SQUAREM iteration, and how many extrapolations were kept or fell back. force_alpha > 0 replaces
+// the clamped step length.
+struct BulkFitTrace {
+    double force_alpha = 0.0;
+    std::vector<double> obj;
+    int accelerated = 0;
+    int fallbacks = 0;
+};
+
 // ----------------------------------------------------------------------------- model / solver
 
 class BulkDamageModel {
@@ -205,7 +267,9 @@ public:
     // slot and a private Params Q ⇒ output is index-ordered and bit-identical to the serial run).
     // Default 1 preserves every existing caller; the length-strat per-bin fits MUST keep 1 (their
     // bins are already distributed across a worker pool — no nested oversubscription).
-    static BulkDamageResult fit(const BulkDamageSuffStats& s, int n_threads = 1);
+    // squarem: accelerate the main fit's coordinate ascent (profile points stay plain).
+    static BulkDamageResult fit(const BulkDamageSuffStats& s, int n_threads = 1, bool squarem = true,
+                                BulkFitTrace* trace = nullptr);
 
     // Terminal (p=0) kernel weight — the one place the ds and ss decay kernels DIFFER.
     //   ds: the 5' terminus is excluded from the decay (0); the p0 spike s[l][e] absorbs any
@@ -228,7 +292,15 @@ public:
     static constexpr double DELTA_MAX   = 0.60;
     static constexpr double MU_EPS      = 1e-6;
     static constexpr int    MAX_SWEEPS  = 500;
-    static constexpr double TOL_PARAM   = 1e-7;   // scale-free: max |Δ param| between sweeps
+    static constexpr double TOL_PARAM   = 1e-7;   // max |Δδ|, |Δλ| between sweeps
+    // Converged once the likelihood is flat and δ, λ are still for FLAT_SWEEPS sweeps in a row.
+    // The artifact a[c][e][p] and spike s[l][e] terms are left out of the test: the position-0
+    // artifact and the position-0 spike describe the same excess, so coordinate ascent crawls
+    // along that ridge (step shrinking ~15% per 50 sweeps) long after δ, λ and ℓ have settled,
+    // and waiting on it sent most libraries to MAX_SWEEPS.
+    static constexpr int    FLAT_SWEEPS = 3;
+    static constexpr int    SQUAREM_WARMUP = 4;   // plain sweeps before acceleration (dart's default)
+    static constexpr double SQUAREM_HANDOFF_LL = 1e-4;  // iteration gain below which plain sweeps take over
     // LL-plateau stop: on a weakly-identified (near-zero-δ) ridge the parameters crawl for
     // hundreds of sweeps while the likelihood is already flat. The LL is monotone (every step
     // is ascent-guarded), so we stop once the per-sweep gain is negligible — this terminates on
@@ -240,6 +312,10 @@ public:
                                                   // long before this; the bar only bounds nuisance crawl.
     static constexpr int    PROFILE_PTS = 41;   // δ grid resolution for the full profile
     static constexpr int    PROFILE_MAX_SWEEPS = 80;  // profile points are warm-started → few sweeps
+    // Absolute per-sweep likelihood gain at which a profile point is settled. The curve is read
+    // against the 1.92 LR cutoff (tau, short-bin pi), so the relative TOL_LL_REL·|ℓ| (0.25 at
+    // 2.5e7) is too coarse here; 1e-4 is far below the cutoff and far above rounding.
+    static constexpr double PROFILE_TOL_LL = 1e-4;
     // w_length softness: the centre slope_m=0 is the mechanistic terminal-vs-pervasive boundary; this
     // only sets the transition width (in slope-SE units). High-coverage libraries fix the slope sign at
     // |z|≫1 regardless of c; c=1 (one SE) shapes only the undetermined band of thin libraries.
@@ -340,10 +416,12 @@ private:
     static void   step_delta_isotonic(const BulkDamageSuffStats& s, Params& P, const std::vector<int>& live,
                                       std::vector<int>* block_id, int pinned_idx = -1, double pinned_val = 0.0);
     static void   step_lambda(const BulkDamageSuffStats& s, Params& P, const std::vector<int>& live);
-    static double max_param_change(const Params& A, const Params& B, const std::vector<int>& live);
+    static double core_param_change(const Params& A, const Params& B, const std::vector<int>& live);
     static int    run_sweeps(const BulkDamageSuffStats& s, Params& P, const std::vector<int>& live,
                              int pinned_idx, double pinned_val, std::vector<int>* block_id,
-                             int max_sweeps = MAX_SWEEPS);
+                             int max_sweeps = MAX_SWEEPS, bool squarem = false,
+                             BulkFitTrace* trace = nullptr);
+    static void   centre_spikes(Params& P, const std::vector<int>& live);
 
     // 1-D bounded MLE of a single δ over an arbitrary set of damage cells (nuisances fixed).
     // The binomial score is monotone-decreasing in δ (concave LL) → safeguarded bisection.

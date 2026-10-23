@@ -23,7 +23,7 @@ The boundary-robust gate statistic `overhang_fraction` = A/(A + f₀) is the key
 |-------|------|-------------|
 | `provisional` | boolean | Always `true` — block is in shadow mode; gating output does not yet drive downstream consumers |
 | `state` | string | Three-state classification: `"DETECTED"`, `"NOT_DETECTED"`, or `"UNDETERMINED"` |
-| `point` | number \| null | τ̂ (bp): best-fit e-folding length of the overhang component; null when no live bins are available |
+| `point` | number \| null | τ̂ (bp): best-fit e-folding length of the overhang component; null unless `state` is DETECTED (status as of 2026-10-20; before, it was reported for every state, and with a flat curve it moved by over 100 bp between runs) |
 | `ci_lo` | number \| null | Lower edge of the 95% χ²-profile CI on τ̂ (bp) |
 | `ci_hi` | number \| null | Upper edge of the 95% χ²-profile CI on τ̂ (bp); state gate is applied to this value |
 | `f0` | number \| null | Pervasive length-independent C→T floor at the best-τ solution; null when only one live bin is available |
