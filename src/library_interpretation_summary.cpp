@@ -117,12 +117,14 @@ PreservationSummary compute_preservation_summary(
 
     double z5e = z_evidence(static_cast<double>(dp.terminal_z_5prime));
     double z3e = is_ss ? 0.0 : z_evidence(static_cast<double>(dp.terminal_z_3prime));
-    // bulk authenticity evidence: validated terminal magnitude × length-coupling
-    // (w_length), replacing the reference-free-non-identifiable mixture term (which
-    // floored at H0). w_length maps 0.5→0 (null cluster) … 0.9→1 (SOLUTION §6).
-    double w_coupling = std::clamp(
-        (static_cast<double>(dp.bulk_damage.w_length) - 0.5) / 0.4, 0.0, 1.0);
-    double bulk_e = sat(static_cast<double>(dp.d_max_combined), 0.05) * w_coupling;
+    // bulk authenticity evidence. Status as of 2026-10-20: this was
+    // sat(d_max, 0.05) × clamp((w_length − 0.5)/0.4); w_length reads 0.5 ± noise in every
+    // library (flat δ_Lmax=0 anchor bin), so the term was ~0 everywhere. It is 0 here; the
+    // bulk term still counts in auth_n_terms, as before. TAU_LENGTH_COUPLING (off) puts the tau
+    // overhang share in place of the w_length term.
+    const double bulk_e = TAU_LENGTH_COUPLING
+        ? sat(static_cast<double>(dp.d_max_combined), 0.05) * tau_length_coupling(dp.tau)
+        : 0.0;
     double cpg_e = wcpg * z_evidence(std::max(0.0, cpg_score_z), 5.0);
     double wbulk_e = dp.bulk_attempted ? 1.0 : 0.0;
     double auth_n_terms = 1.0 + (is_ss ? 0.0 : 1.0) + wbulk_e + wcpg;

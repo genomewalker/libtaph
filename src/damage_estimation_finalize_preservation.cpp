@@ -1,5 +1,7 @@
 #include "damage_estimation_finalize_helpers.hpp"
 #include "damage_estimation_finalize_ctx.hpp"
+#include "taph/bulk_damage_model.hpp"
+#include <limits>
 namespace taph {
 
 void finalize_preservation(SampleDamageProfile& profile) {
@@ -26,17 +28,15 @@ void finalize_preservation(SampleDamageProfile& profile) {
 
         // f_coh: mixture coherence — ancient subpop identifiable with real damage
         {
-            // Length-coupling coherence from the VALIDATED bulk law (d_max + w_length),
-            // not the reference-free-non-identifiable mixture (which floors at H0 and
-            // leaked ~0.87-authentic at a true null). A genuine ancient subpopulation
-            // carries terminal damage (d_auth) whose mass DECREASES with read length
-            // (w_length high); w_length is the load-bearing discriminator — nulls cluster
-            // at 0.5, positives push toward 1 (SOLUTION_pi_delta_dmax.md §6). d_max here is
-            // already w_length-gated by finalize_dmax, so at a null both factors → ~0.
-            float d_auth = sig((profile.d_max_combined - 0.05f) / 0.03f);
-            float w_coupling = std::clamp(
-                (static_cast<float>(profile.bulk_damage.w_length) - 0.5f) / 0.4f, 0.0f, 1.0f);
-            float coh_signal = d_auth * w_coupling;
+            // Length-coupling coherence. Status as of 2026-10-20: this was
+            // sig((d_max − 0.05)/0.03) × clamp((w_length − 0.5)/0.4); w_length reads 0.5 ± noise
+            // in every library (the δ_Lmax=0 anchor bin has a flat profile), so the product was
+            // ~0 (at most 0.006) everywhere. It is 0 here, so f_coh sits at its EPS floor;
+            // TAU_LENGTH_COUPLING (off) puts the tau overhang share in place of the w_length term.
+            const float coh_signal = TAU_LENGTH_COUPLING
+                ? sig((profile.d_max_combined - 0.05f) / 0.03f) *
+                      static_cast<float>(tau_length_coupling(profile.tau))
+                : 0.0f;
             // ds: penalise end-asymmetry, but use d_max_combined as floor so that
             // samples where bulk estimator zeroes d3 (noise/rescue limitation) are not
             // wrongly collapsed to near-zero symmetry.
@@ -94,10 +94,17 @@ void finalize_preservation(SampleDamageProfile& profile) {
         profile.preservation_score = std::clamp(
             profile.preservation_evidence * profile.preservation_reliability, 0.0f, 1.0f);
 
-        // Categorical label
+        // Categorical label. A bulk fit that used every sweep has not converged; its g_fit and
+        // f_coh then change with floating-point rounding (one library moved from modern-like to
+        // weak between builds), so no score or tier is reported for it.
         using PL = SampleDamageProfile::PreservationLabel;
+        const bool fit_capped = profile.bulk_damage.n_sweeps >= BulkDamageModel::MAX_SWEEPS;
         if (g_N < 0.3f)
             profile.preservation_label = PL::INSUFFICIENT;
+        else if (fit_capped) {
+            profile.preservation_label = PL::UNAVAILABLE;
+            profile.preservation_score = std::numeric_limits<float>::quiet_NaN();
+        }
         else if (profile.ox_is_artifact)
             profile.preservation_label = PL::ARTIFACT_SUSPECTED;
         else if (profile.preservation_score < 0.15f)
