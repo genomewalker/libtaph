@@ -1,0 +1,850 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reference-free ancient DNA damage estimation and library-type classification">
+      
+      
+      
+        <link rel="canonical" href="https://genomewalker.github.io/libtaph/fields/library_qc/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>library_qc - libtaph</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#library_qc" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="libtaph" class="md-header__button md-logo" aria-label="libtaph" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            libtaph
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              library_qc
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/genomewalker/libtaph" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    genomewalker/libtaph
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../methods/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Methods
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../damage-types/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Damage types
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../interpretation/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Interpretation guide
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../api/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  API Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../integration/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Classifier Integration
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="libtaph" class="md-nav__button md-logo" aria-label="libtaph" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    libtaph
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/genomewalker/libtaph" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    genomewalker/libtaph
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../methods/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methods
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../damage-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Damage types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Classifier Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+  <h1>library_qc</h1>
+
+<h3 id="library_qc"><code>library_qc</code></h3>
+<p>The <code>library_qc</code> block consolidates per-library quality diagnostics that are orthogonal to damage estimation: adapter remnant detection, terminal hexamer composition, position-0 artifact assessment, and downstream output-effect accounting. It is present in every profile regardless of library type or damage status; a <code>null</code> or absent block indicates that the read count fell below the minimum threshold required to compute terminal hexamer statistics. The block does not itself validate or invalidate damage estimates — instead it flags specific confounders and records which downstream outputs were corrected or remain suspect.</p>
+<p>Nucleotide composition at read termini carries two signals simultaneously: genuine damage (C→T at 5′ for double-stranded libraries, G→A at 3′) and technical artifacts introduced by adapter ligation chemistry, random hexamer priming, and incomplete adapter trimming. Incomplete 5′ adapter removal leaves a residual prefix whose fixed sequence distorts the apparent terminal base composition and inflates apparent C→T rates. Random hexamer priming introduces a well-characterized context bias in the first 6 bases of sequenced reads: certain hexamer sequences are captured at much higher efficiency than their frequency in the template would predict, shifting both nucleotide frequencies and trinucleotide context distributions at the 5′ read start. The <code>library_qc</code> block quantifies both of these sources. The hexamer-shift test uses a G-statistic comparing the observed 5′ hexamer frequency distribution against the interior-read baseline; a significant shift (high <code>hex_shift_z</code>, low <code>hex_shift_p</code>) together with divergent entropy values (<code>hexamer_entropy_5prime</code> vs <code>hexamer_entropy_interior</code>) indicates hexamer priming bias rather than damage-driven composition change.</p>
+<h4 id="top-level-fields">Top-level fields</h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>adapter_offset_5prime</code></td>
+<td>integer</td>
+<td>Number of bases identified as adapter remnant at the 5′ read start; 0 means no remnant detected, ≥1 means the first N bases are adapter-derived and position-0 base composition is unreliable</td>
+</tr>
+<tr>
+<td><code>adapter_offset_3prime</code></td>
+<td>integer</td>
+<td>Analogous remnant offset at the 3′ end</td>
+</tr>
+<tr>
+<td><code>adapter_prefix_identified</code></td>
+<td>object|null</td>
+<td><code>{"seq": "XXXXXX", "name": "..."}</code> — the 6-mer prefix detected and its library kit name if known, <code>null</code> when no recognisable prefix found</td>
+</tr>
+<tr>
+<td><code>adapter_stubs_clipped</code></td>
+<td>array of string</td>
+<td>6-mer stubs seen at the 5′ end above threshold</td>
+</tr>
+<tr>
+<td><code>adapter_stubs_clipped_3prime</code></td>
+<td>array of string</td>
+<td>6-mer stubs seen at the 3′ end above threshold</td>
+</tr>
+<tr>
+<td><code>adapter_stub_reads_checked</code></td>
+<td>integer|null</td>
+<td>Number of reads inspected for stub detection; <code>null</code> when the check was not run</td>
+</tr>
+<tr>
+<td><code>adapter_stub5_read_fraction</code></td>
+<td>float|null</td>
+<td>Fraction of reads carrying a detectable 5′ adapter stub</td>
+</tr>
+<tr>
+<td><code>adapter_stub3_read_fraction</code></td>
+<td>float|null</td>
+<td>Fraction of reads carrying a detectable 3′ adapter stub</td>
+</tr>
+<tr>
+<td><code>hexamer_entropy_5prime</code></td>
+<td>float</td>
+<td>Shannon entropy (bits) of the 5′ hexamer distribution; lower than interior entropy signals non-random priming</td>
+</tr>
+<tr>
+<td><code>hexamer_entropy_interior</code></td>
+<td>float</td>
+<td>Shannon entropy of the interior-read hexamer distribution; used as the unbiased baseline</td>
+</tr>
+<tr>
+<td><code>hexamer_terminal_interior_jsd</code></td>
+<td>float</td>
+<td>Jensen–Shannon divergence between 5′ and interior hexamer distributions; values above ~0.05 indicate meaningful terminal composition shift</td>
+</tr>
+<tr>
+<td><code>hex_shift_g</code></td>
+<td>float</td>
+<td>G-statistic (likelihood-ratio test) for the 5′ vs interior hexamer comparison</td>
+</tr>
+<tr>
+<td><code>hex_shift_z</code></td>
+<td>float</td>
+<td>Z-score derived from <code>hex_shift_g</code>; large values indicate significant hexamer bias</td>
+</tr>
+<tr>
+<td><code>hex_shift_p</code></td>
+<td>float</td>
+<td>P-value for the hexamer-shift G-test; typically 0.0 at sequencing depth because the test is highly powered</td>
+</tr>
+<tr>
+<td><code>hexamer_excess_tc</code></td>
+<td>float</td>
+<td>Excess T+C fraction at terminal hexamers relative to interior; positive values are consistent with C→T deamination signal but also with primer bias</td>
+</tr>
+<tr>
+<td><code>position0_artifact_5prime</code></td>
+<td>boolean</td>
+<td><code>true</code> when the base at the first read position is dominated by adapter sequence rather than template; downstream damage estimates at position 0 are unreliable</td>
+</tr>
+<tr>
+<td><code>position0_artifact_3prime</code></td>
+<td>boolean</td>
+<td>Analogous flag for the last read position</td>
+</tr>
+<tr>
+<td><code>short_read_frac</code></td>
+<td>float</td>
+<td>Fraction of reads shorter than the minimum length used for interior hexamer estimation; high values reduce the reliability of interior-read baselines</td>
+</tr>
+<tr>
+<td><code>depurination_detected</code></td>
+<td>boolean</td>
+<td>Mirrors the Channel E detection result in this QC context; <code>false</code> does not exclude depurination, only indicates the threshold for a positive call was not reached</td>
+</tr>
+<tr>
+<td><code>top_hexamers_5prime</code></td>
+<td>array of object</td>
+<td>Top-5 over-represented hexamers at the 5′ terminus, each with <code>seq</code> (string), <code>log2fc</code> (float, fold-change over interior baseline), and <code>damage_consistent</code> (boolean, whether the hexamer context is compatible with C→T damage)</td>
+</tr>
+<tr>
+<td><code>top_hexamers_3prime</code></td>
+<td>array of object|absent</td>
+<td>Same structure as <code>top_hexamers_5prime</code> but for 3′ terminus; absent in single-stranded original-strand libraries where 3′ composition is structurally asymmetric</td>
+</tr>
+<tr>
+<td><code>flags</code></td>
+<td>array of string</td>
+<td>Machine-readable QC flag list; empty array means no issues detected. Known values: <code>adapter_remnant_5prime</code> — unclipped adapter bases confirmed at 5′; <code>hexamer_terminal_shift</code> — significant hexamer distribution shift; <code>hexamer_artifact_bias</code> — terminal hexamer composition dominated by priming artifact; <code>ds_3prime_signal_absent</code> — expected 3′ deamination signal not found in a double-stranded library context</td>
+</tr>
+<tr>
+<td><code>output_effects</code></td>
+<td>object</td>
+<td>Maps downstream output names (e.g., <code>d_max_3</code>) to <code>{"evidence": [...], "status": "corrected"\|"confounded"}</code> records; <code>corrected</code> means the adapter offset was applied and the estimate is usable; <code>confounded</code> means the output cannot be trusted</td>
+</tr>
+<tr>
+<td><code>diagnostic_groups</code></td>
+<td>object</td>
+<td>Structured sub-blocks grouping related diagnostics; see below</td>
+</tr>
+</tbody>
+</table>
+<h4 id="diagnostic_groups-sub-blocks"><code>diagnostic_groups</code> sub-blocks</h4>
+<table>
+<thead>
+<tr>
+<th>Sub-block</th>
+<th>Fields</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>adapter_position_effects</code></td>
+<td><code>adapter_offset_5prime</code>, <code>adapter_offset_3prime</code>, <code>position0_artifact_5prime</code>, <code>position0_artifact_3prime</code>, <code>prefix_read_fraction_5prime</code>, <code>prefix_read_fraction_3prime</code>, <code>corrected_outputs</code>, <code>confounded_outputs</code>, <code>suspect_outputs</code>, <code>residual_outputs</code>, <code>selection_biased_outputs</code></td>
+<td>Detailed breakdown of which outputs were corrected vs remain suspect due to adapter remnants; <code>residual_outputs</code> lists signals that survive the correction but retain minor artifact influence</td>
+</tr>
+<tr>
+<td><code>end_damage_profile</code></td>
+<td><code>d5_max_rate_pos0_4</code>, <code>d5_amp_over_bg</code>, <code>d5_var_pos0_9</code>, <code>d5_profile_flat</code>, <code>d5_blunting_suspected</code>, <code>d3_max_rate_pos0_4</code>, <code>d3_amp_over_bg</code>, <code>d3_var_pos0_9</code>, <code>d3_profile_flat</code></td>
+<td>Summary statistics of the C→T damage profile shape at each end; <code>amp_over_bg</code> is the damage amplitude above the interior background rate; <code>profile_flat</code> flags libraries where no position-dependent decay is visible; <code>d5_blunting_suspected</code> flags libraries where damage at position 0 is lower than at positions 1–2, consistent with enzymatic end-repair</td>
+</tr>
+<tr>
+<td><code>end_hexamer_asymmetry</code></td>
+<td><code>hexamer_end_fwd_excess_jsd</code>, <code>hexamer_end_rc_excess_jsd</code>, <code>hexamer_end_rc_excess_jsd_status</code>, <code>rc_overlap_topk</code>, <code>terminal_excess_mass_5prime</code>, <code>terminal_excess_mass_3prime</code>, <code>terminal_hexamer_n_5prime</code>, <code>terminal_hexamer_n_3prime</code>, <code>topk</code></td>
+<td>Measures asymmetry between forward and reverse-complement hexamer distributions at each end; <code>hexamer_end_rc_excess_jsd_status</code> of <code>ok</code> means the reverse-strand hexamer excess is within expected range; <code>terminal_excess_mass</code> is the fraction of the terminal distribution that exceeds the interior baseline</td>
+</tr>
+<tr>
+<td><code>ss_end_asymmetry</code></td>
+<td><code>d5_suppressed</code>, <code>d3_selection_biased</code>, <code>no_reliable_estimate</code>, <code>recommended_estimate</code>, <code>note</code></td>
+<td>Single-stranded library-specific: flags when 5′ damage is suppressed relative to expectation, when 3′ rates are biased by strand-capture selection, and provides a <code>recommended_estimate</code> directive (<code>none</code> when both ends are reliable, otherwise names the preferred end)</td>
+</tr>
+<tr>
+<td><code>terminal_hexamer_bias</code></td>
+<td><code>hexamer_excess_tc</code>, <code>hexamer_terminal_interior_jsd</code>, <code>top_damage_consistent_fraction_5prime</code>, <code>top_damage_consistent_fraction_3prime</code>, <code>residual_outputs</code></td>
+<td>Quantifies the fraction of the top-5 over-represented hexamers that are damage-consistent; a low <code>top_damage_consistent_fraction</code> alongside a high <code>hexamer_terminal_interior_jsd</code> indicates the terminal shift is primarily priming artifact rather than damage</td>
+</tr>
+</tbody>
+</table>
+<h4 id="interpretation">Interpretation</h4>
+<p>The <code>flags</code> array is the fastest triage signal: an empty array means the QC passed without triggering any threshold. When <code>adapter_remnant_5prime</code> or <code>hexamer_artifact_bias</code> is present, inspect <code>output_effects</code> to determine whether the affected downstream estimates (typically <code>d_max_5</code>) were corrected or remain confounded before using them. A high <code>hexamer_terminal_interior_jsd</code> (above ~0.05–0.10) paired with a low <code>top_damage_consistent_fraction_5prime</code> strongly suggests that apparent 5′ enrichment is priming-driven rather than deamination-driven. Conversely, a moderate JSD with a high <code>top_damage_consistent_fraction</code> supports genuine damage. The <code>end_damage_profile.d5_blunting_suspected</code> field is particularly informative for assessing whether end-repair has attenuated position-0 damage and caused <code>d_max</code> to be underestimated.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "toc.integrate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

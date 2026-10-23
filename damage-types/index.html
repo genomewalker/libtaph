@@ -1,0 +1,1363 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reference-free ancient DNA damage estimation and library-type classification">
+      
+      
+      
+        <link rel="canonical" href="https://genomewalker.github.io/libtaph/damage-types/">
+      
+      
+        <link rel="prev" href="../methods/">
+      
+      
+        <link rel="next" href="../interpretation/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Damage types - libtaph</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#damage-types-and-channels" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="libtaph" class="md-header__button md-logo" aria-label="libtaph" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            libtaph
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Damage types
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/genomewalker/libtaph" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    genomewalker/libtaph
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../methods/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Methods
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Damage types
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../interpretation/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Interpretation guide
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../api/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  API Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../integration/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Classifier Integration
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="libtaph" class="md-nav__button md-logo" aria-label="libtaph" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    libtaph
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/genomewalker/libtaph" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    genomewalker/libtaph
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methods/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methods
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Damage types
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Damage types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#json-output-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON output reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#library-type-classification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Library-type classification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#channel-biology-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channel biology reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-fqdup-uses-damage-channels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How fqdup uses damage channels
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How fqdup uses damage channels">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#position-masking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Position masking
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#masking-by-library-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Masking by library type
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#artifact-suppression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifact suppression
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#internal-analyses-not-in-json" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Internal analyses (not in JSON)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Classifier Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="damage-types-and-channels">Damage types and channels</h1>
+<p>libtaph scans raw FASTQ reads for reference-free damage observables and empirical
+endpoint/context proxies, then writes a structured JSON report. Damage values are
+fractions in [0, 1]; multiply by 100 for percentages.</p>
+<p>Ancient DNA degradation falls into three broad categories: <strong>hydrolytic damage</strong>
+(cytosine deamination; depurination/AP-site chemistry), <strong>oxidative damage</strong>
+(8-oxoguanine formation), and <strong>library-preparation artefacts</strong> that mimic or confound
+these signals. Some channels target established lesions; others are empirical
+reference-free observables that require cautious mechanism interpretation.</p>
+<hr />
+<h2 id="json-output-reference">JSON output reference</h2>
+<p>Full per-field documentation lives in <a href="../fields/"><code>docs/fields/</code></a>.
+Each file has YAML frontmatter (<code>tier</code>, <code>estimand</code>, <code>stability</code>) and the full prose description.</p>
+<!-- BEGIN FIELD TABLE -->
+<table>
+<thead>
+<tr>
+<th>Block</th>
+<th>File</th>
+<th>Tier</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>top_level_fields</code></td>
+<td><a href="../fields/top_level_fields/">top_level_fields.md</a></td>
+<td>summary</td>
+<td>scalar top-level fields: d_max, library_type, n_reads, schema_version</td>
+</tr>
+<tr>
+<td><code>bulk_damage</code></td>
+<td><a href="../fields/bulk_damage/">bulk_damage.md</a></td>
+<td>standard</td>
+<td>reference-free bulk deamination rate (Design-B estimator)</td>
+</tr>
+<tr>
+<td><code>burial_fingerprint</code></td>
+<td><a href="../fields/burial_fingerprint/">burial_fingerprint.md</a></td>
+<td>standard</td>
+<td>horizon-specific terminal C→T context fingerprint for stratigraphic identification</td>
+</tr>
+<tr>
+<td><code>channels_fgh</code></td>
+<td><a href="../fields/channels_fgh/">channels_fgh.md</a></td>
+<td>standard</td>
+<td>oxidative terminal enrichment channels F (C→A), G (C→G), H (A→T)</td>
+</tr>
+<tr>
+<td><code>complement_asymmetry</code></td>
+<td><a href="../fields/complement_asymmetry/">complement_asymmetry.md</a></td>
+<td>standard</td>
+<td>G-to-T vs C-to-A strand-balance asymmetry damage proxies</td>
+</tr>
+<tr>
+<td><code>damage_channel_stats</code></td>
+<td><a href="../fields/damage_channel_stats/">damage_channel_stats.md</a></td>
+<td>standard</td>
+<td>12-channel substitution terminal excess, interior fraction, decay lambda</td>
+</tr>
+<tr>
+<td><code>deam_context_spectrum</code></td>
+<td><a href="../fields/deam_context_spectrum/">deam_context_spectrum.md</a></td>
+<td>standard</td>
+<td>16-channel trinucleotide N[C→T]N excess at 5-prime and 3-prime termini</td>
+</tr>
+<tr>
+<td><code>deam_stratified_channels</code></td>
+<td><a href="../fields/deam_stratified_channels/">deam_stratified_channels.md</a></td>
+<td>standard</td>
+<td>per-deamination-stratum methylation and depurination channel summaries</td>
+</tr>
+<tr>
+<td><code>deamination</code></td>
+<td><a href="../fields/deamination/">deamination.md</a></td>
+<td>standard</td>
+<td>deamination damage profile across positions and channels</td>
+</tr>
+<tr>
+<td><code>depurination</code></td>
+<td><a href="../fields/depurination/">depurination.md</a></td>
+<td>standard</td>
+<td>depurination (AP-site) damage metrics</td>
+</tr>
+<tr>
+<td><code>depurination_deconvolution</code></td>
+<td><a href="../fields/depurination_deconvolution/">depurination_deconvolution.md</a></td>
+<td>standard</td>
+<td>AP-site C→T pathway signal deconvolved from bulk deamination</td>
+</tr>
+<tr>
+<td><code>end_motif_enrichment</code></td>
+<td><a href="../fields/end_motif_enrichment/">end_motif_enrichment.md</a></td>
+<td>standard</td>
+<td>terminal nucleotide over-representation from fragmentation sequence preference</td>
+</tr>
+<tr>
+<td><code>fragmentation</code></td>
+<td><a href="../fields/fragmentation/">fragmentation.md</a></td>
+<td>standard</td>
+<td>read-length distribution and damage-length coupling (fragmentation proxy)</td>
+</tr>
+<tr>
+<td><code>interior_ct_cluster</code></td>
+<td><a href="../fields/interior_ct_cluster/">interior_ct_cluster.md</a></td>
+<td>standard</td>
+<td>interior C-to-T substitution cluster analysis</td>
+</tr>
+<tr>
+<td><code>library_qc</code></td>
+<td><a href="../fields/library_qc/">library_qc.md</a></td>
+<td>standard</td>
+<td>library quality control metrics and artifact flags</td>
+</tr>
+<tr>
+<td><code>oxidation</code></td>
+<td><a href="../fields/oxidation/">oxidation.md</a></td>
+<td>standard</td>
+<td>combined oxidation object (GC-depletion, epsilon, scission, strand asymmetry)</td>
+</tr>
+<tr>
+<td><code>oxidation_epsilon</code></td>
+<td><a href="../fields/oxidation_epsilon/">oxidation_epsilon.md</a></td>
+<td>standard</td>
+<td>epsilon parameter: excess G→T magnitude from oxidation model</td>
+</tr>
+<tr>
+<td><code>oxidation_like</code></td>
+<td><a href="../fields/oxidation_like/">oxidation_like.md</a></td>
+<td>standard</td>
+<td>boolean flag: damage pattern matches oxidative profile</td>
+</tr>
+<tr>
+<td><code>oxidative_scission</code></td>
+<td><a href="../fields/oxidative_scission/">oxidative_scission.md</a></td>
+<td>standard</td>
+<td>oxidative strand scission from C→G and A→T terminal channel enrichment</td>
+</tr>
+<tr>
+<td><code>oxo_two_marker</code></td>
+<td><a href="../fields/oxo_two_marker/">oxo_two_marker.md</a></td>
+<td>standard</td>
+<td>dual-marker 5-prime G→T and 3-prime C→A OxoG strand-balance verification</td>
+</tr>
+<tr>
+<td><code>oxog_estimate</code></td>
+<td><a href="../fields/oxog_estimate/">oxog_estimate.md</a></td>
+<td>standard</td>
+<td>8-oxoguanine per-context oxidative G→T terminal excess rate</td>
+</tr>
+<tr>
+<td><code>per_read_overdispersion</code></td>
+<td><a href="../fields/per_read_overdispersion/">per_read_overdispersion.md</a></td>
+<td>standard</td>
+<td>overdispersion of damage across reads; tests for heterogeneous ancient mixture</td>
+</tr>
+<tr>
+<td><code>preservation</code></td>
+<td><a href="../fields/preservation/">preservation.md</a></td>
+<td>standard</td>
+<td>composite taphonomic DNA preservation metrics</td>
+</tr>
+<tr>
+<td><code>scission</code></td>
+<td><a href="../fields/scission/">scission.md</a></td>
+<td>standard</td>
+<td>strand scission rate from exponential fit to fragment-length right tail</td>
+</tr>
+<tr>
+<td><code>tau_discriminator</code></td>
+<td><a href="../fields/tau_discriminator/">tau_discriminator.md</a></td>
+<td>standard</td>
+<td>discriminant score separating hydrolytic from oxidative damage regimes</td>
+</tr>
+<tr>
+<td><code>bic</code></td>
+<td><a href="../fields/bic/">bic.md</a></td>
+<td>diagnostics</td>
+<td>nested model comparison BIC metrics (75 sub-fields)</td>
+</tr>
+<tr>
+<td><code>tetranuc_damage_rates</code></td>
+<td><a href="../fields/tetranuc_damage_rates/">tetranuc_damage_rates.md</a></td>
+<td>diagnostics</td>
+<td>per-tetranucleotide context damage rates (900+ sub-fields)</td>
+</tr>
+<tr>
+<td><code>trinuc_spectrum_by_deam</code></td>
+<td><a href="../fields/trinuc_spectrum_by_deam/">trinuc_spectrum_by_deam.md</a></td>
+<td>diagnostics</td>
+<td>trinucleotide spectra stratified by deamination (large nested arrays)</td>
+</tr>
+</tbody>
+</table>
+<!-- END FIELD TABLE -->
+
+<h2 id="library-type-classification">Library-type classification</h2>
+<p>Which damage channels are active depends on library preparation. Double-stranded (DS)
+protocols ligate adapters to both strands, so reads from both the original and
+complementary strand are sequenced. Single-stranded (SS) protocols circularize and
+sequence only one strand per molecule; which strand is captured depends on the protocol
+and ligation orientation.</p>
+<table>
+<thead>
+<tr>
+<th>Library type</th>
+<th>Active sub-channels</th>
+<th>Pattern</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DS</td>
+<td>ct5 + ga3</td>
+<td>Symmetric exponential C→T at 5′ and G→A at 3′</td>
+</tr>
+<tr>
+<td>DS + end-repair artifact</td>
+<td>ct5 + ga3 + ga0</td>
+<td>DS pattern plus isolated 3′ pos-0 spike</td>
+</tr>
+<tr>
+<td>SS complement-orientation</td>
+<td>ga0</td>
+<td>Strong 3′ pos-0 G→A spike; 5′ flat</td>
+</tr>
+<tr>
+<td>SS original-orientation</td>
+<td>ct5 + ct3</td>
+<td>C→T at both 5′ and 3′ ends; no G→A</td>
+</tr>
+<tr>
+<td>SS mixed orientations</td>
+<td>ct5 + ga0</td>
+<td>5′ C→T decay plus 3′ pos-0 spike</td>
+</tr>
+<tr>
+<td>UNKNOWN</td>
+<td>—</td>
+<td>No sub-channel beats the null model</td>
+</tr>
+</tbody>
+</table>
+<p>In DS libraries, the symmetric ct5 ≈ ga3 pattern is a consequence of Chargaff's first
+rule: the original strand contributes C→T at its 5′ end; reads from the complementary
+strand map the same damaged positions as G→A at the 3′ end. The shared-amplitude DS model
+(M_DS_symm) enforces this symmetry as a model constraint, which also means it penalises
+libraries with strongly asymmetric ends.</p>
+<p>UNKNOWN is the correct classification for zero-damage or near-zero-damage libraries where
+the damage pattern contains insufficient information to distinguish library type. fqdup
+falls back to standard hashing for UNKNOWN libraries, which has no effect when d_max is
+near zero.</p>
+<hr />
+<h2 id="channel-biology-reference">Channel biology reference</h2>
+<table>
+<thead>
+<tr>
+<th>Channel</th>
+<th>Measures</th>
+<th>Chemistry</th>
+<th>JSON output</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A (ct5/ga3/ga0/ct3)</td>
+<td>C→T and G→A terminal rates</td>
+<td>Cytosine deamination</td>
+<td><code>deamination</code>, <code>bic</code></td>
+</tr>
+<tr>
+<td>B / B₃′</td>
+<td>Stop codon C→T / G→A frequency</td>
+<td>Deamination in triplet context</td>
+<td><code>validated</code>, <code>artifact</code></td>
+</tr>
+<tr>
+<td>C</td>
+<td>G→T stop codon uniformity</td>
+<td>8-oxoG oxidation</td>
+<td><code>ox_gt_uniformity</code>, <code>ox_gt_asymmetry</code>, <code>s_oxog_16ctx</code></td>
+</tr>
+<tr>
+<td>D</td>
+<td>G→T and C→A transversion rates</td>
+<td>8-oxoG oxidation</td>
+<td><code>complement_asymmetry</code></td>
+</tr>
+<tr>
+<td>E</td>
+<td>Terminal A+G enrichment over all bases</td>
+<td>AP-site/depurination proxy</td>
+<td><code>depurination</code></td>
+</tr>
+<tr>
+<td>Length</td>
+<td>Read-length distribution and damage-length coupling</td>
+<td>Fragmentation/selection proxy</td>
+<td><code>fragmentation</code></td>
+</tr>
+<tr>
+<td>F</td>
+<td>C→A terminal enrichment (bottom-strand 8-oxoG)</td>
+<td>8-oxoG complement</td>
+<td><code>complement_asymmetry</code></td>
+</tr>
+<tr>
+<td>G</td>
+<td>C→G terminal enrichment</td>
+<td>Empirical oxidative-context proxy</td>
+<td><code>complement_asymmetry</code></td>
+</tr>
+<tr>
+<td>H</td>
+<td>A→T terminal enrichment</td>
+<td>Empirical; mechanism uncertain</td>
+<td><code>complement_asymmetry</code></td>
+</tr>
+<tr>
+<td>CpG split</td>
+<td>C→T amplitude by CpG / non-CpG context</td>
+<td>Methylation-enhanced deamination</td>
+<td><code>cpg_like</code></td>
+</tr>
+<tr>
+<td>Interior clustering</td>
+<td>Adjacent CT co-occurrence in read interior</td>
+<td>Clustered interior deamination</td>
+<td><code>interior_ct_cluster</code></td>
+</tr>
+<tr>
+<td>8-oxoG 16-ctx</td>
+<td>G→T asymmetry by trinucleotide context</td>
+<td>8-oxoG context specificity</td>
+<td><code>s_oxog_16ctx</code></td>
+</tr>
+<tr>
+<td>Context spectrum</td>
+<td>16-channel trinucleotide C→T excess</td>
+<td>Context-dependent deamination / CpG methylation</td>
+<td><code>deam_context_spectrum</code></td>
+</tr>
+<tr>
+<td>Deam strata</td>
+<td>Methylation and depurination stratified by damage level</td>
+<td>Ancient-fraction isolation</td>
+<td><code>deam_stratified_channels</code></td>
+</tr>
+<tr>
+<td>Trinuc × strata</td>
+<td>Raw trinucleotide context counts per deamination stratum</td>
+<td>Stratum-aware context decomposition</td>
+<td><code>trinuc_spectrum_by_deam</code></td>
+</tr>
+<tr>
+<td>Channel stats</td>
+<td>Per-channel terminal excess, interior fraction, decay λ</td>
+<td>Unified substitution-channel summary</td>
+<td><code>damage_channel_stats</code></td>
+</tr>
+<tr>
+<td>4-mer CT</td>
+<td>4-mer N[C→T]NN terminal excess + deamination strata</td>
+<td>CHG/CHH/CpG separation; ancient C→T rates</td>
+<td><code>tetranuc_damage_rates.ct_5prime[_by_deam]</code></td>
+</tr>
+<tr>
+<td>4-mer GT</td>
+<td>4-mer N[G→T]NN terminal excess + deamination strata</td>
+<td>8-oxoG context specificity; stratum monotonicity test</td>
+<td><code>tetranuc_damage_rates.gt_5prime[_by_deam]</code></td>
+</tr>
+</tbody>
+</table>
+<p>Channels B–E cross-validate Channel A without contributing to position masking. If
+Channel A detects deamination but Channel B contradicts it, the signal is flagged as a
+composition artefact rather than genuine ancient damage.</p>
+<hr />
+<h2 id="how-fqdup-uses-damage-channels">How fqdup uses damage channels</h2>
+<h3 id="position-masking">Position masking</h3>
+<p>Only Channel A drives position masking. Position p is masked when the damage rate at
+that position, after subtracting the interior baseline b, exceeds the threshold τ (default
+5%). The mask is applied symmetrically at both ends so that canonical hashing remains
+correct under reverse-complement: <code>min(hash(seq), hash(rc(seq)))</code> requires
+<code>mask(rc(seq)) = rc(mask(seq))</code>.</p>
+<h3 id="masking-by-library-type">Masking by library type</h3>
+<table>
+<thead>
+<tr>
+<th>Library type</th>
+<th>Positions masked</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DS</td>
+<td>5′ pos p and 3′ pos p symmetrically (ct5/ga3)</td>
+</tr>
+<tr>
+<td>DS + artifact</td>
+<td>Same as DS; ga0 spike falls within the masked region</td>
+</tr>
+<tr>
+<td>SS complement</td>
+<td>3′ pos 0 only (ga0)</td>
+</tr>
+<tr>
+<td>SS original</td>
+<td>5′ and 3′ symmetrically (ct5/ct3)</td>
+</tr>
+<tr>
+<td>SS mixed</td>
+<td>5′ from ct5 + 3′ pos 0 from ga0</td>
+</tr>
+<tr>
+<td>UNKNOWN</td>
+<td>None — standard hashing</td>
+</tr>
+</tbody>
+</table>
+<h3 id="artifact-suppression">Artifact suppression</h3>
+<p>When <code>artifact: true</code>, Channel A fired but Channel B contradicted it, indicating
+GC-composition bias rather than genuine damage. fqdup can optionally suppress masking in
+this case to avoid over-collapsing reads from modern contamination.</p>
+<hr />
+<h2 id="internal-analyses-not-in-json">Internal analyses (not in JSON)</h2>
+<p>The following analyses are computed during damage estimation. Their results feed into the
+reported fields above but are not written to JSON directly.</p>
+<ul>
+<li><strong>Hexamer detection:</strong> T/(T+C) averaged over positions 1–6; provides position-0-bias-resistant
+  corroboration of Channel A that is unaffected by adapter remnants at position 0.</li>
+<li><strong>Briggs biophysical model:</strong> Re-fits Channel A as δ_s (single-stranded overhang rate) and
+  δ_d (double-stranded background rate), following [<a href="#references">Briggs et al. 2007</a>]. R²
+  assesses fit quality.</li>
+<li><strong>Joint probabilistic model:</strong> Bayesian comparison of damage-present vs damage-absent using
+  both BIC and Bayes factor. Drives <code>damage_status</code> and provides a fallback estimate for
+  <code>d_max_combined</code> when the exponential fit is unreliable.</li>
+<li><strong>GC-conditional damage bins:</strong> Independent exponential fits across 10 GC-content bins.
+  Separates genuine deamination from GC-composition artefacts and produces the adjusted
+  estimate that feeds into <code>d_metamatch</code>.</li>
+<li><strong>Mixture model (K-component EM):</strong> EM over GC-stratified reads to separate ancient from
+  modern components. Identifiability requires δ-separated, weight-bearing classes; fits that
+  fail this gate report <code>status: undetermined</code> and no longer feed <code>d_max_combined</code>.</li>
+<li><strong>Codon-position tracking:</strong> C→T rate at codon positions 0, 1, 2; supplementary wobble
+  diagnostic.</li>
+<li><strong>Adapter offset detection:</strong> Per-end fit window shift of 1–3 bp when adapter remnants
+  are detected. Applied before computing <code>d_max_combined</code>, which already reflects any
+  correction.</li>
+</ul>
+<hr />
+<h2 id="references">References</h2>
+<p>Neddermann P, Jiricny J (1994) Efficient removal of uracil from G·U mispairs by the
+mismatch-specific thymine DNA glycosylase from HeLa cells. <em>Proc Natl Acad Sci USA</em>
+91:1642–1646.
+<a href="https://doi.org/10.1073/pnas.91.5.1642">DOI: 10.1073/pnas.91.5.1642</a></p>
+<p>Briggs AW, Stenzel U, Johnson PLF, et al. (2007) Patterns of damage in genomic DNA
+sequences from a Neandertal. <em>Proc Natl Acad Sci USA</em> 104:14616–14621.
+<a href="https://doi.org/10.1073/pnas.0704665104">DOI: 10.1073/pnas.0704665104</a></p>
+<p>Cadet J, Douki T, Ravanat J-L (2010) Oxidatively generated base damage to cellular DNA.
+<em>Free Radic Biol Med</em> 49:9–21.
+<a href="https://doi.org/10.1016/j.freeradbiomed.2010.03.025">DOI: 10.1016/j.freeradbiomed.2010.03.025</a></p>
+<p>Chargaff E (1950) Chemical specificity of nucleic acids and mechanism of their enzymatic
+degradation. <em>Experientia</em> 6:201–209.
+<a href="https://doi.org/10.1007/BF02173653">DOI: 10.1007/BF02173653</a></p>
+<p>Dabney J, Knapp M, Glocke I, et al. (2013) Complete mitochondrial genome sequence of a
+Middle Pleistocene cave bear reconstructed from ultrashort DNA fragments. <em>Proc Natl Acad
+Sci USA</em> 110:15758–15763.
+<a href="https://doi.org/10.1073/pnas.1314445110">DOI: 10.1073/pnas.1314445110</a></p>
+<p>Henderson PT, Delaney JC, Gu F, Tannenbaum SR, Essigmann JM (2002) Oxidation of
+7,8-dihydro-8-oxoguanine affords lesions that are potent sources of replication errors
+in vivo. <em>Biochemistry</em> 41:914–921.
+<a href="https://doi.org/10.1021/bi0156355">DOI: 10.1021/bi0156355</a></p>
+<p>Gansauge M-T, Meyer M (2013) Single-stranded DNA library preparation for the sequencing
+of ancient or damaged DNA. <em>Nat Protoc</em> 8:737–748.
+<a href="https://doi.org/10.1038/nprot.2013.038">DOI: 10.1038/nprot.2013.038</a></p>
+<p>Gansauge M-T, Gerber T, Glocke I, et al. (2017) Single-stranded DNA library preparation
+from highly degraded DNA using T4 DNA ligase. <em>Nucleic Acids Res</em> 45:e79.
+<a href="https://doi.org/10.1093/nar/gkx033">DOI: 10.1093/nar/gkx033</a></p>
+<p>Kamiya H, Miura H, Murata-Kamiya N, et al. (1995) 8-Hydroxyadenine (7,8-dihydro-8-oxoadenine)
+induces misincorporation in in vitro DNA synthesis and mutations in NIH 3T3 cells.
+<em>Nucleic Acids Res</em> 23:2893–2899.
+<a href="https://doi.org/10.1093/nar/23.15.2893">DOI: 10.1093/nar/23.15.2893</a></p>
+<p>Jónsson H, Ginolhac A, Schubert M, Johnson PLF, Orlando L (2013) mapDamage2.0: fast
+approximate Bayesian estimates of ancient DNA damage parameters. <em>Bioinformatics</em>
+29:1682–1684.
+<a href="https://doi.org/10.1093/bioinformatics/btt193">DOI: 10.1093/bioinformatics/btt193</a></p>
+<p>Kapp JD, Green RE, Shapiro B (2021) A fast and efficient single-stranded genomic library
+preparation method optimized for ancient DNA. <em>J Hered</em> 112:241–249.
+<a href="https://doi.org/10.1093/jhered/esab012">DOI: 10.1093/jhered/esab012</a></p>
+<p>Michelsen C, Pedersen MW, Fernandez-Guerra A, et al. (2022) metaDMG: A fast and accurate
+ancient DNA damage toolkit for metagenomic data. <em>bioRxiv</em>.
+<a href="https://doi.org/10.1101/2022.12.06.519264">DOI: 10.1101/2022.12.06.519264</a></p>
+<p>Lindahl T (1993) Instability and decay of the primary structure of DNA. <em>Nature</em>
+362:709–715.
+<a href="https://doi.org/10.1038/362709a0">DOI: 10.1038/362709a0</a></p>
+<p>Lindahl T, Nyberg B (1972) Rate of depurination of native deoxyribonucleic acid.
+<em>Biochemistry</em> 11:3610–3618.
+<a href="https://doi.org/10.1021/bi00769a018">DOI: 10.1021/bi00769a018</a></p>
+<p>Meyer M, Kircher M (2010) Illumina sequencing library preparation for highly multiplexed
+target capture and sequencing. <em>Cold Spring Harb Protoc</em> 2010:pdb.prot5448.
+<a href="https://doi.org/10.1101/pdb.prot5448">DOI: 10.1101/pdb.prot5448</a></p>
+<p>Neeley WL, Essigmann JM (2006) Mechanisms of formation, genotoxicity, and mutation of
+guanine oxidation products. <em>Chem Res Toxicol</em> 19:491–505.
+<a href="https://doi.org/10.1021/tx0600043">DOI: 10.1021/tx0600043</a></p>
+<p>Mitchell D, Bridge R (2006) A test of Chargaff's second rule. <em>Biochem Biophys Res
+Commun</em> 340:90–94.
+<a href="https://doi.org/10.1016/j.bbrc.2005.11.160">DOI: 10.1016/j.bbrc.2005.11.160</a></p>
+<p>Rudner R, Karkas JD, Chargaff E (1968) Separation of B. subtilis DNA into complementary
+strands. III. Direct analysis. <em>Proc Natl Acad Sci USA</em> 60:921–922.
+<a href="https://doi.org/10.1073/pnas.60.3.921">DOI: 10.1073/pnas.60.3.921</a></p>
+<p>Schwarz G (1978) Estimating the dimension of a model. <em>Ann Stat</em> 6:461–464.
+<a href="https://doi.org/10.1214/aos/1176344136">DOI: 10.1214/aos/1176344136</a></p>
+<p>Shen JC, Rideout WM, Jones PA (1994) The rate of hydrolytic deamination of
+5-methylcytosine in double-stranded DNA. <em>Nucleic Acids Res</em> 22:972–976.
+<a href="https://doi.org/10.1093/nar/22.6.972">DOI: 10.1093/nar/22.6.972</a></p>
+<p>Shibutani S, Takeshita M, Grollman AP (1991) Insertion of specific bases during DNA
+synthesis past the oxidation-damaged base 8-oxodG. <em>Nature</em> 349:431–434.
+<a href="https://doi.org/10.1038/349431a0">DOI: 10.1038/349431a0</a></p>
+<p>Steenken S, Jovanovic SV (1997) How easily oxidizable is DNA? One-electron reduction
+potentials of adenosine and guanosine radicals in aqueous solution. <em>J Am Chem Soc</em>
+119:617–618.
+<a href="https://doi.org/10.1021/ja962255b">DOI: 10.1021/ja962255b</a></p>
+<p>Wiebauer K, Jiricny J (1990) Mismatch-specific thymine DNA glycosylase and DNA polymerase
+β mediate the correction of G·T mispairs in nuclear extracts from human cells.
+<em>Proc Natl Acad Sci USA</em> 87:5842–5845.
+<a href="https://doi.org/10.1073/pnas.87.15.5842">DOI: 10.1073/pnas.87.15.5842</a></p>
+<p>Willerslev E, Cooper A (2005) Ancient DNA. <em>Proc Biol Sci</em> 272:3–16.
+<a href="https://doi.org/10.1098/rspb.2004.2813">DOI: 10.1098/rspb.2004.2813</a></p>
+<p>Orlando L, Gilbert MTP, Willerslev E (2015) Reconstructing ancient genomes and epigenomes.
+<em>Nat Rev Genet</em> 16:395–408.
+<a href="https://doi.org/10.1038/nrg3935">DOI: 10.1038/nrg3935</a></p>
+<p>Pääbo S, Poinar H, Serre D, et al. (2004) Genetic analyses from ancient DNA. <em>Annu Rev
+Genet</em> 38:645–679.
+<a href="https://doi.org/10.1146/annurev.genet.37.110801.143214">DOI: 10.1146/annurev.genet.37.110801.143214</a></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

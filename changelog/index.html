@@ -1,0 +1,1290 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reference-free ancient DNA damage estimation and library-type classification">
+      
+      
+      
+        <link rel="canonical" href="https://genomewalker.github.io/libtaph/changelog/">
+      
+      
+        <link rel="prev" href="../integration/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Changelog - libtaph</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="libtaph" class="md-header__button md-logo" aria-label="libtaph" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            libtaph
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/genomewalker/libtaph" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    genomewalker/libtaph
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../methods/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Methods
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../damage-types/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Damage types
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../interpretation/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Interpretation guide
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../api/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  API Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../integration/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Classifier Integration
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="libtaph" class="md-nav__button md-logo" aria-label="libtaph" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    libtaph
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/genomewalker/libtaph" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    genomewalker/libtaph
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methods/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methods
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../damage-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Damage types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Classifier Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#main-unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        main (unreleased)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="main (unreleased)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#unified-whole-source-profiling-profile_reads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unified whole-source profiling (profile_reads)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Unified whole-source profiling (profile_reads)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#damage-verdict-hardening-b-series" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Damage verdict hardening (B-series)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Damage verdict hardening (B-series)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#short-fragment-estimator-opt-in-short_fragment_floor-30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Short-fragment estimator (opt-in; short_fragment_floor &lt; 30)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Short-fragment estimator (opt-in; short_fragment_floor &lt; 30)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#docs_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#new-json-blocks-tetranucleotide-damage-rates-context-spectrum-channel-stats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New JSON blocks: tetranucleotide damage rates, context spectrum, channel stats
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="New JSON blocks: tetranucleotide damage rates, context spectrum, channel stats">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#breaking-cpg_contrast-removed-from-c-api-and-json-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Breaking: cpg_contrast removed from C++ API and JSON output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ancient-fraction-deamination-soft-em-independent-fitted-profiles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ancient-fraction deamination — soft-EM + independent fitted profiles
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Ancient-fraction deamination — soft-EM + independent fitted profiles">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#channels-fgh-oxidative-terminal-enrichment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channels F/G/H — oxidative terminal enrichment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Channels F/G/H — oxidative terminal enrichment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#previous-milestones" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Previous milestones
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Previous milestones">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bic-library-type-classifier-initial" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BIC library-type classifier (initial)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#initial-release" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Initial release
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="changelog">Changelog</h1>
+<h2 id="main-unreleased">main (unreleased)</h2>
+<h3 id="unified-whole-source-profiling-profile_reads">Unified whole-source profiling (<code>profile_reads</code>)</h3>
+<h4 id="added">Added</h4>
+<ul>
+<li><strong><code>profile_reads</code></strong> (<code>damage_profiler.hpp</code>) — one multi-threaded SE/merged
+  damage-profiling engine (pre-scan → per-read clip + <code>update_sample_profile</code> →
+  thread-index-ordered merge → <code>finalize_sample_profile</code>), with an optional
+  <code>PerReadHook</code> for caller side channels. <code>fqdup profile</code> and dart
+  <code>predict --allow-self-profile</code> both call it, so the finalized
+  <code>SampleDamageProfile</code> is byte-identical for identical reads + <code>ProfileConfig</code>.
+  Adds <code>ReaderFactory</code>, <code>PerReadHook</code>, <code>ProfileConfig</code>, <code>ProfileResult</code>.</li>
+</ul>
+<h4 id="changed">Changed</h4>
+<ul>
+<li><strong><code>clip_adapters</code></strong> — 3' stub stripping is now <strong>iterative</strong> (promoted from
+  fqdup's <code>clip_worker_fn</code>), so stacked terminal stubs strip identically across
+  every caller; added <code>min_len &lt;= 0</code> "pure-clip" mode for the short-fragment path.</li>
+<li><strong><code>run_prescan</code></strong> — <code>prescan_reads == 0</code> now means "scan the entire source"
+  (was a degenerate no-op), matching the documented <code>ProfileConfig::prescan_reads</code>
+  and dart <code>--profile-sample 0</code> contract.</li>
+</ul>
+<h3 id="damage-verdict-hardening-b-series">Damage verdict hardening (B-series)</h3>
+<p>Reference-free per-library authentication was tightened so the library-level
+call rests on identifiable evidence, not artefacts of the estimator.</p>
+<h4 id="changed_1">Changed</h4>
+<ul>
+<li><strong>B1</strong> (<code>220b022</code>) — SS headline is 5′-anchored; the 3′ C→T fold (a dA-tail
+  ligation artefact, not biological deamination) no longer folds into the SS
+  headline estimate.</li>
+<li><strong>B3</strong> (<code>3d12e30</code>) — split <code>bulk_amplitude_obs</code> from the reported headline:
+  the headline <code>absolute_estimate</code> is the honest per-library damage magnitude,
+  distinct from the raw bulk amplitude.</li>
+<li><strong>B4</strong> (<code>b292e98</code>) — <code>pi</code> is treated as <em>identifiable</em> only when its
+  confidence interval <strong>excludes zero</strong> (<code>pi.lo &gt; 0</code>), not merely when the
+  point estimate lies inside <code>[lo, hi]</code>. This strips illusory
+  <code>pi_estimate</code>-only authentication where <code>lo == 0</code> masked non-identifiability;
+  affected libraries fall through to a surviving arm (<code>channel_b</code>,
+  <code>d5_decay_fit</code>) or honestly abstain. Verified HALT-clean across the 16-library
+  FLB+clay panel (no library lost its call).</li>
+<li><strong>B6</strong> (<code>2365e3e</code>) — the mixture-EM damaged-component gate is a per-library
+  2-SE separation test, replacing the fixed <code>0.02</code> <code>mu_1</code> initialisation floor
+  that could flip faint libraries.</li>
+<li><strong>B7</strong> (<code>2d3d4be</code>) — SS decay-fit runs on the EM-identified damaged component
+  with a half-life confidence gate.</li>
+<li><strong>#43</strong> (<code>7b8d42f</code>) — deamination verdict coherence: authenticate on the d5
+  decay-fit and gate <code>channel_b</code> on <code>nS ≥ 2</code>.</li>
+</ul>
+<h4 id="docs">Docs</h4>
+<ul>
+<li><code>interpretation.md</code> §3 documents the two deamination surfaces:
+  <code>channels.deamination</code> (sensitive per-channel detector, <code>confidence_tier</code>)
+  versus <code>characterization.verdict.deamination</code> (authoritative library call,
+  <code>authenticated_by</code>). A faint library can read <code>AUTHENTICATED</code> on the channel
+  while the verdict abstains — by design.</li>
+</ul>
+<hr />
+<h3 id="short-fragment-estimator-opt-in-short_fragment_floor-30">Short-fragment estimator (opt-in; <code>short_fragment_floor &lt; 30</code>)</h3>
+<p>Extends the reference-free <code>bulk_damage</code> estimator to recover terminal
+deamination from the 16–29 bp band, which the default ≥ 30 bp fit discards.
+Off by default; the ≥ 30 JSON stays byte-identical for downstream consumers.</p>
+<h4 id="added_1">Added</h4>
+<ul>
+<li><strong>(<code>c4bac9d</code>)</strong> — 16–29 bp reads are captured into short length bins
+  (<code>short_len_bins</code>, anchor 15 / width 5 / 3 bins) and injected as a short group
+  into the joint length-isotonic fit. Emits <code>bulk_damage.short_fragment_joint_refit</code>.</li>
+<li><strong>(<code>4ea9767</code>)</strong> — <code>bulk_damage.short_fragment_bins[]</code>: per-short-bin
+  <code>length_lo</code>/<code>length_hi</code>/<code>n_reads</code>/<code>mean_len</code> plus <code>per_pos_5prime_ct</code>, the
+  15-position 5′ terminal <code>T/(T+C)</code> profile, so the recovered short-band
+  deamination is inspectable per bin.</li>
+<li><strong>(<code>16a487e</code>)</strong> — the injected short bin's π interval comes from its <strong>own</strong>
+  per-bin profile-likelihood δ curve
+  (<code>{δ : ℓ(δ) − ℓ̂ ≥ −½·χ²₁,₀.₉₅}</code> scaled by point <code>d_max</code>), replacing the
+  shared-<code>d_max</code> Wald band that under-covers on thin short-band data; the
+  GC-mixture <code>pi_damaged</code> / damaged-fraction population folds the short band in
+  as one un-GC-stratified group. <code>short_fragment_delta_metric</code> documents the
+  short-band headline as the native composition-controlled co-occurrence metric
+  (<strong>not</strong> the raw shuffle-null lift; not directly comparable). At <code>floor = 30</code>
+  (no injection) every path is byte-identical to the default.</li>
+</ul>
+<h4 id="docs_1">Docs</h4>
+<ul>
+<li><code>fields/bulk_damage.md</code> gains a "Short-fragment fold-in" section describing the
+  four opt-in fields, the bin geometry, and the non-additivity of the refit
+  headline (short-mode and default headlines must not be differenced).</li>
+</ul>
+<hr />
+<h3 id="new-json-blocks-tetranucleotide-damage-rates-context-spectrum-channel-stats">New JSON blocks: tetranucleotide damage rates, context spectrum, channel stats</h3>
+<h4 id="added_2">Added</h4>
+<ul>
+<li><code>tetranuc_damage_rates</code> — 4-mer (tetranucleotide) C→T and G→T terminal excess rates.
+  Four keys: <code>ct_5prime</code>, <code>gt_5prime</code>, <code>ct_5prime_by_deam[5]</code>, <code>gt_5prime_by_deam[5]</code>.
+  Context encoding: <code>PGNN</code> (4 chars; P=prev, G/C=central, N1=next1, N2=next2).
+  Per-context fields: <code>terminal_rate</code>, <code>interior_rate</code>, <code>excess</code>, <code>terminal_n</code>, <code>interior_n</code>.
+  The <code>_by_deam</code> variants stratify counts across 5 deamination strata (0=modern, 4=ancient),
+  enabling stratum-monotonicity tests for G→T oxidation and ancient-component C→T rates.
+  <code>SampleDamageProfile</code> gains <code>tetra_5prime_terminal[256]</code>, <code>tetra_5prime_interior[256]</code>,
+  and their <code>_by_deam[N_OX_DEAM_STRATA]</code> variants. <code>add_ctx4()</code> in
+  <code>damage_estimation_update.cpp</code> accumulates 4-mer context counts at terminal (pos 1–4)
+  and interior (pos 10–14) positions per read, stratified by deamination bin.</li>
+<li><code>damage_channel_stats</code> — per-channel (all 12 substitution channels) summary of
+  <code>terminal_excess</code>, <code>interior_fraction</code>, <code>interior_log_ratio</code>, <code>decay_lambda</code>,
+  <code>lambda_ratio_vs_ct</code>, and <code>coupled_balance</code> at both 5′ and 3′ ends.</li>
+<li><code>deam_context_spectrum</code> — 16-channel trinucleotide C→T excess spectrum
+  (<code>ct_5prime_excess[16]</code>, <code>ct_3prime_excess[16]</code>, <code>ga_3prime_rc_excess[16]</code>).
+  Channel order: ACA ACC ACG ACT CCA CCC CCG CCT GCA GCC GCG GCT TCA TCC TCG TCT.</li>
+<li><code>trinuc_spectrum_by_deam</code> — raw trinucleotide context counts per deamination stratum
+  at terminal and interior positions (4 arrays of shape [n_strata][64]).</li>
+<li><code>deam_stratified_channels</code> — modern/bulk/ancient stratum summaries with
+  <code>methylation_next_cond_logodds</code> and <code>depurination_index</code> per stratum.</li>
+<li><code>profile_json.hpp</code> gains <code>paired_ct_decay</code>, <code>paired_ga_decay</code>, and paired OxoG
+  count fields (<code>paired_tg_count/denom</code>, <code>paired_ca_count/denom</code>, <code>paired_oxog_rate</code>,
+  <code>paired_n_pairs/n_bases</code>) for downstream <code>--subst-in</code> paired-overlap injection.</li>
+</ul>
+<hr />
+<h3 id="breaking-cpg_contrast-removed-from-c-api-and-json-output">Breaking: <code>cpg_contrast</code> removed from C++ API and JSON output</h3>
+<p>The upstream-context contrast (keyed on <code>decoded[p-1]</code>, base <strong>5' of</strong> the
+cytosine) measured the GpC dinucleotide, not CpG. GpC methylation is absent
+in eukaryotes; the field implied chemistry that is not there. The correct
+CpG/5mC axis is <code>log2_cpg_ratio</code> / <code>cpg_z</code> (downstream <code>cpg_like</code> block,
+keyed on <code>decoded[p+1]</code>).</p>
+<p>Removed from <code>SampleDamageProfile</code>, <code>LengthBinDamageProfile</code>, and JSON output.
+Update consumers to use <code>log2_cpg_ratio</code> / <code>cpg_z</code>.</p>
+<p><code>dipyr_contrast</code> (CC/TC vs AC/GC, correct CPD dipyrimidine geometry) is
+unchanged and its direction has been independently audited.</p>
+<h3 id="ancient-fraction-deamination-soft-em-independent-fitted-profiles">Ancient-fraction deamination — soft-EM + independent fitted profiles</h3>
+<h4 id="added_3">Added</h4>
+<ul>
+<li><code>damaged_fraction_valid</code>, <code>damaged_fraction_pi</code>, <code>damaged_fraction_n</code>,
+  <code>damaged_fraction_d5</code>, <code>damaged_fraction_d3</code>: soft-EM ancient-fraction
+  estimate populated by fqdup's per-read LLR scorer (fused into the oxoG pass).
+  <code>pi</code> is the posterior-weighted fraction of reads classified as ancient
+  (soft-EM E-step), avoiding the selection-on-outcome bias of hard LLR &gt; 0
+  thresholding. <code>d5</code>/<code>d3</code> are derived via mixture identity (<code>bulk_d / pi</code>).</li>
+<li><code>damaged_fraction_d5_fit</code> / <code>damaged_fraction_lambda5</code> /
+  <code>damaged_fraction_d3_fit</code> / <code>damaged_fraction_lambda3</code>: independently fitted
+  exponential decay (log-linear regression over all 15 positions) for the
+  ancient-classified read pool. Gives the true ancient d_max + lambda without
+  mixture-identity dilution.</li>
+<li><code>modern_fraction_d5</code> / <code>modern_fraction_d3</code>: pos-0 peak deamination estimate
+  for reads classified as modern.</li>
+<li><code>modern_fraction_d5_fit</code> / <code>modern_fraction_lambda5</code> /
+  <code>modern_fraction_d3_fit</code> / <code>modern_fraction_lambda3</code>: fitted exponential for
+  the modern-classified pool (typically ≈ 0 for clean libraries).</li>
+<li>All fields serialised in the <code>ancient_fraction</code> JSON block under <code>ancient</code>
+  and <code>modern</code> sub-objects.</li>
+</ul>
+<h4 id="fixed">Fixed</h4>
+<ul>
+<li><code>skip_pos0_5prime</code> on <code>LsdClassifyParams</code>: when <code>position_0_artifact_5prime</code>
+  is set the per-read 5' LLR scorer starts from position 1, avoiding the
+  adapter-blunting depletion at pos 0 from artificially lowering LLR scores
+  on genuinely ancient reads.</li>
+<li><strong>3′ pos-0 artifact detection — DS blunting gap</strong>: <code>position_0_artifact_3prime</code>
+  previously only fired on the SS ligation spike (pos-0 G→A elevated above
+  pos-1–4 mean by &gt; 5 pp). DS libraries with adapter blunting show the
+  opposite: pos-0 depleted, pos-1 elevated. Added complementary gap detection
+  (<code>stats_3_pos0 &lt; −0.005 &amp;&amp; stats_3_pos1 &gt; 0.01</code>, or a large pos-0→pos-1
+  jump &gt; 3 pp when pos-1 excess &gt; 2%). Using pos-1 alone rather than the
+  pos-1–4 average is critical: the four-position average dilutes the pos-1
+  signal (shift ~0.008 vs ~0.060 at pos-1 alone), placing it below the
+  detection threshold. Fixes <code>d_max_3prime = 0</code> in DS libraries affected by
+  adapter blunting.</li>
+</ul>
+<h3 id="channels-fgh-oxidative-terminal-enrichment">Channels F/G/H — oxidative terminal enrichment</h3>
+<h4 id="added_4">Added</h4>
+<ul>
+<li>Channels F (C→A), G (C→G), and H (A→T): binomial z-score comparing terminal
+  trinucleotide-context rate (positions 0–4, adapter-adjusted) to a far-interior
+  reference (pos ≥ 30, ≥ 50 counts; mid-read fallback pos 5–14).</li>
+<li><code>channel_h_z_p2plus</code>: secondary H score restricted to positions 2–4; robust
+  when TC hexamer bias is present without a formal position-0 artifact.</li>
+<li><code>ca_pre_interior</code> / <code>ca_stop_interior</code>: pre-aggregated uint64_t counters
+  accumulated at read-scan time, giving Channel F the same symmetric interior
+  reference as Channels G and H.</li>
+</ul>
+<h4 id="fixed_1">Fixed</h4>
+<ul>
+<li>Channel H adapter skip now uses <code>p0_h5 = position_0_artifact_5prime</code> only.
+  The shared <code>p0_tc_5</code> gate (which also fires on <code>hexamer_excess_tc &lt; −0.02</code>)
+  was incorrect for Channel H: TC hexamer bias is C→T-specific and does not
+  affect A/T-context trinucleotides. Under strong TC bias the old gate silently
+  excluded p=0 from Channel H, inflating z by ~3×.</li>
+<li>Renamed <code>p0_5</code> → <code>p0_tc_5</code>; comment documents scope to Channels F and G only.</li>
+<li>Renamed <code>ca_stop_baseline_3prime</code> → <code>ca_stop_rate_baseline_3prime</code>.</li>
+<li>Fixed 17 <code>uint64_t</code> profile fields initialised with float literal <code>0.0</code> → <code>0</code>.</li>
+</ul>
+<h3 id="added_5">Added</h3>
+<ul>
+<li>Native paired-end mode: <code>update_sample_profile_pe</code> consumes R1/R2 directly,
+  mapping <code>R2[i]</code> complement to top-strand 3'-end position <code>i</code> (no SE-on-each-mate
+  bleed-through). Insert length <code>M &lt; L</code> detected by R1/R2 overlap (15 bp window,
+  ≤3 mismatches); short-insert pairs are skipped via <code>pe_short_insert_skipped</code>
+  counter, preventing adapter bases from polluting the C→T / G→A signal.</li>
+<li>Chemistry-aware Briggs fit: <code>d(i) = d_max·exp(-i/λ) + bg</code> with tail-anchored
+  <code>bg</code> from positions 20..49 (interior background, immune to deamination).
+  Replaces global-mean <code>bg</code> which over-estimated bg in damaged libraries and
+  collapsed <code>d_max</code>.</li>
+<li>Area-excess statistic: per-channel sum of <code>(rate - bg)</code> over the first 10
+  positions, plus a likelihood-ratio score against the bg-only null.
+  Decouples classification from a single <code>d_max</code> point estimate.</li>
+<li>Protocol-tag aware library interpretation; chemistry priors flow through
+  <code>library_interpretation.cpp</code>.</li>
+<li><code>UNKNOWN</code> library-type category when no model beats M_bias (zero-damage libraries)</li>
+<li>GA0 bilateral rescue: <code>spike_is_ss &amp;&amp; d5 ≤ 0.005 → SS</code>, validated on 24 DS controls (all d5 ≥ 0.11)</li>
+<li>Channel B₃′: G→A stop codon conversion at 3' end for SS library damage validation</li>
+</ul>
+<h3 id="fixed_2">Fixed</h3>
+<ul>
+<li>LV7001884491 PE DS-library misclassified as <code>SS_orig</code> in v8: caused by the
+  6-base palindrome guard, which only triggered for insert <code>M=6</code> and let
+  short-insert pairs (≈83% of aDNA pairs at L=101) bleed adapter bases into
+  R2[0..14]. After complement-mapping, the adapter's specific A:G ratio
+  produced <code>a_freq_3prime[0]=0.396</code> (depleted vs interior 0.466) which the
+  classifier read as <code>M_SS_orig</code>. Replaced with proper R1/R2 overlap detection.</li>
+<li>Bug: missing <code>best = bic_M_DS_spike</code> update in spike_is_ss branch of waterfall</li>
+<li>Bug: <code>best_ss</code> included M_SS_orig without applying the <code>ct3.ΔBIC &gt; 0</code> gate</li>
+<li>Bug: M_DS_spike rescue could fire when M_DS_symm_art won via joint fit with marginal ct5/ga3 ΔBIC ≤ 0, now restricted to <code>ds_spike_won</code></li>
+</ul>
+<h3 id="validation">Validation</h3>
+<ul>
+<li>~80-sample SE regression across heavily to lightly degraded permafrost and sediment libraries:
+  77/78 correct in v9 vs 63/78 in v8; all 14 flips in the correct direction (no regressions).</li>
+<li>Dataset 1 (~90 samples, DS+SS mix): 88/91 correct, 3 UNKNOWN (100% on determined calls)</li>
+<li>Dataset 2 (~225 samples, DS+SS mix): 193/196 correct on determined calls, 28 UNKNOWN (98.5%)</li>
+</ul>
+<hr />
+<h2 id="previous-milestones">Previous milestones</h2>
+<h3 id="bic-library-type-classifier-initial">BIC library-type classifier (initial)</h3>
+<ul>
+<li>4-channel joint BIC model: ct5, ga3, ga0, ct3</li>
+<li>7 composite BIC models: M_bias, M_DS_symm, M_DS_spike, M_DS_symm_art, M_SS_comp, M_SS_orig, M_SS_asym</li>
+<li><code>spike_is_ss</code> gate: ga0.amplitude ≥ 0.10 routes M_DS_spike to SS model set</li>
+<li>Post-hoc symmetry check: ct5.ΔBIC / ga3.ΔBIC &lt; 0.50 with ga3.ΔBIC &gt; 30,000 → SS</li>
+<li>M_DS_spike rescue using <code>max_damage_5prime</code> ≤ 0.005 (d5 bilateral gate)</li>
+</ul>
+<h3 id="initial-release">Initial release</h3>
+<ul>
+<li>Briggs-model exponential decay fitting (WLS, fixed λ)</li>
+<li>GC-stratified damage estimation (10 bins, EM mixture)</li>
+<li>Channel A/B cross-validation</li>
+<li>Channel C (8-oxoG uniformity) and Channel D (G→T / C→A)</li>
+<li>Hexamer-based damage LLR</li>
+<li>Alignability-weighted D_max estimation</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

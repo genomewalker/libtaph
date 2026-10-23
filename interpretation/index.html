@@ -1,0 +1,1501 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reference-free ancient DNA damage estimation and library-type classification">
+      
+      
+      
+        <link rel="canonical" href="https://genomewalker.github.io/libtaph/interpretation/">
+      
+      
+        <link rel="prev" href="../damage-types/">
+      
+      
+        <link rel="next" href="../api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Interpretation guide - libtaph</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#interpreting-libtaph-output" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="libtaph" class="md-header__button md-logo" aria-label="libtaph" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            libtaph
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Interpretation guide
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/genomewalker/libtaph" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    genomewalker/libtaph
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../methods/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Methods
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../damage-types/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Damage types
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Interpretation guide
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../api/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  API Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../integration/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Classifier Integration
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="libtaph" class="md-nav__button md-logo" aria-label="libtaph" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    libtaph
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/genomewalker/libtaph" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    genomewalker/libtaph
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methods/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methods
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../damage-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Damage types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation guide
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-core-deamination-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Core deamination metrics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Core deamination metrics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#d_max_5prime-and-d_max_3prime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        d_max_5prime and d_max_3prime
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lambda_5prime-and-lambda_3prime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lambda_5prime and lambda_3prime
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d_max_combined-versus-the-per-end-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        d_max_combined versus the per-end values
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bg_5prime-and-bg_3prime-interior-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bg_5prime and bg_3prime (interior baseline)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-library-type-classification-ds-vs-ss" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Library type classification (DS vs SS)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-damage-validation-through-cross-channel-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Damage validation through cross-channel evidence
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Damage validation through cross-channel evidence">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#two-surfaces-channel-detector-vs-library-verdict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two surfaces: channel detector vs library verdict
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-oxidative-damage-channels-f-g-h" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Oxidative damage channels (F, G, H)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-channel-cd-8-oxog-context-diagnostics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Channel C/D — 8-oxoG context diagnostics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-channel-e-terminal-purine-enrichment-ap-site-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Channel E — terminal purine enrichment / AP-site proxy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-damage-context-profile-and-dominant_process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Damage-context profile and dominant_process
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-gc-stratified-mixture-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. GC-stratified mixture model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-ancient-fraction-deamination-fqdup-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Ancient-fraction deamination (fqdup integration)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Ancient-fraction deamination (fqdup integration)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#damaged_fraction_pi-ancient-fraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        damaged_fraction_pi — ancient fraction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#damaged_fraction_d5-d3-mixture-identity-estimate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        damaged_fraction_d5 / d3 — mixture-identity estimate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#damaged_fraction_d5_fit-lambda5-independent-fitted-estimate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        damaged_fraction_d5_fit / lambda5 — independent fitted estimate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modern_fraction_-modern-component" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modern_fraction_* — modern component
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reading-the-trio-together" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading the trio together
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-qc-flags-and-when-to-distrust-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. QC flags and when to distrust results
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-common-patterns-in-practice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Common patterns in practice
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Classifier Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="interpreting-libtaph-output">Interpreting libtaph output</h1>
+<p>This page is a practical guide for researchers reading a <code>SampleDamageProfile</code>
+or its JSON serialisation. It does not document every field — the
+<a href="../api/">API reference</a> does that — but explains what the headline numbers mean,
+what counts as a strong or weak signal, and how to combine fields into a
+defensible call about a sample. For the underlying biology and statistics see
+<a href="../damage-types/">Damage types</a> and <a href="../methods/">Methods</a>.</p>
+<p>A useful default rule of thumb: <strong>never look at one number in isolation.</strong>
+libtaph emits a dozen partly redundant statistics so that compositional
+artefacts and genuine damage can be distinguished. A high <code>d_max_5prime</code> on its
+own is suggestive; the same number with a positive Channel B validation, an
+elevated F/G/H trio, and a clean QC flag panel is a confident call.</p>
+<h2 id="1-core-deamination-metrics">1. Core deamination metrics</h2>
+<h3 id="d_max_5prime-and-d_max_3prime"><code>d_max_5prime</code> and <code>d_max_3prime</code></h3>
+<p>These are the calibrated terminal C→T excess at the 5′ end and the calibrated
+terminal G→A excess at the 3′ end (or terminal C→T at the 3′ end for
+single-stranded original-orientation libraries). They are computed as
+<code>A / (1 − b)</code> where <code>A</code> is the fitted exponential amplitude above the interior
+background and <code>b</code> is the anchored background rate. Physically they answer:
+"by how much does the cytosine-deamination-driven substitution rate at the very
+end of the read exceed what the interior of the same library shows?"</p>
+<p>A working interpretation scale, for chemistry-untreated libraries:</p>
+<table>
+<thead>
+<tr>
+<th><code>d_max</code> value</th>
+<th>Interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>≥ 0.20</td>
+<td>Strong signal — well-preserved aDNA, often Pleistocene</td>
+</tr>
+<tr>
+<td>0.08 – 0.20</td>
+<td>Moderate — typical Holocene aDNA</td>
+</tr>
+<tr>
+<td>0.02 – 0.08</td>
+<td>Weak — borderline; needs cross-channel support</td>
+</tr>
+<tr>
+<td>&lt; 0.02</td>
+<td>Effectively absent — modern, USER-treated, or contaminated</td>
+</tr>
+</tbody>
+</table>
+<p>These thresholds are heuristics, not hard cutoffs. When the library has been
+chemically treated (e.g. USER, single-stranded), a moderate <code>d_max</code> may still
+be meaningful — see the source string returned by <code>d_max_source_str()</code>.</p>
+<h3 id="lambda_5prime-and-lambda_3prime"><code>lambda_5prime</code> and <code>lambda_3prime</code></h3>
+<p><code>lambda</code> is the decay constant of the fitted exponential. Larger λ means the
+elevated rate falls back to background more steeply, i.e. damage is concentrated
+in the first one or two terminal positions. Lower λ means a slower decay with
+damage extending several bases inward, reflecting longer single-stranded overhangs
+(Briggs 2007; Jónsson 2013), which tend to accompany older material. As a
+λ ≈ 0.2–0.4 is typical of well-preserved aDNA; λ &lt; 0.1 indicates long
+damage tails from extended single-stranded overhangs; λ &gt; 0.5 indicates damage
+concentrated in the first 1–2 positions, consistent with short overhangs or chemical
+treatment. These bands are heuristic
+— they overlap and do not replace cross-channel validation.</p>
+<h3 id="d_max_combined-versus-the-per-end-values"><code>d_max_combined</code> versus the per-end values</h3>
+<p><code>d_max_combined</code> is the asymmetry-aware single-number summary; the string
+returned by <code>d_max_source_str()</code> records how it was derived. Use the
+combined value when reporting a single damage number per library. Use the
+individual <code>d_max_5prime</code> / <code>d_max_3prime</code> when comparing the two ends, when
+diagnosing library type, or when one end is known to be compromised by
+adapter remnants or end-repair artefacts.</p>
+<p>If <code>d_max_source_str()</code> returns <code>"5prime_only"</code>, <code>"3prime_only"</code>, or
+<code>"none"</code>, libtaph has decided that one or both ends are inverted (terminal
+rate below interior) and should not be averaged. Treat the combined value
+with care in those cases.</p>
+<h3 id="bg_5prime-and-bg_3prime-interior-baseline"><code>bg_5prime</code> and <code>bg_3prime</code> (interior baseline)</h3>
+<p>These are the interior C→T (5′) and G→A (3′) rates used as the baseline <code>b</code>
+in the exponential fit (the field referred to as "fit baseline" in some
+downstream tools). They are <em>not</em> damage measurements — they reflect the
+ambient sequencing-error and sequence-composition rate. A baseline of
+0.002–0.005 is typical for clean Illumina data; baselines above ~0.01 suggest
+elevated sequencing error, mapping artefacts, or — in the context of an
+aDNA workflow — a substantial fraction of modern contamination diluting the
+ancient signal. Use <code>bg_5prime</code> and <code>bg_3prime</code> as a modern-contamination
+proxy alongside the d_max values: high <code>d_max</code> with low baseline is a clean
+ancient call, while moderate <code>d_max</code> with elevated baseline is suspicious.</p>
+<h2 id="2-library-type-classification-ds-vs-ss">2. Library type classification (DS vs SS)</h2>
+<p>The <code>library_type</code> field takes values <code>DOUBLE_STRANDED</code>, <code>SINGLE_STRANDED</code>, or
+<code>UNKNOWN</code>. The classifier examines which terminal sub-channels (ct5, ga3,
+ct3, ga0) are active under the seven-model BIC selection described in
+<a href="../damage-types/#libraryresolution-block">Damage types</a>.</p>
+<p>In a <strong>double-stranded</strong> library (NEBNext, TruSeq), strand-overhang
+deamination produces C→T at the 5′ end and G→A at the 3′ end. The 3′ end
+shows G→A rather than C→T because the complementary strand of a damaged
+C-overhang carries a G, and that strand is what is sequenced from the 3′
+direction.</p>
+<p>In a <strong>single-stranded</strong> library (Gansauge &amp; Meyer 2013; Kapp et al. 2021 / SRSLY), both ends
+of the original strand survive intact through circularisation, so the
+underlying C→T deamination is visible at <em>both</em> the 5′ and 3′ ends.
+Consequently <code>d_max_5prime</code> and <code>d_max_3prime</code> should be of similar magnitude
+in an SS library, whereas a DS library only shows the 5′ C→T directly
+(the 3′ value reports G→A on the opposite strand).</p>
+<p><code>UNKNOWN</code> means no sub-channel beat the null model. This can happen
+legitimately in modern libraries with no damage, but in a sample that should
+be ancient it is a warning. Check <code>is_valid()</code> first: if <code>n_reads &lt; 1000</code>
+the classifier has not had enough evidence to commit. Below that threshold
+the call is unreliable and downstream tools should treat the type as missing
+rather than as <code>UNKNOWN</code>.</p>
+<p>The flag <code>library_type_auto_detected</code> distinguishes a classifier call from a
+user-forced override. If you have set <code>forced_library_type</code> on the profile,
+honour it; otherwise inspect the auto-detected value.</p>
+<h2 id="3-damage-validation-through-cross-channel-evidence">3. Damage validation through cross-channel evidence</h2>
+<p>libtaph cross-validates Channel A (terminal C→T excess) against Channel B
+(stop-codon-context C→T) to separate genuine deamination from
+composition-driven enrichment.</p>
+<ul>
+<li><code>damage_validated == true</code> — Channel B independently confirms the
+  Channel A signal. The terminal enrichment is consistent with cytosine
+  deamination acting in stop-codon-bearing contexts.</li>
+<li><code>damage_artifact == true</code> — Channel A enrichment is present, but Channel B
+  contradicts it. The terminal excess is driven by sequence composition
+  (often GC-rich genomes or mapping artefacts), not deamination. <strong>A sample
+  with <code>damage_artifact == true</code> should not be reported as ancient on the
+  strength of <code>d_max</code> alone.</strong> Re-examine read lengths, mapping quality,
+  and the F/G/H channels.</li>
+<li>Neither flag set — there is too little Channel B coverage to corroborate
+  or refute, or the Channel A signal is too weak to test. The result is
+  inconclusive and downstream interpretation rests on Channel A alone.</li>
+</ul>
+<p><code>composition_bias_5prime</code> / <code>composition_bias_3prime</code> fire when the control
+channel rises in lockstep with the damage channel as the read terminus is
+approached. That co-elevation is the signature of a compositional artefact
+(GC-rich material driving both). When set, the corresponding terminal
+damage call is unreliable even if <code>d_max</code> looks reasonable.</p>
+<p><code>position_0_artifact_5prime</code> / <code>position_0_artifact_3prime</code> indicate a
+depleted position-0 with downstream enrichment, the typical fingerprint of
+adapter or ligation residue. Genuine deamination in a DS library produces a
+peak <em>at</em> position 0, not a depletion there; a depleted p0 with rising p1
+through p4 is almost always a clipping or ligation artefact. When this flag
+is set, libtaph automatically shifts the fit window inward and (in DS
+libraries with <code>flag_hex_artifact</code>) reports a hexamer-corrected
+<code>d5_hexamer_corrected</code> extrapolated back to position 0.</p>
+<h3 id="two-surfaces-channel-detector-vs-library-verdict">Two surfaces: channel detector vs library verdict</h3>
+<p>Deamination is reported on <strong>two distinct surfaces</strong> that answer different
+questions. Read the right one for the task.</p>
+<ul>
+<li><strong><code>channels.deamination</code></strong> — a <em>sensitive per-channel detector</em>. Its
+  <code>confidence_tier</code> (e.g. <code>AUTHENTICATED</code>) and <code>state</code> fire on a positive
+  short→long length-DiD gradient at the biological end (5′ for SS). It is
+  tuned for sensitivity: it flags real terminal decay even when the signal
+  is faint.</li>
+<li><strong><code>characterization.verdict.deamination</code></strong> — the <em>authoritative,
+  library-level call</em>. <code>call</code> is <code>present</code> / <code>absent</code>, and <code>authenticated_by</code>
+  records which arm carried it: <code>pi_estimate</code> (identifiable damaged-molecule
+  fraction), <code>channel_b</code> (composition-independent stop-codon cross-check),
+  <code>d5_decay_fit</code> (fittable per-position C→T exponential), <code>pinned_shallow_ct</code>,
+  or <code>none</code>. This arm is stricter — it requires identifiable evidence, not
+  just a gradient.</li>
+</ul>
+<p>The two can disagree, by design. A faint library can read
+<code>channels.deamination.confidence_tier == AUTHENTICATED</code> (the length gradient
+is genuinely present) while <code>verdict.deamination.call == absent</code> /
+<code>authenticated_by == none</code> — because the stricter per-position CT-fit / π /
+Channel-B arms cannot lock on at that depth. This is a conservative abstain,
+not a contradiction: the detector is doing its sensitive job and the verdict
+is doing its specific one. <strong>For a yes/no "is this library authenticated
+ancient?" decision, use <code>characterization.verdict.deamination</code>.</strong> Treat
+<code>channels.deamination.confidence_tier</code> as a detector reading, not the verdict.</p>
+<h2 id="4-oxidative-damage-channels-f-g-h">4. Oxidative damage channels (F, G, H)</h2>
+<p>Channels F, G, and H detect oxidative damage through terminal trinucleotide
+context z-scores against the interior baseline. All three are reported as
+binomial z-scores (<code>channel_f_z</code>, <code>channel_g_z</code>, <code>channel_h_z</code>).</p>
+<p>A practical scale for the 5′ z-scores:</p>
+<table>
+<thead>
+<tr>
+<th><code>channel_*_z</code></th>
+<th>Interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>~0</td>
+<td>No detectable enrichment over interior</td>
+</tr>
+<tr>
+<td>1–2</td>
+<td>Borderline; coverage-limited noise</td>
+</tr>
+<tr>
+<td>3–5</td>
+<td>Detectable signal — the conventional <code>z &gt; 3</code> threshold</td>
+</tr>
+<tr>
+<td>5–10</td>
+<td>Strong signal — typical of oxidatively damaged ancient material</td>
+</tr>
+<tr>
+<td>&gt; 10</td>
+<td>Very strong, but check for compositional drivers</td>
+</tr>
+</tbody>
+</table>
+<p>A z-score of 5 for Channel F combined with Channel H near zero is consistent
+with GC-rich bacterial DNA driving the C-context channels through
+composition rather than oxidation. A z-score of 5 for F <em>and</em> H indicates
+the enrichment extends to AT-context channels too, which composition alone
+cannot explain.</p>
+<p><strong>The co-elevation pattern F+ G+ H+ is the diagnostic signature of authentic
+oxidative aDNA.</strong> All three channels rise together because 8-oxoG-mediated
+miscoding affects many trinucleotide contexts. Channel H (A→T) is
+particularly informative: its pre-contexts are AT-rich (AAA, AAG, AGA), so
+unlike F and G it cannot be inflated by GC-rich composition. A pattern of
+<strong>F+ G+ with H ≈ 0</strong> is therefore diagnostic of compositional bias, most
+commonly GC-rich bacterial contamination (e.g. <em>Pseudomonas</em>) rather than
+genuine oxidative damage on the host material.</p>
+<p>For Channel H specifically, prefer <code>channel_h_z_p2plus</code> over <code>channel_h_z</code>
+when the position-0 background A→T rate is depressed. The p2plus variant
+restricts the terminal window to positions 2–4 and avoids dilution by the
+low p0 rate; downstream consumers commonly use
+<code>max(channel_h_z, channel_h_z_p2plus)</code>.</p>
+<p>The per-channel <code>*_uniformity_ratio</code> (<code>ca_uniformity_ratio</code>,
+<code>cg_uniformity_ratio</code>, <code>at_uniformity_ratio</code>) is the terminal-to-baseline
+ratio. A ratio above 1 indicates terminal enrichment over interior; below 1
+indicates depletion. Values near 1 mean no terminal effect and should be
+read together with the corresponding z-score before drawing a conclusion.</p>
+<p>The 3′ counterparts (<code>channel_f3_z</code>, <code>channel_g3_z</code>, <code>channel_h3_z</code>,
+together with their <code>*_3prime</code> uniformity ratios) are typically weaker than
+their 5′ counterparts. This is partly because 3′ end-repair processes mask
+some terminal positions, and partly because adapter trimming on the 3′ side
+removes some of the terminal context. Treat 3′ z-scores below the 5′ values
+by a factor of 2–3 as normal; only worry when the 3′ signal is <em>higher</em>
+than the 5′ signal, which often signals an inversion or trimming artefact.</p>
+<h2 id="5-channel-cd-8-oxog-context-diagnostics">5. Channel C/D — 8-oxoG context diagnostics</h2>
+<p>Channels C and D summarise the strand-asymmetry of G→T versus C→A at
+interior positions, the canonical 8-oxoG signature.</p>
+<p><code>ox_gt_uniformity</code> is the terminal-to-interior ratio of the G→T rate.
+Values <strong>near 1.0</strong> indicate that the G→T enrichment is interior-dominated:
+the signal is interpretable as 8-oxoG rather than as a terminal deamination
+artefact. Values <strong>substantially above 1.0</strong> mean the G→T rate spikes at
+the terminus, which is more consistent with a terminal compositional
+effect than with bulk oxidative damage.</p>
+<p><code>ox_gt_asymmetry</code> is the strand contrast <code>ox_gt_baseline − ox_ca_baseline</code>.
+<strong>Positive values</strong> (G→T &gt; C→A) are the expected sign for genuine 8-oxoG,
+because oxidation of guanine on one strand is read as G→T and has no
+corresponding C→A counterpart on the other strand of a pooled DS library.
+<strong>Negative values</strong> point the other way and usually indicate a sequencing
+or composition artefact rather than oxidation.</p>
+<p><code>s_oxog_16ctx</code> reports the per-context G→T asymmetry across the 16
+trinucleotide contexts NGN. It is informative when coverage is high
+(reported as non-<code>null</code> when the per-context coverage exceeds 500). A
+broad enrichment across most contexts is consistent with genuine oxidative
+damage. A spike confined to one or two contexts (typically GG-flanked) is
+characteristic of modern oxidative chemistry rather than diffuse aDNA
+oxidation; it can also be noise when coverage is borderline. When
+<code>s_oxog_16ctx</code> is <code>null</code> or only a couple of contexts are populated, treat
+the panel as uninformative and rely on the F/G/H z-scores instead.</p>
+<h2 id="6-channel-e-terminal-purine-enrichment-ap-site-proxy">6. Channel E — terminal purine enrichment / AP-site proxy</h2>
+<p>Channel E captures a reference-free endpoint-composition pattern motivated by
+AP-site chemistry: ancient DNA can break at depurinated purine residues, so reads
+from affected molecules may have A+G enriched at the read start.</p>
+<p><code>purine_enrichment_5prime</code> is the headline statistic: terminal
+<code>(A+G)/(A+C+G+T)</code> at the 5′ read start minus the middle-of-read A+G fraction.</p>
+<ul>
+<li><strong>Positive enrichment</strong> (e.g. &gt; 0.05) is the expected AP-site proxy;
+  values above 0.15 are strong endpoint evidence, but not direct lesion proof.</li>
+<li><strong>Near-zero enrichment</strong> is consistent with random shearing, USER
+  treatment, or modern DNA where AP-site chemistry has not had time to
+  operate.</li>
+<li><strong>Negative enrichment</strong> is unusual and typically indicates endpoint
+  composition bias, size-selection/trimming effects, or another non-AP-site
+  process.</li>
+</ul>
+<p>Channel E is independent of the deamination channels. A sample can show
+strong purine endpoint enrichment with weak <code>d_max</code> (USER-treated aDNA, or
+material where deamination has saturated and lost its terminal asymmetry).
+In the dominant-process rule (see below), a strong Channel E with weak
+deamination is what produces the legacy <code>fragmentation_bias</code> label. Interpret
+that label as purine endpoint bias, not a direct strand-break rate.</p>
+<h2 id="7-damage-context-profile-and-dominant_process">7. Damage-context profile and <code>dominant_process</code></h2>
+<p>The dominant-process classifier emits a single label summarising what
+process best describes the library, alongside six normalised scores in
+<code>[0, 1]</code> (or <code>NaN</code> when unevaluable). The label is assigned by a
+deterministic rule top-to-bottom; the first match wins. See
+<a href="../methods/#damage-context-profile">Methods</a> for the exact thresholds.</p>
+<table>
+<thead>
+<tr>
+<th>Label</th>
+<th>Implication</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cytosine_deamination</code></td>
+<td>The default ancient-DNA call: terminal C→T deamination dominates with no contradictory evidence.</td>
+</tr>
+<tr>
+<td><code>cpg_enriched_deamination</code></td>
+<td>Deamination is amplified at CpG sites; consistent with vertebrate methylation. Suggests host-mammalian aDNA.</td>
+</tr>
+<tr>
+<td><code>dipyrimidine_biased</code></td>
+<td>Damage is enriched at CC/TC dipyrimidine contexts; a UV-photoproduct signature seen in surface-exposed material (skin, sun-exposed bone fragments).</td>
+</tr>
+<tr>
+<td><code>oxidative_like</code></td>
+<td>Oxidative-channel score is high relative to terminal deamination. May reflect long-term storage oxidation, post-mortem oxygen exposure, or — if F+G+ but H≈0 — bacterial-composition contamination masquerading as oxidation.</td>
+</tr>
+<tr>
+<td><code>fragmentation_bias</code></td>
+<td>Legacy label: strong purine endpoint enrichment with weak terminal deamination. This is an endpoint-composition proxy, not a direct fragmentation rate.</td>
+</tr>
+<tr>
+<td><code>library_artifact_likely</code></td>
+<td>Adapter / hexamer / position-0 evidence is present <em>and</em> terminal deamination is below the threshold for a damage call. The library is unreliable; investigate trimming and re-prep.</td>
+</tr>
+<tr>
+<td><code>low_damage</code></td>
+<td>Terminal deamination is essentially zero. Either modern DNA, a USER-treated library, or contamination so heavy that ancient signal is diluted.</td>
+</tr>
+<tr>
+<td><code>none</code></td>
+<td>Insufficient reads (&lt; 1000) or no finite <code>d_max</code> at either end. The classifier abstains.</td>
+</tr>
+</tbody>
+</table>
+<p>The six scores let downstream tools re-normalise without rescanning. A
+library with <code>terminal_deamination_score = 0.85</code> and
+<code>library_artifact_score = 0.05</code> is a confident damage call; the reverse
+ratio is a confident artefact call.</p>
+<h2 id="8-gc-stratified-mixture-model">8. GC-stratified mixture model</h2>
+<p>For samples that are mixtures of ancient and modern DNA, the per-read
+exponential summary in Channel A is a population average and can mislead.
+The two-component mixture over the GC × length cell grid disentangles them.</p>
+<ul>
+<li><code>mixture_pi_ancient</code> — the fraction of C-sites in the high-damage
+  component. A value near 1.0 means almost all reads carry damage; near
+  0.0 means almost none do; intermediate values indicate a true mixture.</li>
+<li><code>mixture_d_ancient</code> — the expected damage rate among the reads assigned
+  to the ancient component (i.e. the damage rate conditional on being
+  ancient). This is the number to compare against <code>d_max</code> from clean
+  libraries.</li>
+</ul>
+<p>When the mixture model and <code>d_max</code> agree, the library is uniform (ancient
+or modern; no mixing). When <code>mixture_pi_ancient</code> is intermediate (say
+0.2 – 0.6) and <code>mixture_d_ancient</code> is high while <code>d_max_combined</code> is
+moderate, the library is a mixture: there is a real ancient component, but
+it is diluted by modern reads. In that case <code>mixture_d_ancient</code> is the
+better number to report for the ancient fraction, and <code>mixture_pi_ancient</code>
+is the proxy for the contamination level.</p>
+<h2 id="9-ancient-fraction-deamination-fqdup-integration">9. Ancient-fraction deamination (fqdup integration)</h2>
+<p>When fqdup runs the per-read LLR scorer fused into the oxoG pass, it
+populates a set of fields that unmix the ancient and modern read pools and
+estimate deamination for each fraction independently. These are only available
+when <code>damaged_fraction_valid == true</code>.</p>
+<h3 id="damaged_fraction_pi-ancient-fraction"><code>damaged_fraction_pi</code> — ancient fraction</h3>
+<p>The posterior-weighted fraction of reads classified as ancient. This is the
+fraction to compare against metaDMG "damaged fraction" values. A value near 1
+means almost all reads are ancient; near 0 means the ancient signal is diluted
+by a large modern background.</p>
+<p>The estimate uses a single posterior-weighted E-step: π is initialised from the
+mixture identity (bulk_d5 / d_anc), per-read posteriors are computed as
+<code>sigmoid(LLR + log(π/(1−π)))</code> under a two-class model with reads conditionally
+independent, and π is then re-estimated as the mean posterior. This is <strong>not</strong>
+iterated to convergence (full EM); the one-step estimate is generally not a fixed
+point of the EM operator. The initialisation is usually close enough that a
+single step suffices, but the result can differ from a converged estimate when π
+is far from 0.5. Compared to hard LLR &gt; 0 thresholding, the posterior weighting
+avoids the selection-on-outcome floor that pins hard-call pi at ~0.25–0.35 in
+low-endogenous libraries.</p>
+<h3 id="damaged_fraction_d5-d3-mixture-identity-estimate"><code>damaged_fraction_d5</code> / <code>d3</code> — mixture-identity estimate</h3>
+<p>These divide the bulk <code>d_max</code> by <code>pi</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>d_anc = bulk_d_max / pi
+</code></pre></div>
+<p>derived from <code>bulk_d = π × d_anc + (1−π) × d_mod</code>, which reduces to the above
+only if <code>d_mod ≈ 0</code> (modern reads carry no deamination). If the modern component carries background deamination
+(d_mod &gt; 0), then bulk_d/π <strong>overestimates</strong> d_anc — the bias is directional
+(upward), not just noisy, and it grows as π decreases. At low endogenous
+fractions (&lt;5%), even a small d_mod (e.g. 0.01) inflates the estimate
+substantially.</p>
+<p>Additionally, the identity weights components by C-site count, not read count.
+<code>pi</code> is a read fraction; these coincide only if ancient and modern reads have
+similar GC content and length. If ancient reads are GC-poorer or shorter, the
+mixture identity mis-scales d_anc. The independent fit fields (<code>*_fit</code>) avoid
+both assumptions.</p>
+<h3 id="damaged_fraction_d5_fit-lambda5-independent-fitted-estimate"><code>damaged_fraction_d5_fit</code> / <code>lambda5</code> — independent fitted estimate</h3>
+<p>These fit an exponential decay directly to the 15-position per-read profile
+of reads classified as ancient, using log-linear regression (OLS on
+log-transformed excess):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>log(T/TC(p) − bg_modern) = log(d_max) − λ × p
+</code></pre></div>
+<p>where <strong><code>bg_modern</code></strong> is the interior T/TC rate of the modern-classified reads
+(positions 8–14) — a proxy for the per-sample genomic T frequency in the absence
+of deamination. This baseline is lower than the ancient component's own interior
+rate (which includes interior deamination), so <code>d5_fit</code> measures terminal
+deamination above genomic T, not merely above an already-damaged interior.</p>
+<p>The fit runs over positions p = 1..6 with coverage ≥ 50 and excess &gt; 0 (pos 0
+is skipped for the same adapter-composition reasons as bulk d_max). OLS in log
+space assumes homoscedastic log-residuals, which binomial sampling does not
+guarantee — positions near the background threshold carry the most noise and
+disproportionate leverage on λ, so the fitted λ is approximate.</p>
+<p>This does not depend on the d_mod ≈ 0 or C-site/read-fraction assumptions of
+the mixture-identity estimate and gives both <code>d_max</code> and <code>λ</code> directly from the
+ancient-classified read pool. It is the preferred estimate when <code>pi</code> is uncertain
+or when you need the shape of the decay.</p>
+<p>Under d_mod ≈ 0 and clean classification, d5_fit typically exceeds d5
+(mixture identity) because the modern-interior background is lower than the
+full-pool interior (which blends ancient interior deamination into the baseline).
+Compare <code>d5_fit</code> to <code>rate_5prime[interior] − modern_fraction_rate5[interior]</code>
+to recover the interior deamination component not captured by the terminal fit.</p>
+<h3 id="modern_fraction_-modern-component"><code>modern_fraction_*</code> — modern component</h3>
+<p>The same fields for reads classified as modern. For a clean ancient library
+these will be near zero. A non-zero <code>modern_fraction_d5_fit</code> can indicate
+modern contamination carrying genuine (but low-level) background deamination,
+or — at very low ancient fractions — false-positive classification leaking
+ancient reads into the modern pool.</p>
+<h3 id="reading-the-trio-together">Reading the trio together</h3>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pi ≈ 1</code>, <code>d5_fit ≈ d5</code></td>
+<td>High endogenous; both estimates converge toward bulk d_max — use either, provided both use the same background/normalization convention</td>
+</tr>
+<tr>
+<td><code>pi</code> moderate (0.2–0.7), <code>d5_fit &gt; d5</code></td>
+<td>Mixed library under d_mod ≈ 0; <code>d5_fit</code> better describes the ancient component</td>
+</tr>
+<tr>
+<td><code>d5_fit</code> and <code>lambda5</code> both finite, <code>modern_d5_fit ≈ 0</code></td>
+<td>Likely clean separation — but at very low π, classification leakage can make <code>modern_d5_fit</code> unreliable as a cleanliness indicator</td>
+</tr>
+<tr>
+<td><code>valid == false</code></td>
+<td>Paired-mode input, bulk d_max &lt; 0.01, or insufficient reads — field unavailable</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="10-qc-flags-and-when-to-distrust-results">10. QC flags and when to distrust results</h2>
+<p>Several flags should override an otherwise positive damage call.</p>
+<ul>
+<li><code>terminal_inversion</code> — terminal damage rate is <em>below</em> interior at one
+  or both ends. The fit has been forced into a fallback configuration.
+  Likely causes: read-orientation bug upstream, mis-trimmed adapters, or a
+  reverse-complemented BAM. Investigate before reporting any <code>d_max</code> from
+  this profile.</li>
+<li><code>hexamer_excess_tc</code> — a <strong>library chemistry / priming bias</strong> metric, not an
+  adapter remnant signal (see <code>flag_hex_artifact</code> and <code>adapter_clipped</code> for
+  those). It measures T/(T+C) at read starts minus T/(T+C) in the read interior
+  across all matched C/T hexamer pairs. A negative value means the library prep
+  preferentially produces C-starting read starts (e.g. ligation junction
+  composition in SS protocols), enriching C-context trinucleotides in the
+  channels F and G pre-count denominator across the full 5′ terminal window.
+  The effect is false <strong>negatives</strong> in F/G (suppression toward large negative
+  z-scores), not false positives in Channel A. Interpret F/G z-scores with
+  caution when <code>hexamer_excess_tc &lt; −0.05</code>; the raw value is always reported.</li>
+<li><code>short_read_frac</code> — the fraction of reads below the short-read threshold.
+  High values indicate library-prep size selection failure or extreme
+  fragmentation; both reduce the reliability of terminal statistics
+  because end-effects dominate the per-read information budget.</li>
+<li><code>flag_hex_artifact</code> / <code>adapter_clipped</code> / <code>adapter3_clipped</code> — direct
+  evidence of adapter remnants. The hexamer-corrected <code>d5</code> is computed
+  for DS libraries when these conditions co-occur with a position-0
+  artefact, but the safer call is to re-trim and re-run.</li>
+<li><code>is_detection_unreliable()</code> — true when terminal inversion or
+  composition-bias flags fire. <strong>Treat every damage call from such a
+  profile with caution</strong>; report values only with their flag context.</li>
+</ul>
+<h2 id="11-common-patterns-in-practice">11. Common patterns in practice</h2>
+<table>
+<thead>
+<tr>
+<th>Pattern</th>
+<th>Likely interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>High <code>d_max</code>, <code>damage_validated</code>, F+G+H+ all elevated, DS library</td>
+<td>Authentic ancient DNA with concurrent oxidative damage. The standard "good ancient sample" call.</td>
+</tr>
+<tr>
+<td>High <code>d_max</code>, <code>damage_validated</code>, F+G+ with H ≈ 0, DS library</td>
+<td>Authentic ancient DNA with minimal oxidative damage; or, in unsupervised data, GC-rich-composition contamination — disambiguate with <code>damage_validated</code> and host coverage.</td>
+</tr>
+<tr>
+<td>High <code>d_max</code> in a negative control with F+G+ H ≈ 0</td>
+<td>GC-rich bacterial contamination driving Channel A through composition. Not ancient damage.</td>
+</tr>
+<tr>
+<td>Moderate <code>d_max</code> with <code>damage_artifact == true</code></td>
+<td>Composition artefact — Channel B contradicts Channel A. Report as unreliable.</td>
+</tr>
+<tr>
+<td><code>d_max ≈ 0</code> and <code>dominant_process == low_damage</code></td>
+<td>Modern DNA, USER-treated library, or contamination so heavy that ancient signal is diluted.</td>
+</tr>
+<tr>
+<td>SS library with <code>d_max_5prime ≈ d_max_3prime</code></td>
+<td>Single-stranded library showing the expected symmetric C→T at both ends.</td>
+</tr>
+<tr>
+<td><code>dominant_process == dipyrimidine_biased</code></td>
+<td>UV-driven photoproduct signature. Common in skin, hair, or surface-exposed bone fragments.</td>
+</tr>
+<tr>
+<td><code>dominant_process == fragmentation_bias</code></td>
+<td>Purine endpoint bias dominates over terminal deamination; inspect the <code>depurination</code> and <code>fragmentation</code> blocks before making a mechanistic AP-site claim.</td>
+</tr>
+<tr>
+<td><code>terminal_inversion == true</code> with otherwise high <code>d_max</code></td>
+<td>Likely orientation or trimming bug upstream — investigate before trusting the call.</td>
+</tr>
+<tr>
+<td>Mixture model: <code>mixture_pi_ancient = 0.3</code>, <code>mixture_d_ancient = 0.18</code>, <code>d_max_combined = 0.06</code></td>
+<td>A genuine ancient signal diluted by ~70% modern DNA (0.3 × 0.18 ≈ 0.054 ≈ 0.06, assuming d_mod ≈ 0). Note: <code>mixture_pi_ancient</code> is the fraction of <strong>C-sites</strong> in the high-damage component, not necessarily the read fraction — they differ when ancient and modern reads have unequal GC or length. Report <code>mixture_d_ancient</code> as the ancient damage rate.</td>
+</tr>
+</tbody>
+</table>
+<p>When in doubt, look at all three layers — the d_max value, the
+cross-channel validation flags, and the dominant-process label — and
+require them to agree. libtaph is built so that no single number can be
+the whole story.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
