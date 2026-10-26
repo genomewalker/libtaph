@@ -20,8 +20,8 @@
 #  * FQ is a PRE-BUILT binary, NOT built from the tree under test. A stale FQ silently gates the
 #    wrong code (the default was 12 days old when this note was written). Rebuild it, or set FQDUP.
 set -uo pipefail
-FQ="${FQDUP:-/path/to/fqdup/build-icelake/fqdup}"
-ROOT="${ELLESMERE_ROOT:-/path/to/ellesmere}"
+FQ="${FQDUP:-}"
+ROOT="${ELLESMERE_ROOT:-}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 MAN="$HERE/manifest.tsv"
 FIX="$HERE/count_tables"

@@ -46,8 +46,9 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FQDUP_GIVEN="${FQDUP:+1}"
-FQDUP="${FQDUP:-/path/to/fqdup/build/fqdup}"
-TMPDIR_ORACLE="${TMPDIR_ORACLE:-/path/to/tmp}"
+FQDUP_REPO="${FQDUP_REPO:-}"
+FQDUP="${FQDUP:-${FQDUP_REPO:+$FQDUP_REPO/build/fqdup}}"
+TMPDIR_ORACLE="${TMPDIR_ORACLE:-${TMPDIR:-/tmp}}"
 CAPTURE="${CAPTURE:-0}"
 
 # fixture_tag  library_type  expected authenticated_by route
@@ -60,12 +61,12 @@ FIXTURES=(
   "modern  ds  none"
 )
 
-# With the default fqdup, rebuild it from the working-tree libtaph (FETCHCONTENT_SOURCE_DIR_LIBTAPH)
-# so the oracle reflects the current edits (incremental, ~2s); otherwise it silently tests a stale
-# binary. An explicit FQDUP is used as given: it is never rebuilt, so the oracle cannot touch another
-# build directory.
+# Needs an fqdup: FQDUP is a binary used as given, FQDUP_REPO an fqdup checkout built against the
+# working-tree libtaph (FETCHCONTENT_SOURCE_DIR_LIBTAPH), rebuilt here (incremental, ~2s) so the
+# oracle reflects the current edits. With neither set the test is skipped.
+if [ -z "$FQDUP" ]; then echo "SKIP: set FQDUP or FQDUP_REPO"; exit 0; fi
 if [ -z "$FQDUP_GIVEN" ]; then
-    ( cd /path/to/fqdup && cmake --build build --parallel ) >/dev/null 2>&1 \
+    ( cd "$FQDUP_REPO" && cmake --build build --parallel ) >/dev/null 2>&1 \
         || { echo "ORACLE BUILD FAIL"; exit 2; }
 fi
 

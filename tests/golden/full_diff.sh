@@ -15,8 +15,10 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FQDUP="${FQDUP:-/path/to/fqdup/build/fqdup}"
-TMPDIR_ORACLE="${TMPDIR_ORACLE:-/path/to/tmp}"
+FQDUP_REPO="${FQDUP_REPO:-}"
+FQDUP_GIVEN="${FQDUP:+1}"
+FQDUP="${FQDUP:-${FQDUP_REPO:+$FQDUP_REPO/build/fqdup}}"
+TMPDIR_ORACLE="${TMPDIR_ORACLE:-${TMPDIR:-/tmp}}"
 
 FIXTURES=(
   "det_ds  ds"
@@ -27,8 +29,11 @@ FIXTURES=(
   "modern  ds"
 )
 
-( cd /path/to/fqdup && cmake --build build --parallel ) >/dev/null 2>&1 \
-    || { echo "FULL_DIFF BUILD FAIL"; exit 2; }
+if [ -z "$FQDUP" ]; then echo "SKIP: set FQDUP or FQDUP_REPO"; exit 0; fi
+if [ -z "$FQDUP_GIVEN" ]; then
+    ( cd "$FQDUP_REPO" && cmake --build build --parallel ) >/dev/null 2>&1 \
+        || { echo "FULL_DIFF BUILD FAIL"; exit 2; }
+fi
 
 fail=0
 for row in "${FIXTURES[@]}"; do

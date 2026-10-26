@@ -3,8 +3,8 @@
 # thread-order-independent, verified). Fixtures are named by pathology.
 # Inputs live in the ellesmere project (external to the repo); see manifest.tsv.
 set -uo pipefail
-FQ="${FQDUP:-/path/to/fqdup/build-icelake/fqdup}"
-ROOT="${ELLESMERE_ROOT:-/path/to/ellesmere}"
+FQ="${FQDUP:-}"
+ROOT="${ELLESMERE_ROOT:-}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="$HERE/count_tables"
 mkdir -p "$OUT"
