@@ -344,7 +344,7 @@ struct SampleDamageProfile {
     std::array<std::array<std::array<uint64_t, N_TRINUC>, N_POS_TRI>, N_OX_DEAM_STRATA> tri_5prime_pos_by_deam = {};
     std::array<std::array<std::array<uint64_t, N_TRINUC>, N_POS_TRI>, N_OX_DEAM_STRATA> tri_3prime_pos_by_deam = {};
 
-    // ---- De-circularized strata -------
+    // ---- De-circularized strata -----------------------------------------
     // The tri_*_by_deam readout above is circular: reads are keyed on their own 3'
     // terminal excess and that same excess is read back. These accumulators break
     // the loop by cross-fitting WITHIN the 3' terminus: a per-read position-fold
