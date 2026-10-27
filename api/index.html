@@ -1,0 +1,2735 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reference-free ancient DNA damage estimation and library-type classification">
+      
+      
+      
+        <link rel="canonical" href="https://genomewalker.github.io/libtaph/api/">
+      
+      
+        <link rel="prev" href="../interpretation/">
+      
+      
+        <link rel="next" href="../integration/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>API Reference - libtaph</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#api-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="libtaph" class="md-header__button md-logo" aria-label="libtaph" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            libtaph
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              API Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/genomewalker/libtaph" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    genomewalker/libtaph
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../methods/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Methods
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../damage-types/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Damage types
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../interpretation/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Interpretation guide
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  API Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../integration/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Classifier Integration
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="libtaph" class="md-nav__button md-logo" aria-label="libtaph" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    libtaph
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/genomewalker/libtaph" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    genomewalker/libtaph
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methods/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methods
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../damage-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Damage types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#stability-tiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stability tiers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stability tiers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diagnostics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diagnostics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#experimental" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experimental
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#frameselector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FrameSelector
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FrameSelector">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#compute_sample_profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        compute_sample_profile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#update_sample_profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_sample_profile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#update_sample_profile_pe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_sample_profile_pe
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#update_sample_profile_weighted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_sample_profile_weighted
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finalize_sample_profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        finalize_sample_profile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#merge_sample_profiles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        merge_sample_profiles
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reset_sample_profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reset_sample_profile
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sampledamageprofile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SampleDamageProfile
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="SampleDamageProfile">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#primary-damage-estimates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Primary damage estimates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chemistry-aware-background-and-area-excess" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chemistry-aware background and area-excess
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Input mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#library-type-classification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Library-type classification
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bic-model-scores-library-type-classifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BIC model scores (library-type classifier)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-channel-classifier-amplitudes-and-bic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-channel classifier amplitudes and ΔBIC
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-position-arrays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-position arrays
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gc-stratified-mixture-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GC-stratified mixture model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ancient-fraction-deamination" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ancient-fraction deamination
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#context-aware-5-ct-upstream-base" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context-aware 5' C→T (upstream base)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validation-and-reliability-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation and reliability flags
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#utility-functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Utility functions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#complement-asymmetry-oxidative-channels-f-g-h" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Complement-asymmetry oxidative channels (F, G, H)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Complement-asymmetry oxidative channels (F, G, H)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#channel-f-ca-bottom-strand-8-oxog-complement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channel F — C→A (bottom-strand 8-oxoG complement)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#channel-g-cg-empirical-oxidative-context-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channel G — C→G empirical oxidative-context proxy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#channel-h-at-empirical-mechanism-uncertain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channel H — A→T (empirical; mechanism uncertain)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#typical-usage-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Typical usage patterns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Typical usage patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#streaming-with-thread-parallel-accumulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Streaming with thread-parallel accumulation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#forcing-library-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Forcing library type
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whole-source-profiling-taphdamage_profilerhpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Whole-source profiling (taph/damage_profiler.hpp)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Whole-source profiling (taph/damage_profiler.hpp)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#run_prescan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_prescan
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clip_adapters-encode_stub_codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        clip_adapters / encode_stub_codes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#profile_reads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        profile_reads
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#damage-interpretation-taphlibrary_interpretationhpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Damage Interpretation (taph/library_interpretation.hpp)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Damage Interpretation (taph/library_interpretation.hpp)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#hexamer-utilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hexamer utilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adapter-stub-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adapter stub detection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hexamer-statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hexamer statistics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#score-functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Score functions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#damage-mask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Damage mask
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#library-qc-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Library QC flags
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preservation-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Preservation summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#damagecontextprofile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DamageContextProfile
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#length-stratified-profile-taphlength_stratified_profilehpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Length-stratified profile (taph/length_stratified_profile.hpp)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#automatic-length-bin-edges-taphlog_length_gmmhpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatic length-bin edges (taph/log_length_gmm.hpp)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#length-gc-joint-mixture-taphlength_gc_joint_mixturehpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Length × GC joint mixture (taph/length_gc_joint_mixture.hpp)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#damage-summary-sidecar-taphdamage_summaryhpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Damage summary sidecar (taph/damage_summary.hpp)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hexamer-tables-and-domain-classifier-taphhexamer_tableshpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hexamer tables and domain classifier (taph/hexamer_tables.hpp)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hexamer tables and domain classifier (taph/hexamer_tables.hpp)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#encoding-and-table-lookup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Encoding and table lookup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#active-domain-and-ensemble-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Active domain and ensemble mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#domain-classifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Domain classifier
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hexamer-fields-on-sampledamageprofile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hexamer fields on SampleDamageProfile
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Classifier Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="api-reference">API Reference</h1>
+<p>All public symbols live in the <code>taph</code> namespace. Include <code>&lt;taph/frame_selector_decl.hpp&gt;</code>.</p>
+<hr />
+<h2 id="stability-tiers">Stability tiers</h2>
+<p><code>SampleDamageProfile</code> fields are grouped into three tiers. The tier of a field is
+annotated in <code>sample_damage_profile.hpp</code> with a comment block
+(<code>// --- Stable outputs ---</code>, <code>// --- Diagnostics ---</code>,
+<code>// --- Experimental ---</code>).</p>
+<h3 id="stable">Stable</h3>
+<p>These fields are committed across minor versions. Their names, types, and
+semantics will not change without a major version bump and a changelog entry.</p>
+<table>
+<thead>
+<tr>
+<th>Field group</th>
+<th>Fields</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Channel A d_max</td>
+<td><code>d_max_5prime</code>, <code>d_max_3prime</code>, <code>d_max_combined</code>, <code>d_max_source_str()</code></td>
+</tr>
+<tr>
+<td>Channel A decay</td>
+<td><code>lambda_5prime</code>, <code>lambda_3prime</code></td>
+</tr>
+<tr>
+<td>Channel A area</td>
+<td><code>damage_5prime_area_excess</code>, <code>damage_3prime_area_excess</code>, <code>damage_5prime_lr</code>, <code>damage_3prime_lr</code></td>
+</tr>
+<tr>
+<td>Channel A asymmetry</td>
+<td><code>asymmetry</code></td>
+</tr>
+<tr>
+<td>Channel A background</td>
+<td><code>bg_5prime_anchored</code>, <code>bg_3prime_anchored</code></td>
+</tr>
+<tr>
+<td>Library type</td>
+<td><code>library_type</code>, <code>library_type_auto_detected</code>, <code>library_type_str()</code></td>
+</tr>
+<tr>
+<td>Library BIC</td>
+<td><code>library_bic_bias</code>, <code>library_bic_ds</code>, <code>library_bic_ss</code>, <code>library_bic_mix</code></td>
+</tr>
+<tr>
+<td>CpG axis</td>
+<td><code>log2_cpg_ratio</code>, <code>cpg_ratio</code></td>
+</tr>
+<tr>
+<td>Context contrasts</td>
+<td><code>dipyr_contrast</code>, <code>gpc_contrast</code></td>
+</tr>
+<tr>
+<td>Channel B headline</td>
+<td><code>channel_b_valid</code>, <code>stop_amplitude_5prime</code>, <code>d_max_from_channel_b</code></td>
+</tr>
+<tr>
+<td>Oxidative channels</td>
+<td><code>channel_f_z</code>, <code>channel_g_z</code>, <code>channel_h_z</code>, <code>channel_h_z_p2plus</code></td>
+</tr>
+<tr>
+<td>Ancient fraction</td>
+<td><code>damaged_fraction_valid</code>, <code>damaged_fraction_pi</code>, <code>damaged_fraction_d5_fit</code>, <code>damaged_fraction_d3_fit</code>, <code>damaged_fraction_lambda5</code>, <code>damaged_fraction_lambda3</code></td>
+</tr>
+<tr>
+<td>Validation flags</td>
+<td><code>damage_validated</code>, <code>damage_artifact</code>, <code>terminal_inversion</code>, <code>is_valid()</code>, <code>is_detection_unreliable()</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="diagnostics">Diagnostics</h3>
+<p>Useful for debugging and model development but may gain or lose fields in minor
+releases. Do not write production code that hard-depends on these names.</p>
+<ul>
+<li>Library BIC internals: <code>libtype_amp_ct5/ga3/ga0/ct3</code>, <code>libtype_dbic_*</code>, <code>library_p_ds/ss/bias/winner</code>, <code>library_bic_winner_model</code>, <code>library_bic_margin</code></li>
+<li>Background coverage: <code>bg_n_positions_*</code>, <code>bg_denominator_*</code>, <code>briggs_pos0_masked_*</code></li>
+<li>Channel B internals: <code>channel_b_slope</code>, <code>channel_b_weight</code>, <code>channel_b_quantifiable</code>, <code>channel_b_inverted</code>, <code>stop_decay_llr_*</code>, <code>stop_conversion_rate_baseline</code>, per-stop-type LLRs (<code>*_taa_*</code>, <code>*_tag_*</code>, <code>*_tga_*</code>)</li>
+<li>Oxidative channel details: <code>ca_stop_rate_*</code>, <code>cg_stop_rate_*</code>, <code>at_stop_rate_*</code>, <code>*_uniformity_ratio*</code>, <code>channel_f/g/h_valid</code>, <code>channel_f/g/h3_valid</code></li>
+<li>Hexamer chemistry: <code>hexamer_excess_tc</code>, <code>hexamer_damage_llr</code></li>
+<li>Fraction d_max (mixture-identity, biased at low π): <code>damaged_fraction_d5</code>, <code>damaged_fraction_d3</code>, <code>modern_fraction_*</code></li>
+<li>Pattern flags: <code>composition_bias_*</code>, <code>inverted_pattern_*</code>, <code>position_0_artifact_*</code></li>
+<li>Preservation: <code>preservation_score</code>, <code>preservation_label</code>, <code>preservation_evidence</code>, <code>preservation_reliability</code></li>
+</ul>
+<h3 id="experimental">Experimental</h3>
+<p>No stability guarantee. Schema, semantics, and field names may change between any
+two releases. Do not depend on these in downstream tools without pinning the
+libtaph version.</p>
+<ul>
+<li><strong>Raw upstream-context arrays</strong> — <code>ct5_t_by_upstream[ctx][pos]</code>, <code>ct5_total_by_upstream[ctx][pos]</code>, <code>ct5_t_interior_by_upstream[ctx]</code>, <code>ct5_total_interior_by_upstream[ctx]</code>, <code>dmax_ct5_by_upstream[ctx]</code>, <code>baseline_ct5_by_upstream[ctx]</code>, <code>cov_ct5_*_by_upstream[ctx]</code></li>
+<li><strong>Per-position trinucleotide counts</strong> — <code>tri_5prime_pos[pos][ctx]</code>, <code>tri_3prime_pos[pos][ctx]</code>, <code>tri_5prime_terminal</code>, <code>tri_5prime_interior</code>, <code>tri_3prime_terminal</code>, <code>tri_3prime_interior</code></li>
+<li><strong>16-context OxoG panel</strong> — <code>oxog16_t</code>, <code>oxog16_a_rc</code>, <code>s_oxog_16ctx</code>, <code>cov_oxog_16ctx</code></li>
+<li><strong>Per-hexamer-prefix F/G/H sums</strong> — <code>ca_pre_terminal_by_pfx</code>, <code>ca_stop_terminal_by_pfx</code>, and all <code>*_by_pfx</code> variants</li>
+<li><strong>OxoTwoMarkerBins struct</strong> and all <code>ox_two_marker_bins</code> fields</li>
+<li><strong>Codon-position arrays</strong> — <code>codon_pos_t_rate_5prime</code>, <code>codon_pos_a_rate_3prime</code>, <code>codon_pos_*_count_*</code></li>
+<li><strong>Length×GC joint mixture</strong> (<code>LengthGcJointMixtureResult</code>) and <code>MultiDomainResult</code> domain ensemble fields</li>
+</ul>
+<hr />
+<h2 id="frameselector">FrameSelector</h2>
+<p>The main entry point. All methods are <code>static</code>.</p>
+<h3 id="compute_sample_profile"><code>compute_sample_profile</code></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">static</span><span class="w"> </span><span class="n">SampleDamageProfile</span><span class="w"> </span><span class="nf">compute_sample_profile</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">sequences</span><span class="p">);</span>
+</code></pre></div>
+<p>One-shot profile computation from a vector of sequences. Internally calls <code>reset_sample_profile</code>, iterates <code>update_sample_profile</code>, then <code>finalize_sample_profile</code>.</p>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sequences</code></td>
+<td><code>const std::vector&lt;std::string&gt;&amp;</code></td>
+<td>DNA sequences (ACGT). Reliable estimation requires enough read length and coverage to define both terminal (positions 0–14) and interior (positions 30 to L-30) regions.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong> A fully populated <code>SampleDamageProfile</code>. Call <code>profile.is_valid()</code> to check whether enough reads were processed (≥ 1000).</p>
+<hr />
+<h3 id="update_sample_profile"><code>update_sample_profile</code></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">update_sample_profile</span><span class="p">(</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">profile</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">seq</span><span class="p">);</span>
+</code></pre></div>
+<p>Accumulate one read into <code>profile</code>.</p>
+<p>Safe parallel pattern: update separate <code>SampleDamageProfile</code> objects in parallel threads, then merge them on the main thread with <code>merge_sample_profiles</code>. Do not call this on the same profile object from multiple threads without external synchronization.</p>
+<hr />
+<h3 id="update_sample_profile_pe"><code>update_sample_profile_pe</code></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">update_sample_profile_pe</span><span class="p">(</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">profile</span><span class="p">,</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">r1</span><span class="p">,</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">r2</span><span class="p">);</span>
+</code></pre></div>
+<p>Accumulate one <strong>read pair</strong> into <code>profile</code>. Maps <code>R1[i]</code> to top-strand 5'-end
+position <code>i</code> and the complement of <code>R2[i]</code> to top-strand 3'-end position <code>i</code>,
+so a single fragment contributes once to ct5 and once to ga3 (no double-count).</p>
+<p>Pairs whose insert length is shorter than the read length read into the
+sequencing adapter and would imprint adapter composition onto the terminal
+channels. Such pairs are detected by R1/R2 overlap (15 bp window, ≤3
+mismatches) and skipped; the count is reported in <code>pe_short_insert_skipped</code>.</p>
+<p>Sets <code>profile.input_mode = InputMode::PAIRED</code>. Same threading contract as
+<code>update_sample_profile</code> — accumulate into per-thread profiles, then merge.</p>
+<hr />
+<h3 id="update_sample_profile_weighted"><code>update_sample_profile_weighted</code></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">update_sample_profile_weighted</span><span class="p">(</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">profile</span><span class="p">,</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">seq</span><span class="p">,</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="kt">float</span><span class="w"> </span><span class="n">weight</span><span class="p">);</span>
+</code></pre></div>
+<p>Weighted accumulation for alignability-weighted damage estimation.</p>
+<blockquote>
+<p><strong>Note:</strong> Only accumulates Channel A (T/(T+C), A/(A+G)), interior baseline, codon-position, and CpG counts. Channel B/C/D/E codon counts, hexamers, and GC-bin stratified data are <strong>not</strong> accumulated. Profiles built with this method will have <code>channel_b_valid = false</code> and GC-stratified fields unpopulated after finalization.</p>
+</blockquote>
+<hr />
+<h3 id="finalize_sample_profile"><code>finalize_sample_profile</code></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">finalize_sample_profile</span><span class="p">(</span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">profile</span><span class="p">);</span>
+</code></pre></div>
+<p>Compute all derived statistics from accumulated counts: fits the exponential decay, estimates D_max, runs the BIC library-type classifier. Must be called once after all <code>update_*</code> calls.</p>
+<hr />
+<h3 id="merge_sample_profiles"><code>merge_sample_profiles</code></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">merge_sample_profiles</span><span class="p">(</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">dst</span><span class="p">,</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">src</span><span class="p">);</span>
+</code></pre></div>
+<p>Merge raw counts from <code>src</code> into <code>dst</code>. Useful for parallel accumulation. Call <code>finalize_sample_profile(dst)</code> after merging.</p>
+<hr />
+<h3 id="reset_sample_profile"><code>reset_sample_profile</code></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">reset_sample_profile</span><span class="p">(</span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">profile</span><span class="p">);</span>
+</code></pre></div>
+<p>Zero the main accumulators used by standard damage estimation and library classification.</p>
+<blockquote>
+<p><strong>Important:</strong> <code>reset_sample_profile</code> does not currently clear every auxiliary diagnostic accumulator — including Channel B₃′/C/D/E, GC-stratified, and alignability-weighted fields. For guaranteed clean reuse, prefer constructing a fresh <code>SampleDamageProfile{}</code> (zero-initialized) rather than calling <code>reset_sample_profile</code> on a previously populated object.</p>
+</blockquote>
+<hr />
+<h2 id="sampledamageprofile">SampleDamageProfile</h2>
+<p>All fields are public. Key results after <code>finalize_sample_profile</code>:</p>
+<h3 id="primary-damage-estimates">Primary damage estimates</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>d_max_5prime</code></td>
+<td><code>float</code></td>
+<td>Calibrated D_max at 5' end: <span class="arithmatex">\(A/(1-b)\)</span></td>
+</tr>
+<tr>
+<td><code>d_max_3prime</code></td>
+<td><code>float</code></td>
+<td>Calibrated D_max at 3' end</td>
+</tr>
+<tr>
+<td><code>d_max_combined</code></td>
+<td><code>float</code></td>
+<td>Final asymmetry-aware D_max estimate</td>
+</tr>
+<tr>
+<td><code>lambda_5prime</code></td>
+<td><code>float</code></td>
+<td>Fitted decay constant <span class="arithmatex">\(\lambda\)</span> at 5'</td>
+</tr>
+<tr>
+<td><code>lambda_3prime</code></td>
+<td><code>float</code></td>
+<td>Fitted decay constant <span class="arithmatex">\(\lambda\)</span> at 3'</td>
+</tr>
+<tr>
+<td><code>asymmetry</code></td>
+<td><code>float</code></td>
+<td><code>\|d5 - d3\| / mean(d5, d3)</code>, &gt;0.5 flagged as suspicious</td>
+</tr>
+<tr>
+<td><code>d_max_source_str()</code></td>
+<td><code>const char*</code></td>
+<td>Source used for <code>d_max_combined</code>: <code>"average"</code>, <code>"5prime_only"</code>, <code>"3prime_only"</code>, <code>"channel_b_structural"</code>, <code>"channel_b3_structural"</code>, <code>"min_asymmetry"</code>, <code>"max_ss_asymmetry"</code>, <code>"none"</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="chemistry-aware-background-and-area-excess">Chemistry-aware background and area-excess</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bg_5prime_anchored</code> / <code>bg_3prime_anchored</code></td>
+<td><code>float</code></td>
+<td>Tail-anchored background: trimmed mean of C→T (G→A) rate over positions 20..49, restricted to positions with denom ≥ 100. Used as <code>b</code> in the Briggs fit.</td>
+</tr>
+<tr>
+<td><code>bg_n_positions_5prime</code> / <code>bg_n_positions_3prime</code></td>
+<td><code>int</code></td>
+<td>Number of tail positions that contributed to the anchored bg.</td>
+</tr>
+<tr>
+<td><code>bg_denominator_5prime</code> / <code>bg_denominator_3prime</code></td>
+<td><code>double</code></td>
+<td>Total T+C (A+G) coverage in the bg window.</td>
+</tr>
+<tr>
+<td><code>briggs_pos0_masked_5prime</code> / <code>briggs_pos0_masked_3prime</code></td>
+<td><code>bool</code></td>
+<td>True when position 0 was excluded from the Briggs fit because the protocol-tag fingerprint dominated it (ligation footprint).</td>
+</tr>
+<tr>
+<td><code>damage_5prime_area_excess</code> / <code>damage_3prime_area_excess</code></td>
+<td><code>float</code></td>
+<td><span class="arithmatex">\(\sum_{i=k}^{14} \max(0, r_i - b)\)</span> over the first 15 positions (k=1 if pos0 masked, else k=0). Robust headline statistic for cross-library comparison; preferred over <code>d_max</code> when chemistry-tag is set.</td>
+</tr>
+<tr>
+<td><code>damage_5prime_lr</code> / <code>damage_3prime_lr</code></td>
+<td><code>float</code></td>
+<td>Log-likelihood ratio of the per-position binomial(rate, bg) model vs the bg-only null over positions k..14. Coverage-scaling companion to area-excess.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="input-mode">Input mode</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>input_mode</code></td>
+<td><code>InputMode</code></td>
+<td><code>SINGLE</code> (default) or <code>PAIRED</code>. Set to <code>PAIRED</code> by <code>update_sample_profile_pe</code>.</td>
+</tr>
+<tr>
+<td><code>pe_short_insert_skipped</code></td>
+<td><code>uint64_t</code></td>
+<td>Number of pairs skipped because R1/R2 overlap revealed insert &lt; read length (adapter read-through).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="library-type-classification">Library-type classification</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>library_type</code></td>
+<td><code>LibraryType</code></td>
+<td><code>DOUBLE_STRANDED</code>, <code>SINGLE_STRANDED</code>, or <code>UNKNOWN</code></td>
+</tr>
+<tr>
+<td><code>library_type_auto_detected</code></td>
+<td><code>bool</code></td>
+<td><code>true</code> if set by classifier, <code>false</code> if user-forced</td>
+</tr>
+<tr>
+<td><code>library_type_str()</code></td>
+<td><code>const char*</code></td>
+<td><code>"double-stranded"</code>, <code>"single-stranded"</code>, <code>"unknown"</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>LibraryType::UNKNOWN</code> means no model beat the null (M_bias): insufficient damage signal for a confident call. Treat as DS for deduplication unless metadata is available.</p>
+<h3 id="bic-model-scores-library-type-classifier">BIC model scores (library-type classifier)</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>library_bic_bias</code></td>
+<td><code>double</code></td>
+<td>BIC of M_bias (null model)</td>
+</tr>
+<tr>
+<td><code>library_bic_ds</code></td>
+<td><code>double</code></td>
+<td>Best DS model BIC</td>
+</tr>
+<tr>
+<td><code>library_bic_ss</code></td>
+<td><code>double</code></td>
+<td>Best SS model BIC</td>
+</tr>
+<tr>
+<td><code>library_bic_mix</code></td>
+<td><code>double</code></td>
+<td>BIC of M_SS_full (4-channel unconstrained)</td>
+</tr>
+</tbody>
+</table>
+<p><code>library_bic_ds - library_bic_ss</code> &gt; 0 means SS is favoured. Values reach ~10⁹ at high coverage; stored as <code>double</code> to preserve precision.</p>
+<h3 id="per-channel-classifier-amplitudes-and-bic">Per-channel classifier amplitudes and ΔBIC</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>libtype_amp_ct5</code> / <code>libtype_dbic_ct5</code></td>
+<td>5' C→T fitted amplitude and ΔBIC</td>
+</tr>
+<tr>
+<td><code>libtype_amp_ga3</code> / <code>libtype_dbic_ga3</code></td>
+<td>3' G→A smooth decay (pos 1-10)</td>
+</tr>
+<tr>
+<td><code>libtype_amp_ga0</code> / <code>libtype_dbic_ga0</code></td>
+<td>3' G→A pos-0 spike</td>
+</tr>
+<tr>
+<td><code>libtype_amp_ct3</code> / <code>libtype_dbic_ct3</code></td>
+<td>3' C→T (SS original-orientation signal)</td>
+</tr>
+</tbody>
+</table>
+<p>ΔBIC &gt; 0 means the alt (decay) model is preferred over the null for that channel.</p>
+<h3 id="per-position-arrays">Per-position arrays</h3>
+<p>All arrays are 15 elements, indexed 0–14 from the read terminus.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>damage_rate_5prime[p]</code></td>
+<td>C→T excess rate at 5' position <code>p</code></td>
+</tr>
+<tr>
+<td><code>damage_rate_3prime[p]</code></td>
+<td>G→A excess rate at 3' position <code>p</code></td>
+</tr>
+<tr>
+<td><code>t_freq_5prime[p]</code></td>
+<td><strong>Before</strong> <code>finalize_sample_profile</code>: raw T count. <strong>After</strong>: T/(T+C) ratio (normalized in-place).</td>
+</tr>
+<tr>
+<td><code>tc_total_5prime[p]</code></td>
+<td>T+C coverage at 5' position <code>p</code> (raw count; not normalized by finalization)</td>
+</tr>
+<tr>
+<td><code>a_freq_3prime[p]</code></td>
+<td><strong>Before</strong> <code>finalize_sample_profile</code>: raw A count. <strong>After</strong>: A/(A+G) ratio (normalized in-place).</td>
+</tr>
+<tr>
+<td><code>ag_total_3prime[p]</code></td>
+<td>A+G coverage at 3' position <code>p</code> (raw count; not normalized by finalization)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="gc-stratified-mixture-model">GC-stratified mixture model</h3>
+<p>Available after <code>finalize_sample_profile</code>. Requires at least one GC bin with sufficient reads.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mixture_pi_ancient</code></td>
+<td><code>float</code></td>
+<td>Fraction of C-sites in high-damage components</td>
+</tr>
+<tr>
+<td><code>mixture_d_ancient</code></td>
+<td><code>float</code></td>
+<td>Expected damage rate among ancient reads (δ &gt; 5%)</td>
+</tr>
+<tr>
+<td><code>mixture_d_population</code></td>
+<td><code>float</code></td>
+<td>Population-average damage rate across all C-sites</td>
+</tr>
+<tr>
+<td><code>mixture_d_population_highgc</code></td>
+<td><code>float</code></td>
+<td>High-GC-weighted mean of per-class δ (GC ≥ 50%); diagnostic only, not a reference comparator</td>
+</tr>
+<tr>
+<td><code>mixture_K</code></td>
+<td><code>int</code></td>
+<td>Number of mixture components selected by BIC</td>
+</tr>
+<tr>
+<td><code>mixture_converged</code></td>
+<td><code>bool</code></td>
+<td>Whether the EM algorithm converged</td>
+</tr>
+<tr>
+<td><code>gc_stratified_valid</code></td>
+<td><code>bool</code></td>
+<td>At least one GC bin has a valid estimate</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ancient-fraction-deamination">Ancient-fraction deamination</h3>
+<p>Populated by fqdup's per-read LLR scorer when the ancient-fraction pass is
+fused into the oxoG worker (<code>damaged_fraction_valid == true</code>). Not set by
+the standalone libtaph <code>FrameSelector</code> API.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>damaged_fraction_valid</code></td>
+<td><code>bool</code></td>
+<td><code>true</code> when the fqdup LLR pass ran and produced a valid estimate</td>
+</tr>
+<tr>
+<td><code>damaged_fraction_pi</code></td>
+<td><code>float</code></td>
+<td>Soft-EM posterior fraction of reads classified as ancient</td>
+</tr>
+<tr>
+<td><code>damaged_fraction_n</code></td>
+<td><code>int64_t</code></td>
+<td>Hard-call count of reads with LLR &gt; 0 (informational)</td>
+</tr>
+<tr>
+<td><code>damaged_fraction_d5</code></td>
+<td><code>float</code></td>
+<td>5' d_max for the ancient component via mixture identity: <code>bulk_d5 / pi</code></td>
+</tr>
+<tr>
+<td><code>damaged_fraction_d3</code></td>
+<td><code>float</code></td>
+<td>3' d_max via mixture identity: <code>bulk_d3 / pi</code></td>
+</tr>
+<tr>
+<td><code>damaged_fraction_d5_fit</code></td>
+<td><code>float</code></td>
+<td>5' d_max from independent log-linear regression over all 15 positions of ancient-classified reads</td>
+</tr>
+<tr>
+<td><code>damaged_fraction_lambda5</code></td>
+<td><code>float</code></td>
+<td>5' decay constant λ from the independent fit</td>
+</tr>
+<tr>
+<td><code>damaged_fraction_d3_fit</code></td>
+<td><code>float</code></td>
+<td>3' d_max from independent fit of ancient-classified reads</td>
+</tr>
+<tr>
+<td><code>damaged_fraction_lambda3</code></td>
+<td><code>float</code></td>
+<td>3' decay constant λ from the independent fit</td>
+</tr>
+<tr>
+<td><code>modern_fraction_d5</code></td>
+<td><code>float</code></td>
+<td>5' d_max at pos 0 for reads classified as modern</td>
+</tr>
+<tr>
+<td><code>modern_fraction_d3</code></td>
+<td><code>float</code></td>
+<td>3' d_max at pos 0 for reads classified as modern</td>
+</tr>
+<tr>
+<td><code>modern_fraction_d5_fit</code></td>
+<td><code>float</code></td>
+<td>5' d_max from independent fit of modern-classified reads</td>
+</tr>
+<tr>
+<td><code>modern_fraction_lambda5</code></td>
+<td><code>float</code></td>
+<td>5' λ from modern fit</td>
+</tr>
+<tr>
+<td><code>modern_fraction_d3_fit</code></td>
+<td><code>float</code></td>
+<td>3' d_max from independent fit of modern-classified reads</td>
+</tr>
+<tr>
+<td><code>modern_fraction_lambda3</code></td>
+<td><code>float</code></td>
+<td>3' λ from modern fit</td>
+</tr>
+</tbody>
+</table>
+<p>The mixture-identity fields (<code>damaged_fraction_d5/d3</code>) equal <code>bulk_d / pi</code>,
+valid only under <code>d_mod ≈ 0</code> (modern reads carry no deamination) and equal
+C-site density between pools. When <code>d_mod &gt; 0</code>, the estimate is upward-biased —
+the bias is directional, not just noisy — and grows as <code>pi</code> decreases. The
+fitted fields (<code>*_fit</code>) measure the exponential shape directly in the classified
+read pools and avoid both assumptions, at the cost of requiring enough ancient
+reads for a reliable fit. For high-endogenous samples both approaches agree; for
+low-endogenous samples prefer the fitted values. A <code>damaged_fraction_valid ==
+false</code> result means the LLR pass did not run (paired-mode input, bulk d_max
+below the 0.01 gate, or insufficient reads).</p>
+<p>Note on <code>d_max_5prime</code> (<code>A/(1−b)</code>): here <code>b</code> is the interior background
+deamination <strong>rate</strong> (not a read fraction), estimated from positions 20–49.
+The formula gives the model amplitude parameter — the exponential component's
+value extrapolated to position 0 — and requires <code>b &lt; 1</code>.</p>
+<hr />
+<h3 id="context-aware-5-ct-upstream-base">Context-aware 5' C→T (upstream base)</h3>
+<p>Per-context accumulators and shrinkage-fitted amplitudes, indexed by <code>CTX_AC = 0</code>, <code>CTX_CC = 1</code>, <code>CTX_GC = 2</code>, <code>CTX_TC = 3</code> (constants under <code>SampleDamageProfile::UpstreamContext</code>, with <code>N_UPSTREAM_CTX = 4</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ct5_t_by_upstream[ctx][pos]</code> / <code>ct5_total_by_upstream[ctx][pos]</code></td>
+<td><code>double[4][N_POS]</code></td>
+<td>T and T+C counts at 5' position <code>pos</code> split by upstream base. Raw before <code>finalize_sample_profile</code>.</td>
+</tr>
+<tr>
+<td><code>ct5_t_interior_by_upstream[ctx]</code> / <code>ct5_total_interior_by_upstream[ctx]</code></td>
+<td><code>double[4]</code></td>
+<td>Interior counts per upstream context, used as per-context baseline.</td>
+</tr>
+<tr>
+<td><code>dmax_ct5_by_upstream[ctx]</code></td>
+<td><code>float[4]</code></td>
+<td>Fitted exponential amplitude per context. <code>NaN</code> if insufficient coverage.</td>
+</tr>
+<tr>
+<td><code>baseline_ct5_by_upstream[ctx]</code></td>
+<td><code>float[4]</code></td>
+<td>Interior baseline rate per context.</td>
+</tr>
+<tr>
+<td><code>cov_ct5_terminal_by_upstream[ctx]</code> / <code>cov_ct5_interior_by_upstream[ctx]</code></td>
+<td><code>float[4]</code></td>
+<td>Coverage used in the per-context fit.</td>
+</tr>
+<tr>
+<td><code>dipyr_contrast</code></td>
+<td><code>float</code></td>
+<td><code>½(d_CC + d_TC) − ½(d_AC + d_GC)</code>. Positive for dipyrimidine-biased (UV-like) damage.</td>
+</tr>
+<tr>
+<td><code>gpc_contrast</code></td>
+<td><code>float</code></td>
+<td><code>d_GC − ⅓(d_AC + d_CC + d_TC)</code>. Keyed on the UPSTREAM (5') base (GpC dinucleotide). NOT the CpG/5mC methylation axis — use <code>log2_cpg_ratio</code> for that.</td>
+</tr>
+<tr>
+<td><code>context_heterogeneity_chi2</code></td>
+<td><code>float</code></td>
+<td>Chi-squared statistic (df = 3) for uniformity across the four contexts.</td>
+</tr>
+<tr>
+<td><code>context_heterogeneity_p</code></td>
+<td><code>float</code></td>
+<td>Ladder-quantized p-value (<code>0.9, 0.5, 0.1, 0.05, 0.01, 0.001</code>).</td>
+</tr>
+<tr>
+<td><code>context_heterogeneity_detected</code></td>
+<td><code>bool</code></td>
+<td><code>chi2 &gt; 7.81</code> (p &lt; 0.05).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="validation-and-reliability-flags">Validation and reliability flags</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>damage_validated</code></td>
+<td><code>bool</code></td>
+<td>Joint model evidence supports genuine terminal deamination</td>
+</tr>
+<tr>
+<td><code>damage_artifact</code></td>
+<td><code>bool</code></td>
+<td>Channel A-like enrichment is present, but joint evidence indicates composition/artifact rather than real damage</td>
+</tr>
+<tr>
+<td><code>terminal_inversion</code></td>
+<td><code>bool</code></td>
+<td>Summary flag: terminal damage rate &lt; interior at either end</td>
+</tr>
+<tr>
+<td><code>inverted_pattern_5prime</code> / <code>inverted_pattern_3prime</code></td>
+<td><code>bool</code></td>
+<td>End-specific terminal depletion flags (full window below interior)</td>
+</tr>
+<tr>
+<td><code>position_0_artifact_5prime</code> / <code>position_0_artifact_3prime</code></td>
+<td><code>bool</code></td>
+<td>Sharp position-0 artifact: C→T at p=0 &lt; p=1 (5′) or isolated G→A spike at p=0 (3′). Indicates adapter/ligation artifact at the terminal nucleotide. Independent of <code>hexamer_excess_tc</code>, which tracks full-window chemistry bias.</td>
+</tr>
+<tr>
+<td><code>composition_bias_5prime</code> / <code>composition_bias_3prime</code></td>
+<td><code>bool</code></td>
+<td>Control channel rises with the damage channel, suggesting compositional rather than damage-driven enrichment</td>
+</tr>
+<tr>
+<td><code>is_valid()</code></td>
+<td><code>bool</code></td>
+<td><code>n_reads &gt;= 1000</code></td>
+</tr>
+<tr>
+<td><code>is_detection_unreliable()</code></td>
+<td><code>bool</code></td>
+<td><code>true</code> when inversion or composition-bias flags indicate unreliable reference-free detection</td>
+</tr>
+</tbody>
+</table>
+<h3 id="utility-functions">Utility functions</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1">// Validation state: VALIDATED, CONTRADICTED, or UNVALIDATED</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">taph</span><span class="o">::</span><span class="n">DamageValidationState</span><span class="w"> </span><span class="n">state</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">taph</span><span class="o">::</span><span class="n">get_damage_validation_state</span><span class="p">(</span><span class="n">profile</span><span class="p">);</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1">// Suppression factor for downstream damage-aware deduplication</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="kt">float</span><span class="w"> </span><span class="n">factor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">taph</span><span class="o">::</span><span class="n">get_damage_suppression_factor</span><span class="p">(</span><span class="n">profile</span><span class="p">);</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="c1">// 1.0 = validated, 0.5 = unvalidated, 0.0 = artifact</span>
+</code></pre></div>
+<h3 id="complement-asymmetry-oxidative-channels-f-g-h">Complement-asymmetry oxidative channels (F, G, H)</h3>
+<p>These fields populate the <code>complement_asymmetry</code> JSON block. Each channel
+computes a binomial z-score comparing the trinucleotide-context stop rate in
+a terminal window (positions p0–4, adapter-adjusted) against a far-interior
+reference (pos ≥ 30, ≥ 50 counts; mid-read fallback pos 5–14). libtaph
+stores raw z-scores; threshold application is left to the consumer.</p>
+<p>See <a href="../damage-types/">Damage types — Channels F, G, H</a> for the biochemical
+background, trinucleotide context lists, and the adapter-skip gate logic.</p>
+<h4 id="channel-f-ca-bottom-strand-8-oxog-complement">Channel F — C→A (bottom-strand 8-oxoG complement)</h4>
+<p>Pre-contexts: TCA/TCG/TAC/TGC. Stop contexts: TAA/TAG/TGA.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>channel_f_valid</code></td>
+<td><code>bool</code></td>
+<td>≥ 200 total trinucleotide counts across pre + stop</td>
+</tr>
+<tr>
+<td><code>channel_f_z</code></td>
+<td><code>float</code></td>
+<td>Binomial z-score, 5′ terminal vs interior; negative = depletion</td>
+</tr>
+<tr>
+<td><code>ca_stop_rate_terminal</code></td>
+<td><code>float</code></td>
+<td>Stop rate in terminal window</td>
+</tr>
+<tr>
+<td><code>ca_stop_rate_interior</code></td>
+<td><code>float</code></td>
+<td>Stop rate in mid-read interior (fallback baseline)</td>
+</tr>
+<tr>
+<td><code>ca_stop_rate_baseline</code></td>
+<td><code>float</code></td>
+<td>Stop rate in far-interior reference (pos ≥ 30)</td>
+</tr>
+<tr>
+<td><code>ca_uniformity_ratio</code></td>
+<td><code>float</code></td>
+<td>Terminal / baseline ratio; &gt; 1 indicates enrichment</td>
+</tr>
+<tr>
+<td><code>channel_f3_valid</code></td>
+<td><code>bool</code></td>
+<td>≥ 200 counts for 3′ end</td>
+</tr>
+<tr>
+<td><code>ca_stop_rate_terminal_3prime</code></td>
+<td><code>float</code></td>
+<td>3′ terminal stop rate</td>
+</tr>
+<tr>
+<td><code>ca_stop_rate_interior_3prime</code></td>
+<td><code>float</code></td>
+<td>3′ interior stop rate</td>
+</tr>
+<tr>
+<td><code>ca_stop_rate_baseline_3prime</code></td>
+<td><code>float</code></td>
+<td>3′ far-interior baseline</td>
+</tr>
+<tr>
+<td><code>ca_uniformity_ratio_3prime</code></td>
+<td><code>float</code></td>
+<td>3′ terminal / baseline ratio</td>
+</tr>
+<tr>
+<td><code>ca_pre_interior</code></td>
+<td><code>uint64_t</code></td>
+<td>Raw pre-context count, far-interior (pos ≥ 30)</td>
+</tr>
+<tr>
+<td><code>ca_stop_interior</code></td>
+<td><code>uint64_t</code></td>
+<td>Raw stop-context count, far-interior</td>
+</tr>
+</tbody>
+</table>
+<h4 id="channel-g-cg-empirical-oxidative-context-proxy">Channel G — C→G empirical oxidative-context proxy</h4>
+<p>Pre-contexts: TCA/TAC. Stop contexts: TGA (from TCA), TAG (from TAC).</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>channel_g_valid</code></td>
+<td><code>bool</code></td>
+<td>≥ 200 total counts</td>
+</tr>
+<tr>
+<td><code>channel_g_z</code></td>
+<td><code>float</code></td>
+<td>Binomial z-score, 5′ terminal vs interior</td>
+</tr>
+<tr>
+<td><code>cg_stop_rate_terminal</code></td>
+<td><code>float</code></td>
+<td>Terminal stop rate</td>
+</tr>
+<tr>
+<td><code>cg_stop_rate_interior</code></td>
+<td><code>float</code></td>
+<td>Interior stop rate</td>
+</tr>
+<tr>
+<td><code>cg_stop_rate_baseline</code></td>
+<td><code>float</code></td>
+<td>Far-interior baseline</td>
+</tr>
+<tr>
+<td><code>cg_uniformity_ratio</code></td>
+<td><code>float</code></td>
+<td>Terminal / baseline ratio</td>
+</tr>
+<tr>
+<td><code>channel_g3_valid</code></td>
+<td><code>bool</code></td>
+<td>≥ 200 counts for 3′ end</td>
+</tr>
+<tr>
+<td><code>cg_stop_rate_terminal_3prime</code></td>
+<td><code>float</code></td>
+<td>3′ terminal stop rate</td>
+</tr>
+<tr>
+<td><code>cg_stop_rate_interior_3prime</code></td>
+<td><code>float</code></td>
+<td>3′ interior stop rate</td>
+</tr>
+<tr>
+<td><code>cg_stop_rate_baseline_3prime</code></td>
+<td><code>float</code></td>
+<td>3′ far-interior baseline</td>
+</tr>
+<tr>
+<td><code>cg_uniformity_ratio_3prime</code></td>
+<td><code>float</code></td>
+<td>3′ terminal / baseline ratio</td>
+</tr>
+<tr>
+<td><code>cg_pre_interior</code></td>
+<td><code>uint64_t</code></td>
+<td>Raw pre-context count, far-interior</td>
+</tr>
+<tr>
+<td><code>cg_stop_interior</code></td>
+<td><code>uint64_t</code></td>
+<td>Raw stop-context count, far-interior</td>
+</tr>
+</tbody>
+</table>
+<h4 id="channel-h-at-empirical-mechanism-uncertain">Channel H — A→T (empirical; mechanism uncertain)</h4>
+<p>Pre-contexts: AAA/AAG/AGA. Stop contexts: TAA/TAG/TGA.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>channel_h_valid</code></td>
+<td><code>bool</code></td>
+<td>≥ 200 total counts</td>
+</tr>
+<tr>
+<td><code>channel_h_z</code></td>
+<td><code>float</code></td>
+<td>Binomial z-score, 5′ terminal (positions p0_h5–4) vs interior</td>
+</tr>
+<tr>
+<td><code>channel_h_z_p2plus</code></td>
+<td><code>float</code></td>
+<td>Same but terminal window restricted to positions 2–4; more robust because position 0 carries a lower background A→T rate</td>
+</tr>
+<tr>
+<td><code>fgh_adapter_prefixes_excluded</code></td>
+<td><code>uint32_t</code></td>
+<td>Number of 5′ hexamer prefix bins excluded from F/G/H terminal counts; 0 = no adapter stubs detected</td>
+</tr>
+<tr>
+<td><code>at_stop_rate_terminal</code></td>
+<td><code>float</code></td>
+<td>Terminal stop rate</td>
+</tr>
+<tr>
+<td><code>at_stop_rate_interior</code></td>
+<td><code>float</code></td>
+<td>Interior stop rate</td>
+</tr>
+<tr>
+<td><code>at_stop_rate_baseline</code></td>
+<td><code>float</code></td>
+<td>Far-interior baseline</td>
+</tr>
+<tr>
+<td><code>at_uniformity_ratio</code></td>
+<td><code>float</code></td>
+<td>Terminal / baseline ratio</td>
+</tr>
+<tr>
+<td><code>channel_h3_valid</code></td>
+<td><code>bool</code></td>
+<td>≥ 200 counts for 3′ end</td>
+</tr>
+<tr>
+<td><code>at_stop_rate_terminal_3prime</code></td>
+<td><code>float</code></td>
+<td>3′ terminal stop rate</td>
+</tr>
+<tr>
+<td><code>at_stop_rate_interior_3prime</code></td>
+<td><code>float</code></td>
+<td>3′ interior stop rate</td>
+</tr>
+<tr>
+<td><code>at_stop_rate_baseline_3prime</code></td>
+<td><code>float</code></td>
+<td>3′ far-interior baseline</td>
+</tr>
+<tr>
+<td><code>at_uniformity_ratio_3prime</code></td>
+<td><code>float</code></td>
+<td>3′ terminal / baseline ratio</td>
+</tr>
+<tr>
+<td><code>at_pre_interior</code></td>
+<td><code>uint64_t</code></td>
+<td>Raw pre-context count, far-interior</td>
+</tr>
+<tr>
+<td><code>at_stop_interior</code></td>
+<td><code>uint64_t</code></td>
+<td>Raw stop-context count, far-interior</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="typical-usage-patterns">Typical usage patterns</h2>
+<h3 id="streaming-with-thread-parallel-accumulation">Streaming with thread-parallel accumulation</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;taph/frame_selector_decl.hpp&gt;</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;thread&gt;</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1">// Per-thread profiles</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">taph</span><span class="o">::</span><span class="n">SampleDamageProfile</span><span class="o">&gt;</span><span class="w"> </span><span class="n">partial</span><span class="p">(</span><span class="n">n_threads</span><span class="p">);</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="k">auto</span><span class="o">&amp;</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">partial</span><span class="p">)</span><span class="w"> </span><span class="n">taph</span><span class="o">::</span><span class="n">FrameSelector</span><span class="o">::</span><span class="n">reset_sample_profile</span><span class="p">(</span><span class="n">p</span><span class="p">);</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="c1">// Fill partial[i] in parallel...</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="c1">// Merge on main thread</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="n">taph</span><span class="o">::</span><span class="n">SampleDamageProfile</span><span class="w"> </span><span class="n">final_profile</span><span class="p">;</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="n">taph</span><span class="o">::</span><span class="n">FrameSelector</span><span class="o">::</span><span class="n">reset_sample_profile</span><span class="p">(</span><span class="n">final_profile</span><span class="p">);</span>
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="o">&amp;</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">partial</span><span class="p">)</span>
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="w">    </span><span class="n">taph</span><span class="o">::</span><span class="n">FrameSelector</span><span class="o">::</span><span class="n">merge_sample_profiles</span><span class="p">(</span><span class="n">final_profile</span><span class="p">,</span><span class="w"> </span><span class="n">p</span><span class="p">);</span>
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="n">taph</span><span class="o">::</span><span class="n">FrameSelector</span><span class="o">::</span><span class="n">finalize_sample_profile</span><span class="p">(</span><span class="n">final_profile</span><span class="p">);</span>
+</code></pre></div>
+<h3 id="forcing-library-type">Forcing library type</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">taph</span><span class="o">::</span><span class="n">SampleDamageProfile</span><span class="w"> </span><span class="n">profile</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="cm">/* ... */</span><span class="p">;</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">profile</span><span class="p">.</span><span class="n">forced_library_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">taph</span><span class="o">::</span><span class="n">SampleDamageProfile</span><span class="o">::</span><span class="n">LibraryType</span><span class="o">::</span><span class="n">DOUBLE_STRANDED</span><span class="p">;</span>
+</code></pre></div>
+<p>When <code>forced_library_type != UNKNOWN</code>, downstream code should use the forced type; <code>library_type_auto_detected</code> will be <code>false</code>.</p>
+<hr />
+<h2 id="whole-source-profiling-taphdamage_profilerhpp">Whole-source profiling (<code>taph/damage_profiler.hpp</code>)</h2>
+<p>One engine for the complete single-end / merged damage-profiling loop. <code>fqdup profile</code> and
+<code>dart predict --allow-self-profile</code> both call <code>profile_reads</code>, so a finalized <code>SampleDamageProfile</code>
+is byte-identical for identical reads + identical <code>ProfileConfig</code> (integer-count accumulators + an
+associative, thread-index-ordered merge).</p>
+<h3 id="run_prescan"><code>run_prescan</code></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">taph</span><span class="o">::</span><span class="n">PrescanResult</span><span class="w"> </span><span class="nf">taph::run_prescan</span><span class="p">(</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span><span class="n">BatchFn</span><span class="w"> </span><span class="n">batch_fn</span><span class="p">,</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="n">SampleDamageProfile</span><span class="o">::</span><span class="n">LibraryType</span><span class="w"> </span><span class="n">forced_lib</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LibraryType</span><span class="o">::</span><span class="n">UNKNOWN</span><span class="p">,</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span><span class="kt">int</span><span class="w">    </span><span class="n">min_read_len</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span><span class="p">,</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">prescan_reads</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">100000</span><span class="p">);</span><span class="w">   </span><span class="c1">// 0 = scan the entire source</span>
+</code></pre></div>
+<p>Scans up to <code>prescan_reads</code> sequences (<strong><code>0</code> = all</strong>) to build the hexamer profile + terminal
+histogram, then calls <code>detect_adapter_stubs</code>. <code>batch_fn</code> appends up to <code>max</code> sequences to <code>out</code> and
+returns <code>true</code>, or returns <code>false</code> when exhausted; it must start at the head of the source.</p>
+<h3 id="clip_adapters-encode_stub_codes"><code>clip_adapters</code> / <code>encode_stub_codes</code></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">uint32_t</span><span class="o">&gt;</span><span class="w"> </span><span class="n">taph</span><span class="o">::</span><span class="n">encode_stub_codes</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">stubs</span><span class="p">);</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="w"> </span><span class="nf">taph::clip_adapters</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">seq</span><span class="p">,</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">                                </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">uint32_t</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">stub5_codes</span><span class="p">,</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">                                </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">uint32_t</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">stub3_codes</span><span class="p">,</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">                                </span><span class="kt">int</span><span class="w"> </span><span class="n">min_len</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span><span class="p">);</span>
+</code></pre></div>
+<p>Strips a matching 5' stub once and <strong>iteratively</strong> strips stacked 3' stubs (6 bp at a time, down to a
+12 bp floor). <code>min_len &gt; 0</code> returns an empty string when the clipped read falls below <code>min_len</code>
+(dart's Pass-2 length gate); <code>min_len &lt;= 0</code> is "pure clip" — return the clipped bytes even below the
+floor (what <code>profile_reads</code> and the short-fragment path use).</p>
+<h3 id="profile_reads"><code>profile_reads</code></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">struct</span><span class="w"> </span><span class="nc">ProfileConfig</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">    </span><span class="kt">int</span><span class="w">    </span><span class="n">threads</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="n">SampleDamageProfile</span><span class="o">::</span><span class="n">LibraryType</span><span class="w"> </span><span class="n">forced_lib</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LibraryType</span><span class="o">::</span><span class="n">UNKNOWN</span><span class="p">;</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span><span class="kt">int</span><span class="w">    </span><span class="n">min_read_len</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span><span class="p">;</span><span class="w">      </span><span class="c1">// full-length threshold</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">    </span><span class="kt">int</span><span class="w">    </span><span class="n">short_fragment_floor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span><span class="p">;</span><span class="w">      </span><span class="c1">// set on every per-thread profile pre-update</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">    </span><span class="kt">int</span><span class="w">    </span><span class="n">max_read_len</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">       </span><span class="c1">// 0 = off</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">prescan_reads</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="mi">1000000</span><span class="p">;</span><span class="w"> </span><span class="c1">// 0 = all</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">AdapterStubs</span><span class="o">*</span><span class="w"> </span><span class="n">precomputed_stubs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">nullptr</span><span class="p">;</span><span class="w">  </span><span class="c1">// skip the internal pre-scan</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="p">};</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="k">struct</span><span class="w"> </span><span class="nc">ProfileResult</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="w">    </span><span class="n">SampleDamageProfile</span><span class="w"> </span><span class="n">profile</span><span class="p">;</span><span class="w">   </span><span class="c1">// merged + FINALIZED</span>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="w">    </span><span class="n">AdapterStubs</span><span class="w">        </span><span class="n">stubs</span><span class="p">;</span><span class="w">     </span><span class="c1">// detected (or the supplied precomputed_stubs)</span>
+<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="w">    </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">reads_scanned</span><span class="p">,</span><span class="w"> </span><span class="n">reads_skipped</span><span class="p">,</span><span class="w"> </span><span class="n">len_sum</span><span class="p">,</span><span class="w"> </span><span class="n">n_stub5_hits</span><span class="p">,</span><span class="w"> </span><span class="n">n_stub3_hits</span><span class="p">,</span><span class="w"> </span><span class="n">n_stub_reads_checked</span><span class="p">;</span>
+<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="w">    </span><span class="kt">int</span><span class="w">     </span><span class="n">len_min</span><span class="p">,</span><span class="w"> </span><span class="n">len_max</span><span class="p">;</span>
+<a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="p">};</span>
+<a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a>
+<a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a><span class="k">using</span><span class="w"> </span><span class="n">ReaderFactory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">function</span><span class="o">&lt;</span><span class="n">BatchFn</span><span class="p">()</span><span class="o">&gt;</span><span class="p">;</span><span class="w">   </span><span class="c1">// fresh reader @ head, per call</span>
+<a id="__codelineno-12-19" name="__codelineno-12-19" href="#__codelineno-12-19"></a><span class="k">using</span><span class="w"> </span><span class="n">PerReadHook</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">function</span><span class="o">&lt;</span><span class="kt">void</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">tid</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">seq</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">L</span><span class="p">)</span><span class="o">&gt;</span><span class="p">;</span>
+<a id="__codelineno-12-20" name="__codelineno-12-20" href="#__codelineno-12-20"></a>
+<a id="__codelineno-12-21" name="__codelineno-12-21" href="#__codelineno-12-21"></a><span class="n">taph</span><span class="o">::</span><span class="n">ProfileResult</span><span class="w"> </span><span class="nf">taph::profile_reads</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">ReaderFactory</span><span class="o">&amp;</span><span class="w"> </span><span class="n">make_reader</span><span class="p">,</span>
+<a id="__codelineno-12-22" name="__codelineno-12-22" href="#__codelineno-12-22"></a><span class="w">                                        </span><span class="k">const</span><span class="w"> </span><span class="n">ProfileConfig</span><span class="o">&amp;</span><span class="w"> </span><span class="n">cfg</span><span class="p">,</span>
+<a id="__codelineno-12-23" name="__codelineno-12-23" href="#__codelineno-12-23"></a><span class="w">                                        </span><span class="k">const</span><span class="w"> </span><span class="n">PerReadHook</span><span class="o">&amp;</span><span class="w">   </span><span class="n">hook</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{});</span>
+</code></pre></div>
+<p>Runs: (1) adapter pre-scan via <code>run_prescan</code> (or accepts <code>cfg.precomputed_stubs</code>); (2) a
+multi-threaded full pass — per-read <code>clip_adapters</code> then <code>update_sample_profile</code>; (3) merge per-thread
+profiles in thread-index order, then <code>finalize_sample_profile</code>. <code>make_reader</code> is invoked up to twice
+(pre-scan + full pass) and <strong>must</strong> restart at the source head each call.</p>
+<p><code>hook</code> fires once per full-length read (clipped <code>L &gt;= cfg.min_read_len</code>) from worker <code>tid</code>
+(<code>0 &lt;= tid &lt; cfg.threads</code>). Use it for side channels (OxoG / length-stratified histograms / EM
+training sets) into caller-owned, per-<code>tid</code> state — no locks. Do not touch a <code>SampleDamageProfile</code>
+in the hook; <code>profile_reads</code> owns it.</p>
+<p>The returned <code>profile</code> is finalized and ready to read.</p>
+<h2 id="damage-interpretation-taphlibrary_interpretationhpp">Damage Interpretation (<code>taph/library_interpretation.hpp</code>)</h2>
+<p>Higher-level functions that operate on a finalized <code>SampleDamageProfile</code> to produce scores, flags, and summaries suitable for reporting.</p>
+<h3 id="hexamer-utilities">Hexamer utilities</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">std</span><span class="o">::</span><span class="n">array</span><span class="o">&lt;</span><span class="kt">char</span><span class="p">,</span><span class="mi">7</span><span class="o">&gt;</span><span class="w"> </span><span class="n">taph</span><span class="o">::</span><span class="n">decode_hex</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">code</span><span class="p">);</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="kt">int</span><span class="w"> </span><span class="nf">taph::encode_hex_at</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">s</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">pos</span><span class="p">);</span>
+</code></pre></div>
+<p>Encode/decode 12-bit 6-mer codes over the ACGT alphabet.</p>
+<h3 id="adapter-stub-detection">Adapter stub detection</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">taph</span><span class="o">::</span><span class="n">AdapterStubs</span><span class="w"> </span><span class="nf">taph::detect_adapter_stubs</span><span class="p">(</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">dp</span><span class="p">,</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">hex3_terminal</span><span class="p">[</span><span class="mi">4096</span><span class="p">],</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">    </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">n_hex3</span><span class="p">);</span>
+</code></pre></div>
+<p>Detects 5' and 3' adapter remnants from hexamer enrichment.  Pass the 4096-element terminal hexamer histogram (<code>hex3_terminal</code>) from a pre-scan pass alongside <code>n_hex3</code> (total counts).  Returns <code>AdapterStubs</code> with <code>stubs5</code>/<code>stubs3</code> (up to 5 each), <code>adapter_clipped</code>, <code>adapter3_clipped</code>, and <code>flag_hex_artifact</code>.</p>
+<p>3' detection is gated on <code>adapter_clipped</code> (5' stubs must be present first).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kt">void</span><span class="w"> </span><span class="nf">taph::FrameSelector::recompute_fgh_excluding_adapter_prefixes</span><span class="p">(</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">    </span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">dp</span><span class="p">,</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">uint32_t</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">excl5</span><span class="p">,</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">uint32_t</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">excl3</span><span class="p">);</span>
+</code></pre></div>
+<p>Re-sums all F/G/H terminal counts excluding reads whose first hexamer code is in <code>excl5</code>
+(5′ end) or last hexamer code is in <code>excl3</code> (3′ end), then recomputes <code>channel_f_z</code>,
+<code>channel_g_z</code>, <code>channel_h_z</code>, and <code>channel_h_z_p2plus</code> from the filtered counts. Must
+be called after <code>finalize_sample_profile</code>. Sets <code>fgh_adapter_prefixes_excluded</code> to
+<code>excl5.size()</code>. Hexamer codes come from <code>taph::encode_hex_at</code> or <code>taph::encode_hexamer</code>.
+Pass empty vectors to recompute with no exclusion (useful for testing the unfiltered
+baseline).</p>
+<h3 id="hexamer-statistics">Hexamer statistics</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">taph</span><span class="o">::</span><span class="n">HexStats</span><span class="w"> </span><span class="nf">taph::compute_hex_stats</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">dp</span><span class="p">);</span>
+</code></pre></div>
+<p>Returns Shannon entropy of terminal/interior hexamer distributions, Jensen-Shannon divergence, and a multinomial G-test (statistic, z-score, p-value) comparing terminal vs interior composition.</p>
+<h3 id="score-functions">Score functions</h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Output</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>compute_cpg_score(dp)</code></td>
+<td><code>CpgScore{z, p}</code></td>
+<td>log₂(CpG / non-CpG d_max) / SE</td>
+</tr>
+<tr>
+<td><code>compute_oxog_interior_score(dp)</code></td>
+<td><code>OxogInteriorScore{z, p}</code></td>
+<td>Chargaff-symmetric G→T excess over 16 trinucleotide contexts</td>
+</tr>
+<tr>
+<td><code>compute_oxog_trinuc(dp)</code></td>
+<td><code>OxogTrinucResult{cosine, n_ctx}</code></td>
+<td>Cosine similarity of per-context G→T residuals to empirical 8-oxoG reference</td>
+</tr>
+<tr>
+<td><code>compute_depur_score(dp, is_ss)</code></td>
+<td><code>DepurScore{z, p, z5, z3, shift5, shift3}</code></td>
+<td>Conjunction test on terminal A/(A+G) [5'] and T/(T+C) [3'] enrichment</td>
+</tr>
+</tbody>
+</table>
+<h3 id="damage-mask">Damage mask</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">taph</span><span class="o">::</span><span class="n">DamageMask</span><span class="w"> </span><span class="nf">taph::compute_damage_mask</span><span class="p">(</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">dp</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">is_ss</span><span class="p">,</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">threshold</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.05</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">min_cov</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">100</span><span class="p">);</span>
+</code></pre></div>
+<p>Marks the first <code>INTERP_N_POS</code> (15) positions where terminal damage exceeds <code>threshold</code> above background.  Returns <code>DamageMask</code> with <code>pos[15]</code>, <code>n_masked</code>, and <code>masked_str</code> (comma-separated indices).</p>
+<h3 id="library-qc-flags">Library QC flags</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="n">taph</span><span class="o">::</span><span class="n">LibraryQcFlags</span><span class="w"> </span><span class="nf">taph::compute_library_qc_flags</span><span class="p">(</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">dp</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">is_ss</span><span class="p">,</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">flag_hex_artifact</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">jsd</span><span class="p">,</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">h_term</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">short_read_frac</span><span class="p">);</span>
+</code></pre></div>
+<p>Boolean flags covering adapter remnants, hexamer biases, short-read spikes, depurination proxies, absent 3' signal (DS), and inward-displaced G→A.</p>
+<h3 id="preservation-summary">Preservation summary</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="n">taph</span><span class="o">::</span><span class="n">PreservationSummary</span><span class="w"> </span><span class="nf">taph::compute_preservation_summary</span><span class="p">(</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">dp</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">is_ss</span><span class="p">,</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">adapter_clipped</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">flag_hex_artifact</span><span class="p">,</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">cpg_score_z</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">oxog_score_z</span><span class="p">,</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">oxog_context_cosine</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">hex_shift_p</span><span class="p">);</span>
+</code></pre></div>
+<p>Combines evidence from all channels into a single preservation assessment.  Fields: <code>authenticity_eff</code>, <code>authenticity_evidence</code>, <code>d5_raw</code>, <code>d5_hexamer_corrected</code>, <code>d5_was_corrected</code>, <code>oxidation_eff</code>, <code>oxidation_evidence</code>, <code>qc_risk_eff</code>, <code>qc_evidence</code>, <code>label</code> (e.g. <code>"ancient"</code>, <code>"weak"</code>, <code>"modern-like"</code>).</p>
+<h3 id="damagecontextprofile">DamageContextProfile</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">struct</span><span class="w"> </span><span class="nc">taph</span><span class="o">::</span><span class="n">DamageContextProfile</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">    </span><span class="k">enum</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">DominantProcess</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">        </span><span class="n">None</span><span class="p">,</span><span class="w"> </span><span class="n">LowDamage</span><span class="p">,</span><span class="w"> </span><span class="n">CytosineDeamination</span><span class="p">,</span><span class="w"> </span><span class="n">CpgEnrichedDeamination</span><span class="p">,</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">        </span><span class="n">DipyrimidineBiased</span><span class="p">,</span><span class="w"> </span><span class="n">OxidativeLike</span><span class="p">,</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="w">        </span><span class="n">FragmentationBias</span><span class="p">,</span><span class="w"> </span><span class="n">LibraryArtifactLikely</span>
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="w">    </span><span class="p">};</span>
+<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="w">    </span><span class="k">static</span><span class="w"> </span><span class="k">constexpr</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">"training_free"</span><span class="p">;</span>
+<a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">reference_required</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span>
+<a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a><span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">alignment_required</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span>
+<a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a>
+<a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a><span class="w">    </span><span class="kt">float</span><span class="w"> </span><span class="n">terminal_deamination_score</span><span class="p">,</span><span class="w"> </span><span class="n">cpg_context_score</span><span class="p">;</span>
+<a id="__codelineno-20-12" name="__codelineno-20-12" href="#__codelineno-20-12"></a><span class="w">    </span><span class="kt">float</span><span class="w"> </span><span class="n">dipyrimidine_context_score</span><span class="p">,</span><span class="w"> </span><span class="n">oxidative_context_score</span><span class="p">;</span>
+<a id="__codelineno-20-13" name="__codelineno-20-13" href="#__codelineno-20-13"></a><span class="w">    </span><span class="kt">float</span><span class="w"> </span><span class="n">fragmentation_context_score</span><span class="p">,</span><span class="w"> </span><span class="n">library_artifact_score</span><span class="p">;</span>
+<a id="__codelineno-20-14" name="__codelineno-20-14" href="#__codelineno-20-14"></a>
+<a id="__codelineno-20-15" name="__codelineno-20-15" href="#__codelineno-20-15"></a><span class="w">    </span><span class="n">DominantProcess</span><span class="w"> </span><span class="n">dominant_process</span><span class="p">;</span>
+<a id="__codelineno-20-16" name="__codelineno-20-16" href="#__codelineno-20-16"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="w">     </span><span class="n">dominant_process_str</span><span class="p">;</span>
+<a id="__codelineno-20-17" name="__codelineno-20-17" href="#__codelineno-20-17"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="w">     </span><span class="n">interpretation</span><span class="p">;</span>
+<a id="__codelineno-20-18" name="__codelineno-20-18" href="#__codelineno-20-18"></a>
+<a id="__codelineno-20-19" name="__codelineno-20-19" href="#__codelineno-20-19"></a><span class="w">    </span><span class="k">struct</span><span class="w"> </span><span class="nc">Evidence</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* d_max_{5,3}, lambda_{5,3}, log2_cpg_ratio, cpg_z,</span>
+<a id="__codelineno-20-20" name="__codelineno-20-20" href="#__codelineno-20-20"></a><span class="cm">                         dipyr_contrast, ox_gt_asymmetry, s_oxog_{mean,max},</span>
+<a id="__codelineno-20-21" name="__codelineno-20-21" href="#__codelineno-20-21"></a><span class="cm">                         purine_enrichment_5prime, hex_shift_z,</span>
+<a id="__codelineno-20-22" name="__codelineno-20-22" href="#__codelineno-20-22"></a><span class="cm">                         adapter_clipped, adapter3_clipped, flag_hex_artifact,</span>
+<a id="__codelineno-20-23" name="__codelineno-20-23" href="#__codelineno-20-23"></a><span class="cm">                         position_0_artifact_{5,3}prime, n_reads */</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="n">evidence</span><span class="p">;</span>
+<a id="__codelineno-20-24" name="__codelineno-20-24" href="#__codelineno-20-24"></a><span class="p">};</span>
+<a id="__codelineno-20-25" name="__codelineno-20-25" href="#__codelineno-20-25"></a>
+<a id="__codelineno-20-26" name="__codelineno-20-26" href="#__codelineno-20-26"></a><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="nf">taph::to_string</span><span class="p">(</span><span class="n">DamageContextProfile</span><span class="o">::</span><span class="n">DominantProcess</span><span class="w"> </span><span class="n">p</span><span class="p">);</span>
+<a id="__codelineno-20-27" name="__codelineno-20-27" href="#__codelineno-20-27"></a>
+<a id="__codelineno-20-28" name="__codelineno-20-28" href="#__codelineno-20-28"></a><span class="n">taph</span><span class="o">::</span><span class="n">DamageContextProfile</span><span class="w"> </span><span class="nf">taph::compute_damage_context_profile</span><span class="p">(</span>
+<a id="__codelineno-20-29" name="__codelineno-20-29" href="#__codelineno-20-29"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">SampleDamageProfile</span><span class="o">&amp;</span><span class="w"> </span><span class="n">dp</span><span class="p">,</span>
+<a id="__codelineno-20-30" name="__codelineno-20-30" href="#__codelineno-20-30"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">cpg_z</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">hex_shift_z</span><span class="p">,</span>
+<a id="__codelineno-20-31" name="__codelineno-20-31" href="#__codelineno-20-31"></a><span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">adapter_clipped</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">adapter3_clipped</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">flag_hex_artifact</span><span class="p">);</span>
+</code></pre></div>
+<p>Training-free, reference-free summary aggregator. Six scores are in <code>[0, 1]</code> (or <code>NaN</code> when not evaluable); <code>dominant_process</code> is a deterministic rule over the scores. JSON emits <code>purine_endpoint_context_score</code> as the preferred name for the legacy <code>fragmentation_context_score</code> member. Underlying raw numbers are mirrored into <code>evidence</code> for auditing and re-normalisation by downstream tools. See <a href="../methods/#damage-context-profile">methods.md</a> for score formulas and the rule.</p>
+<hr />
+<h2 id="length-stratified-profile-taphlength_stratified_profilehpp">Length-stratified profile (<code>taph/length_stratified_profile.hpp</code>)</h2>
+<p>Up to four per-length <code>SampleDamageProfile</code> instances with shared accumulate / merge / finalize semantics.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">struct</span><span class="w"> </span><span class="nc">taph</span><span class="o">::</span><span class="n">LengthBinStats</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="w">    </span><span class="k">static</span><span class="w"> </span><span class="k">constexpr</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="w"> </span><span class="n">MAX_BINS</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">array</span><span class="o">&lt;</span><span class="n">SampleDamageProfile</span><span class="p">,</span><span class="w"> </span><span class="n">MAX_BINS</span><span class="o">&gt;</span><span class="w"> </span><span class="n">profiles</span><span class="p">;</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span><span class="w"> </span><span class="n">edges</span><span class="p">;</span>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="w"> </span><span class="n">n_bins</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="w">    </span><span class="n">SampleDamageProfile</span><span class="o">::</span><span class="n">LibraryType</span><span class="w"> </span><span class="n">forced_library_type</span><span class="p">;</span>
+<a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a>
+<a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">configure</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">new_edges</span><span class="p">);</span>
+<a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">seq</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">length</span><span class="p">);</span>
+<a id="__codelineno-21-10" name="__codelineno-21-10" href="#__codelineno-21-10"></a><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">merge</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">LengthBinStats</span><span class="o">&amp;</span><span class="w"> </span><span class="n">other</span><span class="p">);</span>
+<a id="__codelineno-21-11" name="__codelineno-21-11" href="#__codelineno-21-11"></a><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">finalize_all</span><span class="p">();</span>
+<a id="__codelineno-21-12" name="__codelineno-21-12" href="#__codelineno-21-12"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="w"> </span><span class="nf">bin_index</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">length</span><span class="p">)</span><span class="w"> </span><span class="k">const</span><span class="p">;</span>
+<a id="__codelineno-21-13" name="__codelineno-21-13" href="#__codelineno-21-13"></a><span class="p">};</span>
+</code></pre></div>
+<p><code>configure(edges)</code> validates that edges are strictly increasing and at most three splits (four bins) and sets up the per-bin profiles. <code>update</code> routes a read by <code>bin_index(length)</code> and accumulates into that bin's profile. <code>merge</code> requires matching edges. <code>finalize_all</code> runs <code>FrameSelector::finalize_sample_profile</code> on every populated bin; <code>forced_library_type</code> propagates to each bin if set.</p>
+<h2 id="automatic-length-bin-edges-taphlog_length_gmmhpp">Automatic length-bin edges (<code>taph/log_length_gmm.hpp</code>)</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="n">taph</span><span class="o">::</span><span class="n">LogLengthGmmResult</span><span class="w"> </span><span class="nf">taph::detect_log_length_gmm_edges</span><span class="p">(</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">uint64_t</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">histogram</span><span class="p">,</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">log_min</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">log_max</span><span class="p">,</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">min_length</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">max_length</span><span class="p">,</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">max_components</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span>
+<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>
+<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span><span class="w"> </span><span class="n">taph</span><span class="o">::</span><span class="n">detect_quantile_length_edges</span><span class="p">(</span>
+<a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">uint64_t</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">histogram</span><span class="p">,</span>
+<a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">log_min</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">log_max</span><span class="p">,</span>
+<a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">min_length</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">max_length</span><span class="p">,</span>
+<a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">n_bins</span><span class="p">);</span>
+</code></pre></div>
+<p><code>detect_log_length_gmm_edges</code> fits a 1D Gaussian mixture on a log-length histogram, selects <code>n_components ∈ [1, max_components]</code> by BIC, and returns split points between adjacent component means. <code>LogLengthGmmResult</code> holds <code>edges</code>, <code>n_components</code>, <code>bic</code>, and <code>converged</code>. <code>detect_quantile_length_edges</code> is the deterministic fallback when the GMM fails to separate modes; it splits the histogram into equal-count quantile bins.</p>
+<p>Typical wiring:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">auto</span><span class="w"> </span><span class="n">hist</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="cm">/* log-length histogram from a pre-scan */</span><span class="p">;</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="k">auto</span><span class="w"> </span><span class="n">gmm</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">taph</span><span class="o">::</span><span class="n">detect_log_length_gmm_edges</span><span class="p">(</span><span class="n">hist</span><span class="p">,</span><span class="w"> </span><span class="n">log_min</span><span class="p">,</span><span class="w"> </span><span class="n">log_max</span><span class="p">,</span><span class="w"> </span><span class="n">lmin</span><span class="p">,</span><span class="w"> </span><span class="n">lmax</span><span class="p">);</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span><span class="w"> </span><span class="n">edges</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gmm</span><span class="p">.</span><span class="n">converged</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">gmm</span><span class="p">.</span><span class="n">n_components</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">1</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="w">    </span><span class="o">?</span><span class="w"> </span><span class="n">gmm</span><span class="p">.</span><span class="n">edges</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a><span class="w">    </span><span class="o">:</span><span class="w"> </span><span class="n">taph</span><span class="o">::</span><span class="n">detect_quantile_length_edges</span><span class="p">(</span><span class="n">hist</span><span class="p">,</span><span class="w"> </span><span class="n">log_min</span><span class="p">,</span><span class="w"> </span><span class="n">log_max</span><span class="p">,</span><span class="w"> </span><span class="n">lmin</span><span class="p">,</span><span class="w"> </span><span class="n">lmax</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">);</span>
+<a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>
+<a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="n">taph</span><span class="o">::</span><span class="n">LengthBinStats</span><span class="w"> </span><span class="n">stats</span><span class="p">;</span>
+<a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a><span class="n">stats</span><span class="p">.</span><span class="n">configure</span><span class="p">(</span><span class="n">edges</span><span class="p">);</span>
+<a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="k">auto</span><span class="o">&amp;</span><span class="w"> </span><span class="n">r</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">reads</span><span class="p">)</span><span class="w"> </span><span class="n">stats</span><span class="p">.</span><span class="n">update</span><span class="p">(</span><span class="n">r</span><span class="p">.</span><span class="n">seq</span><span class="p">,</span><span class="w"> </span><span class="n">r</span><span class="p">.</span><span class="n">length</span><span class="p">);</span>
+<a id="__codelineno-23-10" name="__codelineno-23-10" href="#__codelineno-23-10"></a><span class="n">stats</span><span class="p">.</span><span class="n">finalize_all</span><span class="p">();</span>
+</code></pre></div>
+<h2 id="length-gc-joint-mixture-taphlength_gc_joint_mixturehpp">Length × GC joint mixture (<code>taph/length_gc_joint_mixture.hpp</code>)</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="n">taph</span><span class="o">::</span><span class="n">LengthGcJointMixtureResult</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="nf">taph::fit_length_gc_joint_mixture</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">LengthBinStats</span><span class="o">&amp;</span><span class="w"> </span><span class="n">stats</span><span class="p">);</span>
+</code></pre></div>
+<p>Shared-component 2-Gaussian mixture over the flat length × GC cell grid of a finalized <code>LengthBinStats</code>. Each cell contributes its <code>d_max</code> and <code>c_sites</code>. Returns:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>d_ancient</code></td>
+<td><code>double</code></td>
+<td>Damaged-component mean, shared across all cells.</td>
+</tr>
+<tr>
+<td><code>pi_ancient</code></td>
+<td><code>double</code></td>
+<td>Damaged-component mixing weight.</td>
+</tr>
+<tr>
+<td><code>d_population</code></td>
+<td><code>double</code></td>
+<td><code>c_sites</code>-weighted mean <code>d_max</code> across all cells.</td>
+</tr>
+<tr>
+<td><code>converged</code></td>
+<td><code>bool</code></td>
+<td>EM convergence state.</td>
+</tr>
+<tr>
+<td><code>separated</code></td>
+<td><code>bool</code></td>
+<td><code>true</code> if the fit produced a distinct damaged component.</td>
+</tr>
+<tr>
+<td><code>cell_w_ancient[b][g]</code></td>
+<td><code>vector&lt;array&lt;double, N_GC_BINS&gt;&gt;</code></td>
+<td>Posterior <code>P(damaged | cell)</code> per (length bin, GC bin). <code>-1.0</code> for cells with insufficient C-sites. Empty when <code>!separated</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>Fixed priors match <code>DamageMixtureModel</code>: <code>μ₀ = 0</code>, <code>τ₀ = 0.01</code>, <code>τ₁ = 0.10</code>, per-cell sigma floor <code>0.02</code>. Use <code>d_ancient</code> as a single shared amplitude and <code>cell_w_ancient[b][g]</code> to recover per-length-bin ancient fractions inside each GC column.</p>
+<hr />
+<h2 id="damage-summary-sidecar-taphdamage_summaryhpp">Damage summary sidecar (<code>taph/damage_summary.hpp</code>)</h2>
+<p><code>DamageSummary</code> is the binary <code>.tdmg</code> sidecar that carries a finalized library's damage scalars between tools (magic <code>'TDM1'</code>, current <code>VERSION = 3</code>). <code>fqdup profile --damage-summary FILE</code> writes it; a downstream classifier reads it back with <code>DamageSummary::read</code> and <code>apply_to</code> to seed per-read scoring without re-profiling. It stores the terminal-decay shape (<code>d_max_5prime/3prime</code>, <code>lambda_*</code>, <code>fit_baseline_*</code>), the co-occurrence and pi-shape scalars, and, since v3, the library damage prior below.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pi_damaged_point</code></td>
+<td><code>float</code></td>
+<td>The <code>pi_damaged_prior</code> passed to <code>DamageSummary::from_profile</code>; fqdup passes the read-level <code>pi.point</code>. <code>-1.0</code> when the caller passes a value <code>&lt;= 0</code> (undetermined).</td>
+</tr>
+</tbody>
+</table>
+<p><code>pi_damaged_point</code> is the <strong>empirical-Bayes prior</strong> the consumer folds into its per-protein authentication probability. Three properties matter:</p>
+<ul>
+<li><strong>Gated.</strong> fqdup writes the read-level <code>pi.point</code>, which <code>DamageConfidence</code> withholds unless the library supports it; an undetermined prior is written as <code>-1.0</code>. <code>apply_to</code> copies a value <code>&gt;= 0</code> into <code>SampleDamageProfile::pi_damaged</code> and leaves <code>pi_damaged</code> unchanged for <code>-1.0</code>. v2 sidecars read as <code>-1.0</code> because they lack the field.</li>
+<li><strong>Not the joint-mixture weight.</strong> Older fqdup builds wrote <code>LengthStratifiedDamageProfile::pi_joint_damaged</code> here, the weight of a two-component mixture over length × GC cells. That is not a read fraction and sits near its <code>0.999</code> clamp whenever damage is even across cells. Sidecars from those builds carry that meaning.</li>
+<li><strong>Not independent evidence.</strong> <code>pi.point</code> is estimated from the same terminal C→T/G→A evidence that the per-read LLR scores. Do not treat it as corroboration of the terminal-damage signal; treat it as a prior over it.</li>
+</ul>
+<hr />
+<h2 id="hexamer-tables-and-domain-classifier-taphhexamer_tableshpp">Hexamer tables and domain classifier (<code>taph/hexamer_tables.hpp</code>)</h2>
+<p>Eight pre-computed 4096-bin hexamer frequency tables plus a softmax domain classifier that scores a read against all of them.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">enum</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">taph</span><span class="o">::</span><span class="n">Domain</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="w">    </span><span class="n">META</span><span class="p">,</span><span class="w"> </span><span class="n">GTDB</span><span class="p">,</span><span class="w"> </span><span class="n">FUNGI</span><span class="p">,</span><span class="w"> </span><span class="n">PROTOZOA</span><span class="p">,</span><span class="w"> </span><span class="n">INVERTEBRATE</span><span class="p">,</span>
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="w">    </span><span class="n">PLANT</span><span class="p">,</span><span class="w"> </span><span class="n">VERTEBRATE_MAMMALIAN</span><span class="p">,</span><span class="w"> </span><span class="n">VERTEBRATE_OTHER</span><span class="p">,</span><span class="w"> </span><span class="n">VIRAL</span>
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="p">};</span>
+</code></pre></div>
+<p><code>Domain::GTDB</code> covers bacteria + archaea. <code>Domain::META</code> is the default for ancient metagenomes and selects the ensemble-of-all-domains path. <code>parse_domain(name)</code> accepts <code>"meta" | "metagenome" | "all"</code> (all three map to <code>Domain::META</code>), <code>"gtdb" | "bacteria" | "archaea"</code>, <code>"fungi"</code>, <code>"protozoa"</code>, <code>"invertebrate"</code>, <code>"plant"</code>, <code>"mammal" | "vertebrate_mammalian"</code>, <code>"vertebrate" | "vertebrate_other"</code>, <code>"viral"</code>, and falls back to <code>Domain::META</code> on anything unrecognised. <code>domain_name(d)</code> gives the canonical string.</p>
+<h3 id="encoding-and-table-lookup">Encoding and table lookup</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="kt">uint32_t</span><span class="w"> </span><span class="nf">taph::encode_hexamer</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">seq</span><span class="p">);</span><span class="w">                         </span><span class="c1">// 12-bit code, UINT32_MAX on N</span>
+<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="kt">float</span><span class="w">    </span><span class="nf">taph::get_hexamer_freq</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">code</span><span class="p">);</span><span class="w">                         </span><span class="c1">// active domain</span>
+<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="kt">float</span><span class="w">    </span><span class="nf">taph::get_hexamer_freq</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">code</span><span class="p">,</span><span class="w"> </span><span class="n">Domain</span><span class="w"> </span><span class="n">d</span><span class="p">);</span>
+<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="kt">float</span><span class="w">    </span><span class="nf">taph::get_hexamer_freq</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">seq</span><span class="p">);</span><span class="w">                       </span><span class="c1">// active domain</span>
+<a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="kt">float</span><span class="w">    </span><span class="nf">taph::get_hexamer_freq</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">seq</span><span class="p">,</span><span class="w"> </span><span class="n">Domain</span><span class="w"> </span><span class="n">d</span><span class="p">);</span>
+<a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a><span class="kt">float</span><span class="w">    </span><span class="nf">taph::get_hexamer_score</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">seq</span><span class="p">);</span><span class="w">                      </span><span class="c1">// log2(freq / uniform)</span>
+<a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a><span class="kt">float</span><span class="w">    </span><span class="nf">taph::get_hexamer_score</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">seq</span><span class="p">,</span><span class="w"> </span><span class="n">Domain</span><span class="w"> </span><span class="n">d</span><span class="p">);</span>
+</code></pre></div>
+<p><code>get_hexamer_score</code> takes a sequence pointer (there is no <code>uint32_t</code> overload), returns <code>log2(freq / (1/4096))</code>, and floors at <code>-10.0</code> for unseen hexamers.</p>
+<h3 id="active-domain-and-ensemble-mode">Active domain and ensemble mode</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="kt">void</span><span class="w">          </span><span class="nf">taph::set_active_domain</span><span class="p">(</span><span class="n">Domain</span><span class="w"> </span><span class="n">d</span><span class="p">);</span>
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="n">taph</span><span class="o">::</span><span class="n">Domain</span><span class="o">&amp;</span><span class="w"> </span><span class="nf">taph::active_domain</span><span class="p">();</span><span class="w">             </span><span class="c1">// reference to the global</span>
+<a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="n">taph</span><span class="o">::</span><span class="n">Domain</span><span class="w">  </span><span class="nf">taph::get_active_domain</span><span class="p">();</span><span class="w">         </span><span class="c1">// value accessor</span>
+<a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a><span class="kt">void</span><span class="w">          </span><span class="nf">taph::set_ensemble_mode</span><span class="p">(</span><span class="kt">bool</span><span class="w"> </span><span class="n">enabled</span><span class="p">);</span>
+<a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a><span class="kt">bool</span><span class="w">          </span><span class="nf">taph::get_ensemble_mode</span><span class="p">();</span>
+<a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a><span class="kt">void</span><span class="w">          </span><span class="nf">taph::set_domain_probs</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">MultiDomainResult</span><span class="o">&amp;</span><span class="w"> </span><span class="n">r</span><span class="p">);</span>
+<a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a><span class="n">taph</span><span class="o">::</span><span class="n">MultiDomainResult</span><span class="o">&amp;</span><span class="w"> </span><span class="nf">taph::get_domain_probs</span><span class="p">();</span>
+<a id="__codelineno-27-8" name="__codelineno-27-8" href="#__codelineno-27-8"></a><span class="kt">float</span><span class="w">         </span><span class="nf">taph::get_ensemble_hexamer_freq</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">code</span><span class="p">);</span>
+</code></pre></div>
+<p><code>set_active_domain</code> writes a global <code>Domain</code> (not thread-local) that gates the default-table overloads; read it via <code>get_active_domain()</code>. The ensemble flag (<code>ensemble_mode_enabled()</code>) and the posterior buffer (<code>current_domain_probs()</code>) are thread-local, so per-thread pipelines can carry their own blend. With ensemble mode off, <code>get_ensemble_hexamer_freq</code> falls through to the active-domain table. With ensemble mode on, it returns the posterior-weighted average of the eight tables using the probabilities written by <code>set_domain_probs</code>.</p>
+<h3 id="domain-classifier">Domain classifier</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">struct</span><span class="w"> </span><span class="nc">taph</span><span class="o">::</span><span class="n">MultiDomainResult</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="w">    </span><span class="kt">float</span><span class="w"> </span><span class="n">gtdb_prob</span><span class="p">,</span><span class="w"> </span><span class="n">fungi_prob</span><span class="p">,</span><span class="w"> </span><span class="n">protozoa_prob</span><span class="p">,</span><span class="w"> </span><span class="n">invertebrate_prob</span><span class="p">;</span>
+<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="w">    </span><span class="kt">float</span><span class="w"> </span><span class="n">plant_prob</span><span class="p">,</span><span class="w"> </span><span class="n">vertebrate_mammalian_prob</span><span class="p">,</span><span class="w"> </span><span class="n">vertebrate_other_prob</span><span class="p">,</span><span class="w"> </span><span class="n">viral_prob</span><span class="p">;</span>
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="w">    </span><span class="n">Domain</span><span class="w"> </span><span class="n">best_domain</span><span class="p">;</span>
+<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="w">    </span><span class="kt">float</span><span class="w">  </span><span class="n">best_score</span><span class="p">;</span>
+<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="p">};</span>
+<a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a>
+<a id="__codelineno-28-8" name="__codelineno-28-8" href="#__codelineno-28-8"></a><span class="n">taph</span><span class="o">::</span><span class="n">MultiDomainResult</span><span class="w"> </span><span class="nf">taph::score_all_domains</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">seq</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">frame</span><span class="p">);</span>
+</code></pre></div>
+<p>Sums <code>log2(freq[h] * 4096 + 1e-10)</code> across every in-frame hexamer for each of the eight domains, then normalises with temperature-scaled softmax (<code>exp(0.1 * (score - max))</code>). <code>best_domain</code> is the argmax and <code>best_score</code> is the pre-softmax log-sum for that domain.</p>
+<p>Typical ensemble flow for mixed-community samples:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">auto</span><span class="w"> </span><span class="n">probs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">taph</span><span class="o">::</span><span class="n">score_all_domains</span><span class="p">(</span><span class="n">read</span><span class="p">,</span><span class="w"> </span><span class="cm">/*frame=*/</span><span class="mi">0</span><span class="p">);</span>
+<a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a><span class="n">taph</span><span class="o">::</span><span class="n">set_domain_probs</span><span class="p">(</span><span class="n">probs</span><span class="p">);</span>
+<a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a><span class="n">taph</span><span class="o">::</span><span class="n">set_ensemble_mode</span><span class="p">(</span><span class="nb">true</span><span class="p">);</span>
+<a id="__codelineno-29-4" name="__codelineno-29-4" href="#__codelineno-29-4"></a><span class="c1">// Subsequent get_ensemble_hexamer_freq(code) returns the posterior-weighted</span>
+<a id="__codelineno-29-5" name="__codelineno-29-5" href="#__codelineno-29-5"></a><span class="c1">// background rather than committing to one domain table.</span>
+</code></pre></div>
+<h3 id="hexamer-fields-on-sampledamageprofile">Hexamer fields on <code>SampleDamageProfile</code></h3>
+<p>Raw 4096-bin terminal and interior histograms populated during accumulation and consumed by the interpretation functions in <code>taph/library_interpretation.hpp</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hexamer_count_5prime[4096]</code></td>
+<td><code>double[4096]</code></td>
+<td>Hexamer counts at 5' positions 0-5.</td>
+</tr>
+<tr>
+<td><code>hexamer_count_interior[4096]</code></td>
+<td><code>double[4096]</code></td>
+<td>Hexamer counts at the interior (middle third).</td>
+</tr>
+<tr>
+<td><code>n_hexamers_5prime</code></td>
+<td><code>size_t</code></td>
+<td>Total counted terminal hexamers.</td>
+</tr>
+<tr>
+<td><code>n_hexamers_interior</code></td>
+<td><code>size_t</code></td>
+<td>Total counted interior hexamers.</td>
+</tr>
+<tr>
+<td><code>hexamer_terminal_tc</code></td>
+<td><code>float</code></td>
+<td>T/(T+C) ratio at 5′ terminal positions across all C/T hexamer pairs.</td>
+</tr>
+<tr>
+<td><code>hexamer_interior_tc</code></td>
+<td><code>float</code></td>
+<td>T/(T+C) ratio at interior positions (same hexamer pairs).</td>
+</tr>
+<tr>
+<td><code>hexamer_excess_tc</code></td>
+<td><code>float</code></td>
+<td><code>hexamer_terminal_tc − hexamer_interior_tc</code>. <strong>Library chemistry / priming bias metric — not an adapter remnant signal.</strong> A negative value means the library prep preferentially produces C-starting read starts (e.g. SS ligation junction composition), which enriches C-context trinucleotides in the channels F and G pre-count denominator and suppresses their z-scores toward negative values. Adapter remnants are separately tracked by <code>adapter_clipped</code>, <code>flag_hex_artifact</code>, and <code>position_0_artifact_*</code>.</td>
+</tr>
+<tr>
+<td><code>hexamer_damage_llr</code></td>
+<td><code>float</code></td>
+<td>Log-likelihood ratio of T-enrichment over C-enrichment at 5′ terminal hexamers vs interior. Positive = T-starting hexamers enriched (consistent with deamination). Used to detect <code>inverted_pattern_5prime</code> when &lt; −0.02 and no p0 artifact.</td>
+</tr>
+</tbody>
+</table>
+<p>Paired with the 3' terminal hexamer histogram produced by the pre-scan (passed to <code>detect_adapter_stubs</code> as <code>hex3_terminal[4096]</code> with <code>n_hex3</code>). The 3' histogram is kept out of <code>SampleDamageProfile</code> so it does not bloat per-thread state in accumulators that do not need it.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "toc.integrate"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+        <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
